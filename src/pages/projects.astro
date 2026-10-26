@@ -1,0 +1,81 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import BilingualText from "../components/BilingualText.astro";
+import ExternalLink from "../components/ExternalLink.astro";
+import LinkPills from "../components/LinkPills.astro";
+import PageHero from "../components/PageHero.astro";
+import { featuredProjects, githubRepositoriesUrl, openSourceProjects, pageDescriptions } from "../data/site";
+---
+
+<BaseLayout title="Projects" description={pageDescriptions.projects} pageClass="page--projects">
+  <PageHero
+    title={{ english: "Projects", urdu: "منصوبے" }}
+    lead="I build AI products end to end, from model pipelines to the interfaces people use."
+  />
+
+  <section class="section-block" aria-labelledby="featured-heading">
+    <div class="section-heading">
+      <h2 id="featured-heading"><BilingualText english="Featured Projects" urdu="نمایاں منصوبے" /></h2>
+    </div>
+    <div class="project-list">
+      {
+        featuredProjects.map((project) => (
+          <article class="surface-card project-card">
+            <header class="project-card__header">
+              <div class="project-card__heading">
+                <h3>{project.href ? <ExternalLink href={project.href}>{project.title}</ExternalLink> : project.title}</h3>
+                <p class="project-card__meta">{project.stack}</p>
+              </div>
+            </header>
+            <div class="project-card__content">
+              <p class="project-card__body">{project.summary}</p>
+              <details class="reader-details">
+                <summary>Project background</summary>
+                <p class="project-card__body">{project.description}</p>
+              </details>
+              {project.resources.length > 0 && <LinkPills links={project.resources} variant="inline" />}
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="section-block" aria-labelledby="open-source-heading">
+    <div class="section-heading">
+      <h2 id="open-source-heading"><BilingualText english="Open-Source Work" urdu="اوپن سورس کام" /></h2>
+    </div>
+    <div class="card-grid">
+      {
+        openSourceProjects.map((project) => (
+          <article class="surface-card">
+            <h3>
+              <ExternalLink href={project.href}>{project.title}</ExternalLink>
+            </h3>
+            <p class="project-card__body">{project.description}</p>
+          </article>
+        ))
+      }
+      <article class="surface-card">
+        <h3>Everything Else</h3>
+        <p class="project-card__body">
+          The rest of my public work, from agents and automation to coursework, is on <ExternalLink href={githubRepositoriesUrl}
+            >my GitHub profile</ExternalLink
+          >.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section-block prose" aria-labelledby="approach-heading">
+    <div class="section-heading">
+      <h2 id="approach-heading"><BilingualText english="How I Build" urdu="میرا طریقۂ کار" /></h2>
+    </div>
+    <p>
+      My projects sit where AI meets product: LLM orchestration and retrieval, computer vision and OCR, and the full-stack platforms that put them in
+      front of people. Many started as client work at <ExternalLink href="https://smart-logics.vercel.app">SmartLogics</ExternalLink> or as in-house products
+      like NitLead.
+    </p>
+    <p>I care about shipping systems that hold up in production: measurable latency, honest evaluation, and interfaces people actually use.</p>
+  </section>
+</BaseLayout>

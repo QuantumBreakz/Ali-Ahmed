@@ -1,0 +1,118 @@
+import { spawnSync } from "node:child_process";
+import assert from "node:assert/strict";
+import { constants } from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+
+const { values: options } = parseArgs({
+  options: {
+    theme: { type: "string", default: "both" },
+    screenshots: { type: "boolean", default: false },
+  },
+});
+if (!["light", "dark", "both"].includes(options.theme)) throw new Error("--theme must be light, dark, or both.");
+const themes = options.theme === "both" ? ["dark", "light"] : [options.theme];
+const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+const fixtureRoot = await mkdtemp(join(tmpdir(), "ali-blog-qa-"));
+const copyOptions = { recursive: true, mode: constants.COPYFILE_FICLONE, verbatimSymlinks: true };
+
+function run(script, args = []) {
+  const result = spawnSync(process.execPath, [script, ...args], { cwd: fixtureRoot, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${script} failed with ${result.signal ?? `exit code ${result.status}`}`);
+}
+
+try {
+  // A separate content root keeps synthetic posts out of the production collection and dist.
+  // Copy dependencies rather than symlinking them: Astro resolves package paths from this root.
+  for (const input of [
+    "src",
+    "public",
+    "design",
+    "scripts",
+    "node_modules",
+    "package.json",
+    "package-lock.json",
+    "astro.config.mjs",
+    "tsconfig.json",
+  ]) {
+    await cp(join(projectRoot, input), join(fixtureRoot, input), copyOptions);
+  }
+  const fixtureContent = join(fixtureRoot, "src/content/blog/__qa");
+  await mkdir(fixtureContent);
+  await cp(join(projectRoot, "scripts/fixtures/blog"), fixtureContent, copyOptions);
+  await cp(join(projectRoot, "scripts/fixtures/notes"), join(fixtureRoot, "src/content/notes"), copyOptions);
+  const groupedNotes = join(fixtureRoot, "src/content/notes/(compiler)");
+  await mkdir(groupedNotes);
+  await writeFile(
+    join(groupedNotes, "qa-grouped.mdx"),
+    // Keep this synthetic note in the recent-writing selection as real posts are added.
+    "---\ntitle: Grouped compiler note\ndescription: A published note inside a route group\npublishedAt: 2099-01-05\ntags: [verification]\n---\n\n## Compiler reference\n\nThis note must be reachable from the homepage.\n"
+  );
+  await writeFile(
+    join(fixtureRoot, "src/content/notes/qa-notes-toc.mdx"),
+    "---\ntitle: Long Notes contents verification\ndescription: Synthetic content for checking the mobile contents panel\npublishedAt: 2000-01-02\ntags: [verification]\n---\n\n" +
+      Array.from({ length: 24 }, (_, index) => `## Section ${index + 1}\n\nA reference paragraph for section ${index + 1}.\n\n`).join("")
+  );
+  const images = join(fixtureRoot, "public/images/__blog-qa");
+  await mkdir(images, { recursive: true });
+  for (const [name, color] of [
+    ["before", "#486b80"],
+    ["after", "#80503c"],
+  ]) {
+    await writeFile(
+      join(images, `${name}.svg`),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="${color}"/><rect x="80" y="70" width="480" height="220" rx="12" fill="white"/><circle cx="320" cy="180" r="70" fill="${color}"/></svg>`
+    );
+  }
+
+  console.log("Building isolated Blog fixtures; real drafts and production dist remain untouched.");
+  const astroPackage = JSON.parse(await readFile(join(fixtureRoot, "node_modules/astro/package.json"), "utf8"));
+  run(join("node_modules/astro", astroPackage.bin.astro), ["build"]);
+  run("scripts/apply-security-headers.mjs");
+  run("scripts/check-generated-output.mjs");
+  run("scripts/check-llms.mjs");
+  run("scripts/check-links.mjs");
+  const noteMarkdown = await readFile(join(fixtureRoot, "dist/notes/qa-authoring.md"), "utf8");
+  assert.match(noteMarkdown, /### Rust\n/);
+  assert.match(noteMarkdown, /### Python\n/);
+  assert.match(noteMarkdown, /\*\*Before you begin\*\*/);
+  assert.match(noteMarkdown, /Save your work before running the example/);
+  assert.match(noteMarkdown, /Hello from Rust/);
+  assert.match(noteMarkdown, /Hello from Python/);
+  for (const output of ["blog/qa-blog-reader.md", "llms-full.txt"]) {
+    assert.match(await readFile(join(fixtureRoot, "dist", output), "utf8"), /Published: 2000-01-02\n\nUpdated: 2000-01-03\n/);
+  }
+  for (const theme of themes)
+    run("scripts/check-accessibility.mjs", [
+      "--routes",
+      "/,/blog/,/blog/qa-blog-reader/,/blog/qa-blog-tagless/,/notes/,/notes/courses/,/notes/topics/,/notes/tags/,/notes/qa-authoring/,/notes/qa-notes-toc/,/notes/qa-grouped/",
+      "--theme",
+      theme,
+      ...(options.screenshots ? ["--screenshots"] : []),
+    ]);
+  await writeFile(
+    join(fixtureContent, "duplicate.mdx"),
+    "---\ntitle: Duplicate route\ndescription: Must fail instead of replacing another article\nslug: qa-blog-reader\npublishedAt: 2000-01-04\n---\n\nDuplicate article.\n"
+  );
+  const collision = spawnSync(process.execPath, [join("node_modules/astro", astroPackage.bin.astro), "build"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+  });
+  if (collision.error) throw collision.error;
+  assert.notEqual(collision.status, 0, "Duplicate article slugs must fail the build rather than replace published content.");
+  assert.match(`${collision.stdout}\n${collision.stderr}`, /multiple entries with the same slug/);
+  console.log("Blog fixtures passed: archive filters, reader controls, two comparisons, references, and a tagless post.");
+} finally {
+  // Keep screenshots for diagnosis, but never keep or publish the synthetic build.
+  try {
+    await cp(join(fixtureRoot, "test-results"), join(projectRoot, "test-results/blog-fixtures"), copyOptions);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}

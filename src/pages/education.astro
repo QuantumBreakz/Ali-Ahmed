@@ -1,0 +1,52 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import BilingualText from "../components/BilingualText.astro";
+import ExternalLink from "../components/ExternalLink.astro";
+import PageHero from "../components/PageHero.astro";
+import { education, pageDescriptions } from "../data/site";
+---
+
+<BaseLayout title="Education" description={pageDescriptions.education} pageClass="page--education">
+  <PageHero title={{ english: "Education", urdu: "تعلیم" }} />
+
+  <section class="section-block" aria-label="Formal education">
+    <article class="surface-card degree-card">
+      <h2 class="degree-card__degree">{education.degree.title}</h2>
+      <p class="degree-card__institution">{education.degree.institution}</p>
+      <p class="degree-card__date">{education.degree.date}</p>
+    </article>
+  </section>
+
+  <section class="section-block" aria-labelledby="skills-heading">
+    <div class="section-heading">
+      <h2 id="skills-heading"><BilingualText english="Technical Skills" urdu="تکنیکی مہارتیں" /></h2>
+    </div>
+    <div class="prose">
+      <p>
+        At <ExternalLink href="https://www.nu.edu.pk/">FAST-NUCES</ExternalLink> I studied computer science, building projects like
+        <ExternalLink href="https://github.com/QuantumBreakz/Virtual-Doctor">Virtual Doctor</ExternalLink>, an AI-assisted healthcare app, and a
+        <ExternalLink href="https://github.com/QuantumBreakz/Heuristic-Mobile-Based-Campus-Navigation-Assistant"
+          >campus navigation assistant</ExternalLink
+        >
+        using computer vision and trilateration.
+      </p>
+      <p>
+        I keep my coursework public so I can study from anywhere, including my <ExternalLink href="https://github.com/QuantumBreakz/Semester-7"
+          >seventh</ExternalLink
+        > and <ExternalLink href="https://github.com/QuantumBreakz/Semester-8">eighth</ExternalLink> semester material on GitHub.
+      </p>
+    </div>
+    <div class="certification-grid" style="margin-top: 1.5rem;">
+      {
+        education.skills.map((skill) => (
+          <article class="surface-card credential-card">
+            <div>
+              <h3>{skill.title}</h3>
+              <p class="credential-card__provider">{skill.items}</p>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

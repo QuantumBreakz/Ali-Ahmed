@@ -1,0 +1,57 @@
+// @ts-check
+import { defineConfig } from "astro/config";
+import mdx from "@astrojs/mdx";
+import react from "@astrojs/react";
+import sitemap from "@astrojs/sitemap";
+import { serializeSitemapPage } from "./scripts/sitemap.mjs";
+import { sourceImages } from "./scripts/source-images.mjs";
+import { buildSecurity } from "./scripts/build-security.mjs";
+import tailwindcss from "@tailwindcss/vite";
+import { unified } from "@astrojs/markdown-remark";
+import { rehypeCode, remarkCodeTab, remarkHeading, remarkNpm, remarkStructure } from "fumadocs-core/mdx-plugins";
+
+const remarkPlugins = /** @type {import("@astrojs/markdown-remark").RemarkPlugins} */ (
+  /** @type {unknown} */ ([remarkHeading, remarkCodeTab, remarkNpm, [remarkStructure, { exportAs: "structuredData" }]])
+);
+
+const rehypePlugins = /** @type {import("@astrojs/markdown-remark").RehypePlugins} */ (
+  /** @type {unknown} */ ([[rehypeCode, { themes: { light: "github-light-high-contrast", dark: "github-dark" } }]])
+);
+
+export default defineConfig({
+  site: "https://quantumbreakz.github.io",
+  // Accept both URL spellings in development while links and canonical metadata
+  // continue to emit the preferred trailing-slash form.
+  trailingSlash: "ignore",
+  output: "static",
+  prerenderConflictBehavior: "error",
+  redirects: {
+    "/essays": "/blog/",
+    "/about": "/",
+    "/open-source": "/projects/",
+  },
+  markdown: {
+    processor: unified({
+      syntaxHighlight: false,
+      remarkPlugins,
+      rehypePlugins,
+    }),
+  },
+  integrations: [
+    sitemap({ serialize: serializeSitemapPage }),
+    sourceImages(),
+    react(),
+    mdx({
+      extendMarkdownConfig: true,
+      syntaxHighlight: false,
+    }),
+    buildSecurity(),
+  ],
+  vite: {
+    plugins: [tailwindcss()],
+    build: {
+      // Inline modules make Astro navigation insert a data: script, which our CSP rejects.
+      assetsInlineLimit: (filePath) => (/\.(?:m?js)$/.test(filePath) ? false : undefined),
+    },
+  },
+});

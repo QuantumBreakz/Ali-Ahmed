@@ -1,0 +1,194 @@
+import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse } from "parse5";
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outputDirectory = path.join(projectRoot, "dist");
+const [siteIndex, siteFull, notesIndex, notesFull, sitemapIndex, robots] = await Promise.all(
+  ["llms.txt", "llms-full.txt", "notes/llms.txt", "notes/llms-full.txt", "sitemap-index.xml", "robots.txt"].map((file) =>
+    readFile(path.join(outputDirectory, file), "utf8")
+  )
+);
+assert.ok(robots.includes("Sitemap: https://quantumbreakz.github.io/sitemap-index.xml"), "Robots must advertise the generated sitemap index");
+const sitemapFiles = [...sitemapIndex.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => new URL(match[1]).pathname);
+assert.ok(sitemapFiles.length > 0, "The sitemap index must list a generated sitemap");
+const sitemap = (await Promise.all(sitemapFiles.map((file) => readFile(path.join(outputDirectory, file), "utf8")))).join("\n");
+const notesIndexUrls = new Set([
+  "https://quantumbreakz.github.io/notes.md",
+  "https://quantumbreakz.github.io/notes/courses.md",
+  "https://quantumbreakz.github.io/notes/tags.md",
+  "https://quantumbreakz.github.io/notes/topics.md",
+]);
+const notesIndexPageUrls = new Set([
+  "https://quantumbreakz.github.io/notes/",
+  "https://quantumbreakz.github.io/notes/courses/",
+  "https://quantumbreakz.github.io/notes/tags/",
+  "https://quantumbreakz.github.io/notes/topics/",
+]);
+const sitemapUrls = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]));
+const siteOrigin = "https://quantumbreakz.github.io";
+const notePageUrls = [...sitemapUrls].filter((url) => url.startsWith(`${siteOrigin}/notes/`));
+const expectedNoteMarkdownUrls = notePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
+const search = JSON.parse(await readFile(path.join(outputDirectory, "notes/api/search.json"), "utf8"));
+const searchPageUrls = Object.values(search.docs.docs)
+  .filter((document) => document.type === "page")
+  .map((document) => new URL(document.url, siteOrigin).href);
+assert.deepEqual(searchPageUrls.toSorted(), notePageUrls.toSorted(), "Notes search must match all public Notes routes");
+
+for (const url of sitemapUrls) {
+  const exportedUrl = url.startsWith(`${siteOrigin}/notes/`) ? `${url.replace(/\/$/, "")}.md` : url;
+  assert.ok(siteIndex.includes(`](${exportedUrl})`), `Site-wide llms.txt is missing public route ${url}`);
+}
+
+async function outputFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await outputFiles(entryPath)));
+    else files.push(entryPath);
+  }
+  return files;
+}
+
+const generatedFiles = await outputFiles(outputDirectory);
+const indexablePageUrls = [];
+for (const file of generatedFiles.filter((file) => file.endsWith(".html"))) {
+  const html = await readFile(file, "utf8");
+  const robots = (html.match(/<meta\b[^>]*>/gi) ?? []).find((tag) => /name=["']robots["']/i.test(tag));
+  if (robots && /\bnoindex\b/i.test(robots)) continue;
+  const canonical = (html.match(/<link\b[^>]*>/gi) ?? []).find((tag) => /rel=["']canonical["']/i.test(tag));
+  const url = canonical?.match(/href=["']([^"']+)["']/i)?.[1];
+  assert.ok(url, `${path.relative(outputDirectory, file)} is indexable but has no canonical URL`);
+  indexablePageUrls.push(url);
+}
+assert.deepEqual(indexablePageUrls.toSorted(), [...sitemapUrls].toSorted(), "Sitemap must match every indexable generated page");
+
+function descendants(node, predicate) {
+  return [...(predicate(node) ? [node] : []), ...(node.childNodes ?? []).flatMap((child) => descendants(child, predicate))];
+}
+function nodeText(node) {
+  return node.nodeName === "#text" ? node.value : (node.childNodes ?? []).map(nodeText).join("");
+}
+const publishedNotePageUrls = [...sitemapUrls].filter(
+  (url) => url.startsWith("https://quantumbreakz.github.io/notes/") && !notesIndexPageUrls.has(url)
+);
+const publishedNoteUrls = publishedNotePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
+const publishedBlogUrls = [...sitemapUrls].filter(
+  (url) => url.startsWith("https://quantumbreakz.github.io/blog/") && url !== "https://quantumbreakz.github.io/blog/"
+);
+for (const [file, expectedUrls] of [
+  ["blog/rss.xml", publishedBlogUrls],
+  ["notes/rss.xml", publishedNotePageUrls],
+]) {
+  const feed = await readFile(path.join(outputDirectory, file), "utf8");
+  const items = [...feed.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((match) => match[1]);
+  const links = items.map((item) => item.match(/<link>([^<]+)<\/link>/)?.[1]);
+  assert.deepEqual(links.toSorted(), expectedUrls.toSorted(), `${file} must contain every published article and no drafts or index pages`);
+  for (const item of items) {
+    const url = item.match(/<link>([^<]+)<\/link>/)[1];
+    const markdown = await readFile(path.join(outputDirectory, new URL(url).pathname.replace(/\/$/, ".md")), "utf8");
+    const date = item.match(/<pubDate>([^<]+)<\/pubDate>/)?.[1];
+    assert.equal(new Date(date).toISOString().slice(0, 10), markdown.match(/^Published: (.+)$/m)?.[1], `${file} must preserve publication dates`);
+  }
+}
+const listedBlogUrls = [...new Set(siteIndex.match(/https:\/\/quantumbreakz\.github\.io\/blog\/[^)\s]+\//g) ?? [])];
+assert.deepEqual(listedBlogUrls.toSorted(), publishedBlogUrls.toSorted(), "Blog export must match published Blog routes");
+for (const url of publishedBlogUrls) {
+  const markdownPath = new URL(url).pathname.replace(/\/$/, ".md");
+  const markdown = await readFile(path.join(outputDirectory, markdownPath), "utf8");
+  assert.match(markdown, /^# .+\n/, "Every published Blog needs a readable Markdown export");
+  assert.ok(siteFull.includes(markdown.trim()), `Site full export is missing Blog content from ${url}`);
+}
+const expectedMarkdownPaths = [...expectedNoteMarkdownUrls, ...publishedBlogUrls.map((url) => `${url.replace(/\/$/, "")}.md`)]
+  .map((url) => new URL(url).pathname.slice(1))
+  .toSorted();
+const generatedMarkdownPaths = generatedFiles
+  .filter((file) => file.endsWith(".md"))
+  .map((file) => path.relative(outputDirectory, file))
+  .toSorted();
+assert.deepEqual(generatedMarkdownPaths, expectedMarkdownPaths, "Markdown exports must match public Blog and Notes routes only");
+if (!publishedBlogUrls.length) assert.match(siteIndex, /No blog posts are published yet\./);
+
+const listedNoteMarkdownUrls = new Set(notesIndex.match(/https:\/\/quantumbreakz\.github\.io\/notes(?:\/[^)\s]+)?\.md/g) ?? []);
+const listedPublishedNoteUrls = [...listedNoteMarkdownUrls].filter((url) => !notesIndexUrls.has(url));
+const allLlmOutput = [siteIndex, siteFull, notesIndex, notesFull].join("\n");
+assert.doesNotMatch(allLlmOutput + sitemap + JSON.stringify(search), /\/drafts\//, "Draft previews must not appear in public indexes");
+assert.deepEqual([...listedNoteMarkdownUrls].toSorted(), expectedNoteMarkdownUrls.toSorted(), "Notes LLM index must match every public Notes route");
+
+for (const url of expectedNoteMarkdownUrls) {
+  const markdown = await readFile(path.join(outputDirectory, new URL(url).pathname), "utf8");
+  assert.match(markdown, /^# .+\n/, `Notes export must be readable: ${url}`);
+  if (!notesIndexUrls.has(url)) {
+    const content = markdown.replace(/^# /, "## ").trim();
+    assert.ok(notesFull.includes(content), `Notes full export is missing content from ${url}`);
+    assert.ok(siteFull.includes(content), `Site full export is missing Notes content from ${url}`);
+  }
+}
+
+assert.match(siteIndex, /^# Ali Ahmed\n/);
+assert.match(siteIndex, /## Portfolio/);
+assert.match(siteIndex, /## Selected projects/);
+assert.match(siteIndex, /## Notes/);
+assert.match(siteIndex, /## Contact/);
+
+for (const url of [
+  "https://quantumbreakz.github.io/",
+  "https://quantumbreakz.github.io/experience/",
+  "https://quantumbreakz.github.io/projects/",
+  "https://quantumbreakz.github.io/leadership/",
+  "https://quantumbreakz.github.io/education/",
+  "https://quantumbreakz.github.io/blog/",
+  "https://quantumbreakz.github.io/contact/",
+  "https://quantumbreakz.github.io/notes/",
+  "https://quantumbreakz.github.io/notes/llms.txt",
+  "https://quantumbreakz.github.io/notes/llms-full.txt",
+]) {
+  assert.ok(siteIndex.includes(url), `Site-wide llms.txt is missing ${url}`);
+}
+
+assert.match(siteFull, /^# Ali Ahmed\n/);
+assert.match(siteFull, /## Extended profile/);
+assert.match(notesIndex, /^# Notes\n/);
+assert.match(notesIndex, /https:\/\/quantumbreakz\.github\.io\/notes\/llms-full\.txt/);
+assert.match(notesIndex, /https:\/\/quantumbreakz\.github\.io\/llms\.txt/);
+assert.match(notesFull, /^# Notes\n/);
+assert.doesNotMatch(allLlmOutput, /\bAll published notes\b/i);
+
+for (const url of notesIndexUrls) {
+  assert.ok(notesIndex.includes(url), `Notes llms.txt is missing index link ${url}`);
+  assert.ok(siteIndex.includes(url), `Site-wide llms.txt is missing Notes index link ${url}`);
+}
+
+assert.deepEqual(
+  listedPublishedNoteUrls.toSorted(),
+  publishedNoteUrls.toSorted(),
+  "Notes llms.txt must list every real note route, and only real notes"
+);
+
+for (const url of notesIndexPageUrls) {
+  assert.ok(!notesFull.includes(`Canonical: ${url}\n`), `Notes full export must not present the index placeholder ${url} as a published note`);
+}
+
+assert.doesNotMatch(siteIndex + sitemap, /\/essays\//, "Retired Essays must not appear in indexes");
+
+if (publishedNoteUrls.length === 0) {
+  assert.match(siteIndex, /No notes are published yet\. The links above are index pages prepared for future notes\./);
+  assert.match(siteFull, /## Notes content\n\nNo notes are published yet\./);
+  assert.match(notesIndex, /## Publication status\n\nNo notes are published yet\./);
+  assert.equal(notesFull, "# Notes\n\nNo notes are published yet.\n");
+  assert.doesNotMatch(allLlmOutput, /#{2,3} Published notes/);
+} else {
+  assert.match(siteIndex, /### Published notes/);
+  assert.match(siteFull, /## Published notes/);
+  assert.doesNotMatch(allLlmOutput, /No notes are published yet\./);
+
+  for (const url of publishedNoteUrls) {
+    assert.ok(siteIndex.includes(url), `Site-wide llms.txt is missing published note ${url}`);
+  }
+}
+
+console.log(
+  `LLM content contract passed: ${publishedBlogUrls.length} blog posts, ${publishedNoteUrls.length} notes, and ${notesIndexUrls.size} Notes indexes.`
+);

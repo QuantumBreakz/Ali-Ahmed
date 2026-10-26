@@ -1,0 +1,36 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import PageHero from "../components/PageHero.astro";
+import { experiences, pageDescriptions } from "../data/site";
+---
+
+<BaseLayout title="Experience" description={pageDescriptions.experience} pageClass="page--experience">
+  <PageHero
+    title={{ english: "Experience", urdu: "تجربہ" }}
+    lead="From identity-verification AI to leading engineering as a CTO: the teams and products I have worked on."
+  />
+
+  <section class="experience-list" aria-label="Work experience">
+    {
+      experiences.map((experience) => (
+        <article class="experience-card">
+          <h2>{experience.company}</h2>
+          <p class="card-meta">
+            {experience.role} · {experience.date}
+          </p>
+          <div class="experience-card__body">
+            <p>{experience.summary}</p>
+            <details class="reader-details">
+              <summary>Role details</summary>
+              <ul class="resource-list">
+                {experience.points.map((point) => (
+                  <li>{point}</li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        </article>
+      ))
+    }
+  </section>
+</BaseLayout>

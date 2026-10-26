@@ -1,0 +1,87 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import ExternalLink from "../components/ExternalLink.astro";
+import HomeWriting from "../components/HomeWriting.astro";
+import ResponsiveImage from "../components/ResponsiveImage.astro";
+import WorkWithMe from "../components/WorkWithMe.astro";
+import { getRecentWriting } from "../lib/home-writing";
+import { about, homeProjects, pageDescriptions, site } from "../data/site";
+import "../styles/home.css";
+
+const writing = await getRecentWriting();
+---
+
+<BaseLayout title="About" description={pageDescriptions.about} pageClass="page--home" footerVariant="home">
+  <div class="home-layout">
+    <section class="home-introduction" aria-labelledby="home-title">
+      <h1 id="home-title">
+        {site.firstName}{" "}<span class="home-name-divider" aria-hidden="true">/</span>{" "}<span lang="ur" dir="rtl">{site.nameUrdu}</span>
+      </h1>
+      <p class="home-subtitle">CTO, AI engineer, product builder.</p>
+      <div class="home-lead">
+        <p>
+          I’m the CTO of <ExternalLink href="https://smart-logics.vercel.app">SmartLogics</ExternalLink>, where I lead the architecture, engineering,
+          and delivery of AI-powered and full-stack products for US-based clients, alongside in-house SaaS like NitLead and NitCreate.
+        </p>
+        <p>
+          I’ve built production AI end to end: computer vision and multilingual OCR for identity verification across 100+ countries at <ExternalLink
+            href="https://shuftipro.com/">ShuftiPro</ExternalLink
+          >, multi-agent LLM systems for financial intelligence at <ExternalLink href="https://kryptomind.com/">Kryptomind</ExternalLink>, and
+          enterprise features plus SOC 2, ISO 27001, and GDPR compliance as a product manager at <ExternalLink href="https://www.arrivy.com/"
+            >Arrivy</ExternalLink
+          >.
+        </p>
+      </div>
+      <a class="home-project-jump" href="#home-work-title">View my projects</a>
+      <details class="home-background">
+        <summary>A little more about me</summary>
+        <p>
+          I studied Computer Science at <a href="/education/">FAST-NUCES</a>, where I headed the Cyber Security Society and organized the university’s
+          first CTF competition with 150+ participants.
+        </p>
+        <div class="home-background-links"><a href="/experience/">Experience</a><a href="/leadership/">Leadership</a></div>
+      </details>
+    </section>
+
+    <aside class="home-sidebar" aria-label="Portrait and contact">
+      <figure class="home-portrait">
+        <ResponsiveImage
+          src={about.profileImage}
+          widths={[136, 176, 272, 352, 408, 460]}
+          sizes="(max-width: 900px) 136px, 176px"
+          alt={site.socialImage.alt}
+          loading="eager"
+          decoding="async"
+          fetchpriority="high"
+        />
+        <figcaption>Ali Ahmed, Lahore.</figcaption>
+      </figure>
+      <WorkWithMe id="home-work-with-me-title" className="home-newsletter" />
+    </aside>
+
+    <HomeWriting entries={writing} />
+
+    <section class="home-work" aria-labelledby="home-work-title">
+      <div class="home-section-heading"><h2 id="home-work-title" tabindex="-1">Selected projects</h2></div>
+      {
+        homeProjects.map((project) => (
+          <article class="home-project">
+            <div class="home-project-heading">
+              <h3>
+                <ExternalLink href={project.href}>{project.title}</ExternalLink>
+              </h3>
+              {project.year && <time datetime={project.year}>{project.year}</time>}
+            </div>
+            <p>{project.description}</p>
+            {project.secondary && (
+              <ExternalLink href={project.secondary.href} className="home-source-link">
+                {project.secondary.label}
+              </ExternalLink>
+            )}
+          </article>
+        ))
+      }
+      <a class="home-all-work" href="/projects/">All projects</a>
+    </section>
+  </div>
+</BaseLayout>

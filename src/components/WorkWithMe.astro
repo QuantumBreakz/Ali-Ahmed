@@ -1,0 +1,94 @@
+---
+import { site } from "../data/site";
+interface Props {
+  id: string;
+  className?: string;
+}
+const { id, className } = Astro.props;
+const mailto = `mailto:${site.email}`;
+---
+
+<section class:list={["newsletter-signup", className]} aria-labelledby={id}>
+  <h2 id={id}>Work with me</h2>
+  <p class="newsletter-name">Building an AI product?</p>
+  <p class="newsletter-description">LLM systems, computer vision, and full-stack platforms, from architecture to launch.</p>
+  <p class="newsletter-note">Tell me what you’re building and I’ll get back to you.</p>
+  <form action={mailto} method="get" aria-describedby={`${id}-handoff`}>
+    <label for={`${id}-subject`}>What are you building?</label>
+    <div class="newsletter-fields">
+      <input id={`${id}-subject`} name="subject" type="text" autocomplete="off" spellcheck="true" required />
+      <button type="submit">Continue in email</button>
+    </div>
+  </form>
+  <p class="newsletter-handoff" id={`${id}-handoff`}>Opens your email app, or write to <a href={mailto}>{site.email}</a>.</p>
+</section>
+<style>
+  .newsletter-signup {
+    min-width: 0;
+    max-width: 36rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
+  h2 {
+    font: 400 1.25rem/1.3 var(--serif);
+  }
+  .newsletter-name {
+    font: 400 1.125rem/1.4 var(--serif);
+    margin: 0.65rem 0;
+  }
+  .newsletter-description {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin: 0.75rem 0;
+  }
+  .newsletter-note,
+  .newsletter-handoff {
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0.75rem 0;
+  }
+  form {
+    margin-top: 1.25rem;
+  }
+  label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.875rem;
+  }
+  .newsletter-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-width: 30rem;
+  }
+  input,
+  button {
+    min-height: 44px;
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+  input {
+    flex: 1 1 14rem;
+    min-width: 0;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--faint);
+    background: var(--canvas);
+    color: var(--ink);
+  }
+  button {
+    flex: 1 0 auto;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--canvas);
+    cursor: pointer;
+  }
+  button:hover {
+    background: var(--muted);
+    border-color: var(--muted);
+  }
+</style>
