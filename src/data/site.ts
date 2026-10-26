@@ -21,7 +21,7 @@ export const site = {
   sourceRepositoryUrl: sourceRepository.url,
   sourceRepositoryPublic: sourceRepository.public,
   sourceRepositoryBranch: sourceRepository.branch,
-  description: "CTO, AI engineer, product builder (in that order).",
+  description: "AI engineer, product builder, security enthusiast (in that order).",
   favicon: "/favicon.svg",
   socialImage: {
     src: "/images/ali-ahmed.jpg",
@@ -57,7 +57,7 @@ export const githubRepositoriesUrl = "https://github.com/QuantumBreakz?tab=repos
 export const about = {
   profileImage: "/images/ali-ahmed.jpg",
   profileFacts: [
-    "CTO @ SmartLogics",
+    "Leading AI and full-stack product development @ SmartLogics",
     "Product Manager I @ Arrivy (2025–2026)",
     "Built KYC computer vision and multilingual OCR @ ShuftiPro",
     "Organizer of FAST's first CTF competition (150+ participants)",
@@ -105,22 +105,24 @@ export const homeProjects: ReadonlyArray<{
   secondary?: Link;
 }> = [
   {
+    title: "Nitspot CRM",
+    href: "https://nitspot-frontend-rust.vercel.app",
+    year: "2026",
+    description:
+      "A CRM for sales teams: lead pipeline, LinkedIn outreach, daily reports, web push, and an MCP connector with OAuth so AI assistants can work with the data.",
+  },
+  {
+    title: "Cuttlefish",
+    href: "https://cuttlefish-frontend.vercel.app",
+    year: "2026",
+    description: "An AI-powered RAG dashboard for financial intelligence, with ESG scoring, semantic document search, and multi-agent orchestration.",
+  },
+  {
     title: "Turbo Alan Refiner",
     href: "https://turboalanrefiner-ten.vercel.app",
     year: "2025",
     description: "An AI text refinement platform with real-time SSE streaming, multi-pass processing, and side-by-side comparisons.",
     secondary: { label: "Read the frontend source", href: "https://github.com/QuantumBreakz/TurboAlanRefinerFrontend" },
-  },
-  {
-    title: "XOR RAG Chatbot",
-    href: "https://github.com/QuantumBreakz/RAG-CHATBOT",
-    year: "2025",
-    description: "A fully offline, multi-document RAG chatbot with agentic retrieval, multi-OCR layout analysis, and local models.",
-  },
-  {
-    title: "Real-Time KYC Card Verification",
-    href: "https://github.com/QuantumBreakz/MQTT-K-Project",
-    description: "A KYC verification pipeline over MQTT with independent client, verifier, and analyst services.",
   },
 ];
 
@@ -132,6 +134,24 @@ export const featuredProjects: ReadonlyArray<{
   href?: string;
   resources: ReadonlyArray<Link>;
 }> = [
+  {
+    title: "Nitspot CRM",
+    summary: "A CRM for SDR and sales teams, with an MCP connector so AI assistants can work alongside the people using it.",
+    stack: "React 19 · Hono · Supabase · Cloudflare Workers",
+    href: "https://nitspot-frontend-rust.vercel.app",
+    description:
+      "Contacts and lead pipeline, LinkedIn outreach, opportunities, daily reports, calendar, dashboards, and notifications across in-app, email, and web push. The browser talks to Supabase directly behind row-level security, while a Hono API on Cloudflare Workers or Render handles privileged work, scheduled jobs, and an OAuth-secured MCP connector for AI clients.",
+    resources: [{ label: "Live app", href: "https://nitspot-frontend-rust.vercel.app" }],
+  },
+  {
+    title: "Cuttlefish",
+    summary: "An agentic financial intelligence platform built on LLM orchestration and retrieval-augmented generation.",
+    stack: "Python · FastAPI · React · LangChain",
+    href: "https://cuttlefish-frontend.vercel.app",
+    description:
+      "I built an agentic financial intelligence platform combining LLM orchestration, document ingestion, semantic retrieval, conversational memory, and RAG. The FastAPI backend adds ESG scoring, multi-agent swarm orchestration, and a trust graph that keeps an audit trail of every agent's work.",
+    resources: [{ label: "Live app", href: "https://cuttlefish-frontend.vercel.app" }],
+  },
   {
     title: "Turbo Alan Refiner",
     summary: "An AI text refinement platform with real-time streaming, multi-pass processing, and side-by-side comparisons.",
@@ -146,12 +166,13 @@ export const featuredProjects: ReadonlyArray<{
     ],
   },
   {
-    title: "Cuttlefish Labs",
-    summary: "An agentic financial intelligence platform built on LLM orchestration and retrieval-augmented generation.",
-    stack: "Python · FastAPI · React · LangChain",
+    title: "Research-to-LinkedIn Automation",
+    summary: "Turns published research into factual, verified LinkedIn posts, straight from a researcher's publication record.",
+    stack: "Next.js · TypeScript · PostgreSQL · LLMs",
+    href: "https://github.com/QuantumBreakz/Linkedin-Automation",
     description:
-      "I built an agentic financial intelligence platform combining LLM orchestration, document ingestion, semantic retrieval, conversational memory, and RAG, so analysts can ask questions across their own financial documents.",
-    resources: [],
+      "A privacy-first platform for researchers: connect a research identity once through ORCID, OpenAlex, arXiv, PubMed, or Crossref, and it continuously turns new publications into authentic LinkedIn content that stays faithful to the source.",
+    resources: [{ label: "Source", href: "https://github.com/QuantumBreakz/Linkedin-Automation" }],
   },
   {
     title: "NitLead",
@@ -163,10 +184,10 @@ export const featuredProjects: ReadonlyArray<{
   },
   {
     title: "LeadForge",
-    summary: "Lead generation and outreach automation, from prospect discovery to campaign-ready lists.",
-    stack: "JavaScript · Python · REST APIs",
+    summary: "Lead generation, enrichment, scoring, drafting, and outreach in one staged pipeline.",
+    stack: "Python · TypeScript · Docker",
     description:
-      "I developed lead generation and outreach workflows integrating prospect discovery, company enrichment, qualification, and automated campaign preparation.",
+      "LeadForge turns raw business search results into qualified leads. Each stage, from prospect discovery and company enrichment to scoring, email drafting, and campaign preparation, runs and can be tested on its own.",
     resources: [],
   },
   {
