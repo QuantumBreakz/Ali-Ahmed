@@ -8,7 +8,7 @@ const outputDirectory = path.join(projectRoot, "dist");
 const htmlExtensions = new Set([".html", ".htm"]);
 const stylesheets = new Set([".css"]);
 const textExtensions = new Set([".md", ".txt", ".xml"]);
-const canonicalOrigin = new URL("https://quantumbreakz.github.io");
+const canonicalOrigin = new URL("https://aliahmed.si");
 const requiredOutputRoutes = [
   "/robots.txt",
   "/sitemap-index.xml",

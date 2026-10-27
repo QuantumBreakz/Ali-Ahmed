@@ -16,7 +16,7 @@ export const identity = {
 export const site = {
   ...identity,
   name: `${identity.firstName}/${identity.nameUrdu}`,
-  url: "https://quantumbreakz.github.io",
+  url: "https://aliahmed.si",
   email: "ali.ahmed.work.dev@gmail.com",
   sourceRepositoryUrl: sourceRepository.url,
   sourceRepositoryPublic: sourceRepository.public,

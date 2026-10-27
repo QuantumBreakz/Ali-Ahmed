@@ -8,7 +8,7 @@ import { parse } from "parse5";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(projectRoot, "dist");
 assert.ok(!(await readdir(outputDirectory)).includes("drafts"), "Development draft previews must never appear in production dist.");
-const siteOrigin = "https://quantumbreakz.github.io";
+const siteOrigin = "https://aliahmed.si";
 const sourceRepository = JSON.parse(await readFile(new URL("../src/data/source-repository.json", import.meta.url), "utf8"));
 const rasterImageExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
 
@@ -248,7 +248,7 @@ async function assertFaviconAssets() {
   }
 }
 
-const defaultImage = "https://quantumbreakz.github.io/images/ali-ahmed.jpg";
+const defaultImage = "https://aliahmed.si/images/ali-ahmed.jpg";
 
 for (const relativePath of [
   "404.html",

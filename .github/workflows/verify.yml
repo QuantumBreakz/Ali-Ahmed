@@ -101,7 +101,7 @@ jobs:
       contents: read
     environment:
       name: production
-      url: https://quantumbreakz.github.io
+      url: https://aliahmed.si
     steps:
       - name: Set up deployment Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7

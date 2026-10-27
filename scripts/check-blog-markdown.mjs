@@ -4,7 +4,7 @@ import { createBlogMarkdown } from "../src/lib/blog-markdown.mjs";
 const post = {
   title: "Export fixture",
   description: "Portable article content",
-  canonicalUrl: "https://quantumbreakz.github.io/blog/export-fixture/",
+  canonicalUrl: "https://aliahmed.si/blog/export-fixture/",
   author: "Ali Ahmed",
   date: "2026-09-05",
   body: [
@@ -40,12 +40,12 @@ assert.match(output, /```tsx\nimport \{ Demo \} from "\.\/Demo";\n<Demo \/>\n```
 assert.equal(output.match(/import \{ Demo \}/g)?.length, 1, "Remove MDX imports, never imports inside code samples");
 assert.match(output, /\| Build\s*\| HTML\s*\|/);
 assert.match(output, /Keep this explanation\./);
-assert.ok(output.includes("![A diagram](https://quantumbreakz.github.io/figure.webp)"));
+assert.ok(output.includes("![A diagram](https://aliahmed.si/figure.webp)"));
 assert.ok(output.includes("An explanatory caption."), "Figure captions must survive MDX export");
 assert.ok(output.includes("A claim.[^source]"));
 assert.ok(output.includes("[^source]: [Evidence](https://example.com/source)."), "Footnote references must retain their source definitions");
-assert.match(output, /\[Notes\]\(https:\/\/quantumbreakz.github.io\/notes\/\)/);
-assert.match(output, /\[this section\]\(https:\/\/quantumbreakz.github.io\/blog\/export-fixture\/#example\)/);
+assert.match(output, /\[Notes\]\(https:\/\/aliahmed.si\/notes\/\)/);
+assert.match(output, /\[this section\]\(https:\/\/aliahmed.si\/blog\/export-fixture\/#example\)/);
 assert.match(output, /View interactive example on the website/);
 assert.doesNotMatch(output, /client:load|<Callout>/);
 assert.match(output, /Written by Ali Ahmed · \[Original article\].*\n$/);

@@ -19,7 +19,7 @@ const rehypePlugins = /** @type {import("@astrojs/markdown-remark").RehypePlugin
 );
 
 export default defineConfig({
-  site: "https://quantumbreakz.github.io",
+  site: "https://aliahmed.si",
   // Accept both URL spellings in development while links and canonical metadata
   // continue to emit the preferred trailing-slash form.
   trailingSlash: "ignore",

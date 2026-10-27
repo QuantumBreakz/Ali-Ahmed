@@ -11,24 +11,24 @@ const [siteIndex, siteFull, notesIndex, notesFull, sitemapIndex, robots] = await
     readFile(path.join(outputDirectory, file), "utf8")
   )
 );
-assert.ok(robots.includes("Sitemap: https://quantumbreakz.github.io/sitemap-index.xml"), "Robots must advertise the generated sitemap index");
+assert.ok(robots.includes("Sitemap: https://aliahmed.si/sitemap-index.xml"), "Robots must advertise the generated sitemap index");
 const sitemapFiles = [...sitemapIndex.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => new URL(match[1]).pathname);
 assert.ok(sitemapFiles.length > 0, "The sitemap index must list a generated sitemap");
 const sitemap = (await Promise.all(sitemapFiles.map((file) => readFile(path.join(outputDirectory, file), "utf8")))).join("\n");
 const notesIndexUrls = new Set([
-  "https://quantumbreakz.github.io/notes.md",
-  "https://quantumbreakz.github.io/notes/courses.md",
-  "https://quantumbreakz.github.io/notes/tags.md",
-  "https://quantumbreakz.github.io/notes/topics.md",
+  "https://aliahmed.si/notes.md",
+  "https://aliahmed.si/notes/courses.md",
+  "https://aliahmed.si/notes/tags.md",
+  "https://aliahmed.si/notes/topics.md",
 ]);
 const notesIndexPageUrls = new Set([
-  "https://quantumbreakz.github.io/notes/",
-  "https://quantumbreakz.github.io/notes/courses/",
-  "https://quantumbreakz.github.io/notes/tags/",
-  "https://quantumbreakz.github.io/notes/topics/",
+  "https://aliahmed.si/notes/",
+  "https://aliahmed.si/notes/courses/",
+  "https://aliahmed.si/notes/tags/",
+  "https://aliahmed.si/notes/topics/",
 ]);
 const sitemapUrls = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]));
-const siteOrigin = "https://quantumbreakz.github.io";
+const siteOrigin = "https://aliahmed.si";
 const notePageUrls = [...sitemapUrls].filter((url) => url.startsWith(`${siteOrigin}/notes/`));
 const expectedNoteMarkdownUrls = notePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
 const search = JSON.parse(await readFile(path.join(outputDirectory, "notes/api/search.json"), "utf8"));
@@ -72,11 +72,11 @@ function nodeText(node) {
   return node.nodeName === "#text" ? node.value : (node.childNodes ?? []).map(nodeText).join("");
 }
 const publishedNotePageUrls = [...sitemapUrls].filter(
-  (url) => url.startsWith("https://quantumbreakz.github.io/notes/") && !notesIndexPageUrls.has(url)
+  (url) => url.startsWith("https://aliahmed.si/notes/") && !notesIndexPageUrls.has(url)
 );
 const publishedNoteUrls = publishedNotePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
 const publishedBlogUrls = [...sitemapUrls].filter(
-  (url) => url.startsWith("https://quantumbreakz.github.io/blog/") && url !== "https://quantumbreakz.github.io/blog/"
+  (url) => url.startsWith("https://aliahmed.si/blog/") && url !== "https://aliahmed.si/blog/"
 );
 for (const [file, expectedUrls] of [
   ["blog/rss.xml", publishedBlogUrls],
@@ -93,7 +93,7 @@ for (const [file, expectedUrls] of [
     assert.equal(new Date(date).toISOString().slice(0, 10), markdown.match(/^Published: (.+)$/m)?.[1], `${file} must preserve publication dates`);
   }
 }
-const listedBlogUrls = [...new Set(siteIndex.match(/https:\/\/quantumbreakz\.github\.io\/blog\/[^)\s]+\//g) ?? [])];
+const listedBlogUrls = [...new Set(siteIndex.match(/https:\/\/aliahmed\.si\/blog\/[^)\s]+\//g) ?? [])];
 assert.deepEqual(listedBlogUrls.toSorted(), publishedBlogUrls.toSorted(), "Blog export must match published Blog routes");
 for (const url of publishedBlogUrls) {
   const markdownPath = new URL(url).pathname.replace(/\/$/, ".md");
@@ -111,7 +111,7 @@ const generatedMarkdownPaths = generatedFiles
 assert.deepEqual(generatedMarkdownPaths, expectedMarkdownPaths, "Markdown exports must match public Blog and Notes routes only");
 if (!publishedBlogUrls.length) assert.match(siteIndex, /No blog posts are published yet\./);
 
-const listedNoteMarkdownUrls = new Set(notesIndex.match(/https:\/\/quantumbreakz\.github\.io\/notes(?:\/[^)\s]+)?\.md/g) ?? []);
+const listedNoteMarkdownUrls = new Set(notesIndex.match(/https:\/\/aliahmed\.si\/notes(?:\/[^)\s]+)?\.md/g) ?? []);
 const listedPublishedNoteUrls = [...listedNoteMarkdownUrls].filter((url) => !notesIndexUrls.has(url));
 const allLlmOutput = [siteIndex, siteFull, notesIndex, notesFull].join("\n");
 assert.doesNotMatch(allLlmOutput + sitemap + JSON.stringify(search), /\/drafts\//, "Draft previews must not appear in public indexes");
@@ -134,16 +134,16 @@ assert.match(siteIndex, /## Notes/);
 assert.match(siteIndex, /## Contact/);
 
 for (const url of [
-  "https://quantumbreakz.github.io/",
-  "https://quantumbreakz.github.io/experience/",
-  "https://quantumbreakz.github.io/projects/",
-  "https://quantumbreakz.github.io/leadership/",
-  "https://quantumbreakz.github.io/education/",
-  "https://quantumbreakz.github.io/blog/",
-  "https://quantumbreakz.github.io/contact/",
-  "https://quantumbreakz.github.io/notes/",
-  "https://quantumbreakz.github.io/notes/llms.txt",
-  "https://quantumbreakz.github.io/notes/llms-full.txt",
+  "https://aliahmed.si/",
+  "https://aliahmed.si/experience/",
+  "https://aliahmed.si/projects/",
+  "https://aliahmed.si/leadership/",
+  "https://aliahmed.si/education/",
+  "https://aliahmed.si/blog/",
+  "https://aliahmed.si/contact/",
+  "https://aliahmed.si/notes/",
+  "https://aliahmed.si/notes/llms.txt",
+  "https://aliahmed.si/notes/llms-full.txt",
 ]) {
   assert.ok(siteIndex.includes(url), `Site-wide llms.txt is missing ${url}`);
 }
@@ -151,8 +151,8 @@ for (const url of [
 assert.match(siteFull, /^# Ali Ahmed\n/);
 assert.match(siteFull, /## Extended profile/);
 assert.match(notesIndex, /^# Notes\n/);
-assert.match(notesIndex, /https:\/\/quantumbreakz\.github\.io\/notes\/llms-full\.txt/);
-assert.match(notesIndex, /https:\/\/quantumbreakz\.github\.io\/llms\.txt/);
+assert.match(notesIndex, /https:\/\/aliahmed\.si\/notes\/llms-full\.txt/);
+assert.match(notesIndex, /https:\/\/aliahmed\.si\/llms\.txt/);
 assert.match(notesFull, /^# Notes\n/);
 assert.doesNotMatch(allLlmOutput, /\bAll published notes\b/i);
 
