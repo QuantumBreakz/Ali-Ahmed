@@ -4,7 +4,7 @@ import BilingualText from "../components/BilingualText.astro";
 import ExternalLink from "../components/ExternalLink.astro";
 import LinkPills from "../components/LinkPills.astro";
 import PageHero from "../components/PageHero.astro";
-import { featuredProjects, githubRepositoriesUrl, openSourceProjects, pageDescriptions } from "../data/site";
+import { featuredProjects, githubContributionsUrl, githubRepositoriesUrl, openSourceContributions, pageDescriptions } from "../data/site";
 ---
 
 <BaseLayout title="Projects" description={pageDescriptions.projects} pageClass="page--projects">
@@ -43,23 +43,32 @@ import { featuredProjects, githubRepositoriesUrl, openSourceProjects, pageDescri
 
   <section class="section-block" aria-labelledby="open-source-heading">
     <div class="section-heading">
-      <h2 id="open-source-heading"><BilingualText english="Open-Source Work" urdu="اوپن سورس کام" /></h2>
+      <h2 id="open-source-heading"><BilingualText english="Open-Source Contributions" urdu="اوپن سورس تعاونات" /></h2>
     </div>
     <div class="card-grid">
       {
-        openSourceProjects.map((project) => (
+        openSourceContributions.map((contribution) => (
           <article class="surface-card">
             <h3>
-              <ExternalLink href={project.href}>{project.title}</ExternalLink>
+              <ExternalLink href={contribution.href}>{contribution.project}</ExternalLink>
             </h3>
-            <p class="project-card__body">{project.description}</p>
+            <p class="project-card__body">{contribution.description}</p>
+            <ul class="resource-list">
+              {contribution.pullRequests.map((pullRequest) => (
+                <li>
+                  <ExternalLink href={pullRequest.href}>{pullRequest.label}</ExternalLink> · {pullRequest.status}
+                </li>
+              ))}
+            </ul>
           </article>
         ))
       }
       <article class="surface-card">
-        <h3>Everything Else</h3>
+        <h3>All Contributions</h3>
         <p class="project-card__body">
-          The rest of my public work, from agents and automation to coursework, is on <ExternalLink href={githubRepositoriesUrl}
+          Every pull request I have opened on other projects is in <ExternalLink href={githubContributionsUrl}
+            >my GitHub contribution history</ExternalLink
+          >. My own projects, from agents and automation to coursework, are on <ExternalLink href={githubRepositoriesUrl}
             >my GitHub profile</ExternalLink
           >.
         </p>

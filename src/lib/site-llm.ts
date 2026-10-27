@@ -1,4 +1,15 @@
-import { about, communityLeadership, contactProfiles, education, events, experiences, featuredProjects, pageDescriptions, site } from "../data/site";
+import {
+  about,
+  communityLeadership,
+  contactProfiles,
+  education,
+  events,
+  experiences,
+  featuredProjects,
+  openSourceContributions,
+  pageDescriptions,
+  site,
+} from "../data/site";
 import { getWritingPath, getPublishedBlog } from "./blog-source";
 import { getBlogExport } from "./blog-export";
 import { getNoteMarkdownPath, getNotesIndexPages, getNotesLLMsFullText, getPublishedNotes } from "./notes-llm";
@@ -115,6 +126,16 @@ export async function getSiteLLMsFullText(): Promise<string> {
     "## Projects",
     "",
     ...featuredProjects.flatMap((project) => [`### ${project.title}`, "", project.stack, "", project.description, ""]),
+    "## Open-source contributions",
+    "",
+    ...openSourceContributions.flatMap((contribution) => [
+      `### ${contribution.project}`,
+      "",
+      contribution.description,
+      "",
+      ...contribution.pullRequests.map((pullRequest) => `- [${pullRequest.label}](${pullRequest.href}): ${pullRequest.status}`),
+      "",
+    ]),
     "## Community leadership",
     "",
     ...communityLeadership.flatMap((initiative) => [`### ${initiative.title}`, "", initiative.role, "", initiative.description, ""]),

@@ -60,6 +60,7 @@ export const about = {
     "Leading AI and full-stack product development @ SmartLogics",
     "Product Manager I @ Arrivy (2025–2026)",
     "Built KYC computer vision and multilingual OCR @ ShuftiPro",
+    "Open-source contributor to LiteLLM, Symfony, Node.js, NanoClaw, Grafana Pyroscope, and LibrePods",
     "Organizer of FAST's first CTF competition (150+ participants)",
     "CS Grad from FAST-NUCES",
   ],
@@ -200,50 +201,105 @@ export const featuredProjects: ReadonlyArray<{
   },
 ];
 
-export const openSourceProjects: ReadonlyArray<{ title: string; href: string; description: string }> = [
+export type ContributionStatus = "Merged" | "In review" | "Fixed upstream";
+
+export const openSourceContributions: ReadonlyArray<{
+  project: string;
+  href: string;
+  description: string;
+  pullRequests: ReadonlyArray<{ label: string; href: string; status: ContributionStatus }>;
+}> = [
   {
-    title: "XOR RAG Chatbot",
-    href: "https://github.com/QuantumBreakz/RAG-CHATBOT",
+    project: "LiteLLM",
+    href: "https://github.com/BerriAI/litellm",
     description:
-      "A fully offline, multi-document RAG chatbot with a React frontend, FastAPI backend, ChromaDB, and local models through Ollama, with agentic RAG and multi-OCR layout analysis.",
+      "Fixed Headroom context compression for clients that run their own tool loop: retrieved content was being re-compressed to the same hash and lost, so agents looped or answered from an empty skeleton.",
+    pullRequests: [
+      {
+        label: "Stop re-compressing retrieved CCR content in client tool loops",
+        href: "https://github.com/BerriAI/litellm/pull/38591",
+        status: "Merged",
+      },
+      {
+        label: "Identify auto-router savings targets by deployment",
+        href: "https://github.com/BerriAI/litellm/pull/38834",
+        status: "Fixed upstream",
+      },
+    ],
   },
   {
-    title: "Real-Time KYC Card Verification",
-    href: "https://github.com/QuantumBreakz/MQTT-K-Project",
-    description: "A KYC card verification pipeline over MQTT, with independent client, verifier, and analyst services and a monitoring dashboard.",
+    project: "Symfony",
+    href: "https://github.com/symfony/symfony",
+    description: "Fixed missing Tagalog translations in the Validator component on the 6.4 branch.",
+    pullRequests: [
+      { label: "[Validator] Fix missing Tagalog (tl) translations", href: "https://github.com/symfony/symfony/pull/64940", status: "Merged" },
+    ],
   },
   {
-    title: "WardrobeWhiz",
-    href: "https://github.com/QuantumBreakz/WardrobeWiz",
+    project: "Node.js",
+    href: "https://github.com/nodejs/node",
     description:
-      "An AI wardrobe assistant that recommends outfits from your own clothes using CLIP embeddings, FAISS vector search, and styling rules.",
+      "A change to the HTTP module so buffered outgoing data is counted in bytes rather than string length, letting backpressure apply when the socket buffer is actually full.",
+    pullRequests: [{ label: "http: count buffered outgoing data in bytes", href: "https://github.com/nodejs/node/pull/66039", status: "In review" }],
   },
   {
-    title: "Virtual Doctor",
-    href: "https://github.com/QuantumBreakz/Virtual-Doctor",
-    description: "A healthcare assistant combining AI-powered symptom diagnosis, emotional state tracking, and medication reminders.",
+    project: "NanoClaw",
+    href: "https://github.com/nanocoai/nanoclaw",
+    description:
+      "Reported and fixed an unauthenticated loopback webhook (CWE-306) that let any local process forge interaction responses; the maintainers shipped the fix in #4013, crediting my PR. I also have fixes in review for WhatsApp sender identity across channels and cross-session task visibility.",
+    pullRequests: [
+      {
+        label: "Authenticate loopback webhook to prevent action forgery",
+        href: "https://github.com/nanocoai/nanoclaw/pull/3065",
+        status: "Fixed upstream",
+      },
+      {
+        label: "Unify WhatsApp sender identity between Baileys and Cloud paths",
+        href: "https://github.com/nanocoai/nanoclaw/pull/3070",
+        status: "In review",
+      },
+      {
+        label: "Fix scheduled task cross-session visibility and errors",
+        href: "https://github.com/nanocoai/nanoclaw/pull/3068",
+        status: "In review",
+      },
+      { label: "Correct SECURITY.md for v2", href: "https://github.com/nanocoai/nanoclaw/pull/3066", status: "In review" },
+    ],
   },
   {
-    title: "Hi Agent",
-    href: "https://github.com/QuantumBreakz/Hi-Agent-Frontend",
-    description: "A voice AI agent for recovering missed calls, with an in-browser voice widget, a live transcript, and an ROI calculator.",
+    project: "Grafana Pyroscope",
+    href: "https://github.com/grafana/pyroscope",
+    description: "A Helm chart fix so Prometheus stops scraping the headless service when the ServiceMonitor is enabled.",
+    pullRequests: [
+      {
+        label: "Move prometheus.io/service-monitor to labels for the headless service",
+        href: "https://github.com/grafana/pyroscope/pull/5377",
+        status: "In review",
+      },
+    ],
   },
   {
-    title: "GitHub Data Lake",
-    href: "https://github.com/QuantumBreakz/data-engineering",
-    description: "A medallion-architecture data lake that tracks the data engineering community on GitHub through a Kafka event pipeline.",
-  },
-  {
-    title: "Fintl",
-    href: "https://github.com/QuantumBreakz/fintl-frontend",
-    description: "A full-stack financial management app built with React Native (Expo) and an Express and MongoDB API.",
-  },
-  {
-    title: "Campus Navigation Assistant",
-    href: "https://github.com/QuantumBreakz/Heuristic-Mobile-Based-Campus-Navigation-Assistant",
-    description: "A mobile app for navigating the FAST-NUCES campus using computer vision and trilateration.",
+    project: "LibrePods",
+    href: "https://github.com/librepods-org/librepods",
+    description:
+      "Battery status for every connected pair of AirPods in the Linux tray, and an Android option to duck volume for Conversational Awareness only when both AirPods are worn.",
+    pullRequests: [
+      {
+        label: "Linux: show all connected AirPods in the tray tooltip",
+        href: "https://github.com/librepods-org/librepods/pull/676",
+        status: "In review",
+      },
+      {
+        label: "Android: skip volume ducking when only one AirPod is worn",
+        href: "https://github.com/librepods-org/librepods/pull/675",
+        status: "In review",
+      },
+    ],
   },
 ];
+
+export const githubContributionsUrl =
+  "https://github.com/search?q=is%3Apr+author%3AQuantumBreakz+-user%3AQuantumBreakz+-org%3ANitNode&type=pullrequests";
 
 export const experiences = [
   {
