@@ -87,8 +87,8 @@ export const contactProfiles = [
     icon: "linkedin",
     label: "LinkedIn",
     title: "LinkedIn",
-    value: "@ali-ahmed-hustletothemax92",
-    href: "https://www.linkedin.com/in/ali-ahmed-hustletothemax92",
+    value: "@ali-ahmed-dev",
+    href: "https://www.linkedin.com/in/ali-ahmed-dev/",
     external: true,
   },
 ] as const;
