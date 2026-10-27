@@ -71,13 +71,9 @@ function descendants(node, predicate) {
 function nodeText(node) {
   return node.nodeName === "#text" ? node.value : (node.childNodes ?? []).map(nodeText).join("");
 }
-const publishedNotePageUrls = [...sitemapUrls].filter(
-  (url) => url.startsWith("https://aliahmed.si/notes/") && !notesIndexPageUrls.has(url)
-);
+const publishedNotePageUrls = [...sitemapUrls].filter((url) => url.startsWith("https://aliahmed.si/notes/") && !notesIndexPageUrls.has(url));
 const publishedNoteUrls = publishedNotePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
-const publishedBlogUrls = [...sitemapUrls].filter(
-  (url) => url.startsWith("https://aliahmed.si/blog/") && url !== "https://aliahmed.si/blog/"
-);
+const publishedBlogUrls = [...sitemapUrls].filter((url) => url.startsWith("https://aliahmed.si/blog/") && url !== "https://aliahmed.si/blog/");
 for (const [file, expectedUrls] of [
   ["blog/rss.xml", publishedBlogUrls],
   ["notes/rss.xml", publishedNotePageUrls],
