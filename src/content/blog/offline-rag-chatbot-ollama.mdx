@@ -1,0 +1,56 @@
+---
+title: "How to build a fully offline RAG chatbot with Ollama, Mistral, ChromaDB and Redis"
+description: "A document Q&A chatbot for sensitive environments that needs no internet after setup: local embeddings and LLM through Ollama, ChromaDB for vectors, Redis caching, and the settings that matter."
+publishedAt: 2026-11-06
+tags: [AI Engineering, RAG, LLMs, Privacy]
+---
+
+You can build a document Q&A chatbot that **never sends data off the machine**: run the LLM and the embedding model locally with **Ollama**, store vectors in **ChromaDB** on disk, and cache repeated work in **Redis**. I built [XOR RAG Chatbot](https://github.com/QuantumBreakz/RAG-CHATBOT) this way, with a React frontend and a FastAPI backend, for environments such as government offices where documents can't go to a cloud API. After the models are downloaded once, it needs no internet.
+
+## Why build RAG offline at all?
+
+Retrieval-augmented generation (RAG) answers questions from **your documents** instead of the model's memory: split the documents into chunks, embed them, find the chunks closest to the question, and have the model answer from those. Most tutorials call a hosted embedding API and a hosted LLM. That's fine for public data. It isn't an option when the documents are contracts, case files or internal policy.
+
+## What does the offline stack look like?
+
+| Job               | Component                           | Default in this project               |
+| ----------------- | ----------------------------------- | ------------------------------------- |
+| Answer generation | Ollama                              | `mistral:latest`                      |
+| Embeddings        | Ollama                              | `nomic-embed-text`                    |
+| Vector store      | ChromaDB, persisted to a local path | one collection                        |
+| Cache             | Redis                               | responses, keyed by query and context |
+| API               | FastAPI                             | upload, query, history                |
+| UI                | React (Vite, Tailwind)              | chat, uploads                         |
+
+Ollama serves both models over a local HTTP API (`localhost:11434` by default), so the backend talks to them the same way it would talk to a cloud provider, without the data leaving the machine.
+
+## Which settings matter most?
+
+The defaults I landed on:
+
+- **Chunk size 600 characters, overlap 200.** Big enough to keep a paragraph's meaning together, small enough that the top results fit in Mistral's context with room for the question and the answer. The overlap stops a sentence that straddles two chunks from being lost to both.
+- **Top 3 results per question.** More chunks means more irrelevant text for a 7B model to get confused by. Three was the best trade-off between recall and focus.
+- **150 MB maximum file size**, so one huge upload can't exhaust memory during embedding.
+- **The last 10 conversation turns as history**, enough for follow-up questions without filling the context window.
+
+All of these come from environment variables, and the backend **refuses to start if a required one is missing**. A misconfigured RAG system doesn't crash. It quietly gives worse answers, which is much harder to notice.
+
+## How does caching speed up a local RAG system?
+
+Local models are slower than hosted ones, so avoiding repeated work matters more:
+
+- **Response cache.** The key is a SHA-256 hash of the query, the retrieved context and the session ID, so the same question over the same documents is answered instantly. The cache has a size limit with LRU eviction and a TTL.
+- **Content hashing for files.** Uploaded files are identified by a SHA-256 hash of their bytes, so re-uploading the same document doesn't create duplicate chunks.
+
+## Can it use cloud models when allowed?
+
+Yes, but only by explicit choice. A provider priority list (`ollama, openai, gemini` by default) lets an installation fall back to a hosted model if it's allowed and a key is configured. In a strictly offline deployment you leave the keys unset, and Ollama is the only provider. Keeping the switch in configuration means the air-gapped and the connected deployment run the same code.
+
+## What would I tell someone starting one?
+
+1. **Start with the small, boring settings** (chunk size, overlap, top-k) and test them on your own documents before adding agents or re-ranking.
+2. **Fail fast on configuration.** Silent defaults are how a RAG system gets worse without anyone noticing.
+3. **Cache by content, not by filename.**
+4. **Ground the answer, and check it.** A model answering from three chunks can still invent details. For the stricter approach I use when numbers matter, see [how to stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/).
+
+More of my AI engineering work is on the [projects page](/projects/).

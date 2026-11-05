@@ -1,0 +1,64 @@
+---
+title: "Securing a voice AI agent's webhook: what my first version got right, and what I'd change"
+description: "A 24/7 AI phone agent posts every call to a webhook. How HI Agent's backend verifies Vapi, stores repeated call events idempotently, and emails one summary per call, plus the fixes I'd make."
+publishedAt: 2026-11-06
+tags: [AI Agents, Voice AI, Security, Node.js]
+---
+
+A voice AI agent's webhook receives **phone numbers, transcripts and summaries of real customer calls**, so it needs three things: proof that the request came from the voice platform, a way to cope with the **same call arriving several times**, and side effects (like emails) that happen **exactly once**. **HI Agent** is a 24/7 AI phone agent I built for home-service businesses on [Vapi](https://vapi.ai). Its backend ([source](https://github.com/QuantumBreakz/Hi-Agent-Backend)) gets those three mostly right. This post walks through how, and the two changes I'd make.
+
+## What does the backend do?
+
+When a call ends, Vapi sends a POST to `/webhook/vapi`. The backend, Node.js and Express on Render:
+
+1. **Checks the shared secret** Vapi sends in the `x-vapi-secret` header.
+2. **Upserts a call log** in MongoDB Atlas, keyed by the call ID: phone number, duration, summary, transcript and the latest event type.
+3. **Emails the business owner** the summary and transcript through Resend, but only when the call is completely finished.
+
+## How do you know the request came from Vapi?
+
+Vapi lets you set a secret that it sends with every webhook. The middleware rejects requests before any work happens:
+
+- **No header** → `401 Missing webhook signature`
+- **Wrong value** → `401 Invalid webhook signature`
+- **No secret configured in production** → `500`, so the endpoint **fails closed** instead of accepting everything
+
+The secret lives in an environment variable on Render and in Vapi's webhook settings, never in the code.
+
+## Why upsert instead of insert?
+
+Vapi doesn't send one event per call. It sends several (status updates and then an `end-of-call-report`), and any webhook can be retried. Inserting a row per request would leave you with duplicate, half-finished call logs.
+
+So the handler uses `findOneAndUpdate` with `upsert: true`, keyed by **call ID**. Every event for a call updates the same document, and the stored `status` always shows the latest event type. Retries and repeats converge on one correct record.
+
+## How do you avoid sending five emails per call?
+
+The email goes out only when `message.type === "end-of-call-report"`, the event that carries the final summary and full transcript. Status updates are saved but trigger nothing. The owner gets one email per call, with complete information.
+
+## What would I change?
+
+Reviewing it now, two things.
+
+**1. Compare the secret in constant time.** The check uses `providedSecret !== secret`. A plain string comparison can stop at the first different character, which in principle leaks timing information. Over the internet that's hard to exploit, but the fix costs nothing:
+
+```ts title="Constant-time secret check"
+import { timingSafeEqual } from "node:crypto";
+
+const a = Buffer.from(providedSecret);
+const b = Buffer.from(secret);
+const ok = a.length === b.length && timingSafeEqual(a, b);
+```
+
+**2. Remove the development bypass.** With no secret set and `NODE_ENV` not equal to `production`, the middleware skips validation entirely. That's convenient locally, but a staging deploy that forgets `NODE_ENV=production` becomes an open endpoint that writes to the database and sends email. Safer: always require a secret, and use a throwaway one locally. The repo already has a seed script that simulates a call, so local testing doesn't need the bypass.
+
+A smaller improvement: the email step should also be idempotent. If Vapi retries the `end-of-call-report` after the email was sent but before the `200` arrived, the owner gets a second email. Recording `emailSentAt` on the call log and checking it first fixes that.
+
+## The checklist for any AI agent webhook
+
+- **Authenticate first**, in constant time, before parsing or storing anything.
+- **Fail closed** when the secret is missing, in every environment.
+- **Key storage by the platform's event or call ID** and upsert, so retries are harmless.
+- **Trigger side effects on the final event only**, and record that they happened.
+- **Treat transcripts as sensitive data:** they contain names, numbers and addresses.
+
+The same lesson about authentication applies inside a single machine too: see [localhost is not authentication](/blog/localhost-is-not-authentication/). For AI clients calling _into_ your system, see [building an OAuth 2.1 MCP server](/blog/oauth-mcp-server-crm/).

@@ -1,0 +1,53 @@
+---
+title: "Real-time KYC card verification over MQTT: a pub-sub pipeline explained"
+description: "A three-service KYC pipeline on MQTT: a client publishes ID card data, a verifier checks each field and publishes reasons, an analyst stores and charts results. Design choices and what QoS 1 implies."
+publishedAt: 2026-11-06
+tags: [KYC, MQTT, Distributed Systems, Python]
+---
+
+You can build a real-time **KYC (Know Your Customer) card verification** pipeline from small independent services that talk through an **MQTT broker**: one publishes card data, one verifies it and publishes a result _with reasons_, and one stores and visualises the results. Each service only knows topic names, not the other services. That's the design of [this project](https://github.com/QuantumBreakz/MQTT-K-Project), which I built with two teammates on Mosquitto, Python 3.12, SQLite and a Flask dashboard. My part was the card client, the service that generates and publishes cards.
+
+## Why use MQTT for verification?
+
+MQTT is a lightweight publish/subscribe protocol. Producers publish messages to **topics**, consumers subscribe to them, and a **broker** in the middle routes messages. For a verification pipeline that buys you:
+
+- **Decoupling.** The verifier doesn't know who sends cards, and the analyst doesn't know who verifies them. Any of them can be replaced, scaled or restarted alone.
+- **Real time.** Results flow as soon as each card is checked, with no batch job.
+- **Delivery guarantees** chosen per message, through QoS levels.
+
+## How does the pipeline fit together?
+
+- **Card client** publishes ID card records to `kyc/card_data`.
+- **Verifier** subscribes to `kyc/card_data`, validates each field, and publishes to `kyc/result`.
+- **Analyst** subscribes to `kyc/result`, stores results in SQLite, builds charts and exports CSV.
+- **Dashboard** (Flask) reads the analyst's data and shows live totals, approvals and the rejection rate.
+
+## How do you test a verifier properly?
+
+With bad input, on purpose. The card client makes **about 30% of the cards invalid**, with malformed ID numbers, one-word names and expired cards, alongside valid ones. Each card has an ID, a name, an expiry date, a region and a card type. A pipeline tested only on clean data proves very little.
+
+The client also retries its broker connection (up to 5 attempts) instead of dying on the first failure, because services start in any order.
+
+## What does the verifier check?
+
+Every field, and it **records why** a card failed rather than just "rejected":
+
+- **ID format:** `NNNN-NNNN-NNNN` or `NNNNNN-NNNN`
+- **Expiry:** not in the past
+- **Name:** at least two words
+- **Region:** one of a known list (US, EU, ASIA, MEA)
+- **Card type:** one of the accepted types
+
+A card passes only if every check passes. The published result carries the status **plus the list of reasons**, so a rejected card says "Invalid ID format, Card expired", not just "no". In real KYC, a rejection the operator can't explain is a support ticket waiting to happen.
+
+## What does QoS 1 mean for the design?
+
+The services publish and subscribe at **QoS 1, "at least once"**. The broker keeps sending a message until it's acknowledged, so nothing is lost, but a message **can arrive twice**, for example after a reconnect.
+
+That has a consequence I'd design for in a production version: every consumer must be **idempotent**. A verifier that appends every message it receives would count a duplicated card twice. Storing results keyed by card ID (upserting, not appending) makes duplicates harmless. QoS 2 ("exactly once") avoids duplicates at the protocol level, but costs an extra round trip per message.
+
+## How does this compare to production identity verification?
+
+This was a course project, deliberately simple: rule-based checks on structured fields. Production KYC, which I worked on at ShuftiPro, starts one step earlier, from a **photo of the document**. Computer vision finds and classifies the document, OCR reads it in the right script, face matching and liveness checks confirm the person, and only then do field checks like these run. The pipeline shape is the same, though: independent stages, explicit reasons, and test data that is deliberately bad.
+
+Related: [the Uber system design breakdown](/blog/uber-real-time-location-system/) uses push messaging for the same reason, and [the voice agent webhook post](/blog/voice-ai-webhook-security/) covers idempotency for repeated events.
