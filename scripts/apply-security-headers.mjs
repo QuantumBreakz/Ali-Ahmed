@@ -46,6 +46,8 @@ for (const htmlFile of htmlFiles) {
     const [, attributes, body] = match;
 
     if (/\bsrc\s*=/i.test(attributes) || body.length === 0) continue;
+    // Data blocks such as JSON-LD never execute, so CSP ignores them; hashing one per page would overflow Cloudflare's 2,000-character header line.
+    if (/\btype\s*=\s*["']?application\/(?:ld\+)?json/i.test(attributes)) continue;
 
     const digest = createHash("sha256").update(body).digest("base64");
     inlineScriptHashes.add(`'sha256-${digest}'`);
@@ -79,5 +81,11 @@ if (placeholderCount !== 1) {
   throw new Error(`Expected exactly one ${cspPlaceholder} placeholder in dist/_headers; found ${placeholderCount}.`);
 }
 
-await writeFile(headersFile, headers.replace(cspPlaceholder, contentSecurityPolicy));
+const finalHeaders = headers.replace(cspPlaceholder, contentSecurityPolicy);
+const longLine = finalHeaders.split("\n").findIndex((line) => line.length > 2000);
+if (longLine !== -1) {
+  throw new Error(`dist/_headers line ${longLine + 1} is over Cloudflare's 2,000-character limit; the deploy would be rejected.`);
+}
+
+await writeFile(headersFile, finalHeaders);
 console.log(`Generated CSP with ${inlineScriptHashes.size} inline-script hash${inlineScriptHashes.size === 1 ? "" : "es"}.`);
