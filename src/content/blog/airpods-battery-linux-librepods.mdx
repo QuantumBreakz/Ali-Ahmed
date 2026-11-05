@@ -1,0 +1,52 @@
+---
+title: "How to see every AirPods battery on Linux, and why only one showed: LibrePods"
+description: "LibrePods brings AirPods features to Linux and Android. With two AirPods connected, the Linux tray showed whichever updated last. A per-device registry fixes it, plus a smarter Android volume duck."
+publishedAt: 2026-11-05
+tags: [Open Source, Linux, Android, Bluetooth]
+---
+
+**LibrePods** is an open-source app that brings AirPods features (battery levels, ear detection, noise-control modes, Conversational Awareness) to **Linux and Android**. On Linux, if you connected more than one pair of AirPods, the tray tooltip showed **only whichever device sent the latest update**. My change ([#676](https://github.com/librepods-org/librepods/pull/676), in review) keeps a per-device registry so every connected pair's battery shows on hover. A second change ([#675](https://github.com/librepods-org/librepods/pull/675), in review) adds an Android option so volume only ducks for Conversational Awareness when **both** AirPods are in.
+
+## How do you check AirPods battery on Linux?
+
+Out of the box, Linux shows Bluetooth headphones as a generic audio device. Apple's battery and ear-detection data comes over Apple's own accessory protocol (AACP) on an L2CAP connection, which the desktop doesn't speak. LibrePods does: install it, pair your AirPods through your normal Bluetooth settings, and its tray icon shows battery levels and lets you change modes.
+
+## Why did only one device show?
+
+The tray manager had a single `updateBatteryStatus(status)` call. Every update from any device replaced the tooltip, so with two pairs connected you saw whichever spoke last.
+
+## How does the per-device tray work?
+
+`TrayIconManager` now keeps a list of devices keyed by **Bluetooth MAC address**:
+
+- `updateDeviceBattery(key, name, status)` registers or updates a device
+- `updateDeviceName(key, name)` replaces the label when the AirPods report their name
+- `setActiveDevice(key)` chooses which device's percentage the tray icon shows
+- `removeDevice(key)` drops a device on disconnect, instead of resetting the whole tray
+
+The tooltip adapts:
+
+| Connected | Tooltip                                                                     |
+| --------- | --------------------------------------------------------------------------- |
+| 0         | empty                                                                       |
+| 1         | the original `Battery Status: …` format, so single-pair users see no change |
+| 2+        | one line per device (`<name>: <status>`), active device first               |
+
+Two smaller fixes came with it. The device is labelled with its BlueZ name straight away, so there's a name before Apple's metadata arrives. And a **guard ignores BLE broadcast packets while a live connection is active**. Those broadcasts are anonymised, and matching them against stored keys could let a paired-but-disconnected device overwrite the live device's battery.
+
+**Known limit:** LibrePods holds one live AACP connection at a time, so a second pair shows its **last known** values rather than live ones. Supporting several live sockets is a much bigger refactor, left out of scope.
+
+## What does the Android change do?
+
+Conversational Awareness lowers your media volume when you start talking. With **one** AirPod in, you can usually already hear the person, so the duck is just annoying.
+
+The new setting, **"Only when both AirPods are worn"** (off by default), ignores the "started speaking" event when fewer than two buds are in your ears. The **volume-restore path is never gated**, so volume can't get stuck low:
+
+| Setting       | One AirPod       | Both AirPods |
+| ------------- | ---------------- | ------------ |
+| Off (default) | ducks            | ducks        |
+| On            | **doesn't duck** | ducks        |
+
+## What I liked about this one
+
+Both changes are small, keep existing behaviour as the default, and are explicit about what they don't do. That's what makes a first PR to a hardware-adjacent project easy to review. More upstream work is on my [projects page](/projects/).

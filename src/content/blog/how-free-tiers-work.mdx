@@ -1,0 +1,51 @@
+---
+title: "How can deployment platforms afford free tiers?"
+description: "Servers didn't disappear. Platforms like Vercel and Render stopped renting you machines and started renting execution. Modern Deployments, part 1."
+publishedAt: 2026-11-05
+tags: [Modern Deployments, Serverless, Cloud]
+---
+
+Deployment platforms can offer generous free tiers because **they stopped renting you a machine and started renting you execution**. A VPS reserves CPU and memory for you around the clock. A modern platform shares compute across thousands of workloads and allocates it only while your code is actually handling a request. Idle apps, which is most apps, cost almost nothing.
+
+_This is part 1 of my Modern Deployments series._
+
+## What did deployment look like before?
+
+A few years ago, deploying a web app usually meant renting a VPS: 2 vCPUs, 4 GB of RAM, 80 GB of SSD. Then you configured Nginx, installed Node, set up PM2, sorted out SSL, opened firewall ports, and hoped nothing crashed at 3 AM.
+
+Today most developers push to GitHub, click Deploy, and get a production URL in under a minute. It almost feels like servers disappeared. They didn't. Someone is still paying for CPUs, RAM, storage, bandwidth and electricity.
+
+## Why is a dedicated server wasteful?
+
+A VPS allocates infrastructure **before** your application receives any traffic. Whether your app serves one request a day or a million, that virtual machine stays powered on and keeps its CPU and memory reserved for you.
+
+Most side projects, portfolios, hackathon apps and internal tools spend well over 99% of their lifetime idle. Provisioning them as if they were constantly busy is the waste.
+
+## What changed?
+
+Platforms stopped giving every application its own long-lived server. Instead they built systems that:
+
+- **Pack many workloads onto shared machines**, isolated by containers or micro-VMs
+- **Start compute on demand** when a request arrives
+- **Reclaim it** once the app has been idle for a while
+- **Cache static output at the edge**, so most page views never touch compute at all
+
+The economics changed because the allocation model changed. The free tier exists not because servers got cheap, but because **an idle application no longer needs dedicated infrastructure**.
+
+## What's the catch?
+
+Renting execution has real costs, and they show up as behaviour you need to understand:
+
+- **Cold starts** when compute has to be created for a request. See [what a serverless cold start really is](/blog/serverless-cold-starts-explained/).
+- **Usage limits** on execution time, bandwidth and invocations, which is where the business model makes its money once you grow.
+- **Less control** over the machine your code runs on. See [why your app doesn't run on a server anymore](/blog/servers-you-deploy-to/).
+
+## The rest of the series
+
+1. How free tiers work (this post)
+2. [Your app runs on a desired state, not a server](/blog/servers-you-deploy-to/)
+3. [What is a serverless cold start?](/blog/serverless-cold-starts-explained/)
+4. [What actually gets deployed to production?](/blog/what-gets-deployed-to-production/)
+5. [Where do your environment variables go?](/blog/where-do-environment-variables-go/)
+
+Once you see "serverless" as _renting execution instead of machines_, the rest of the series starts to make sense.

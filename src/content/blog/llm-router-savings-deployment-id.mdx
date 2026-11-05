@@ -1,0 +1,53 @@
+---
+title: "Why LLM cost dashboards lie when two deployments share a model name"
+description: "LiteLLM's auto-router compared only provider and model, so two deployments of the same model at different prices reported $0 savings. Why identity should be the deployment."
+publishedAt: 2026-11-05
+tags: [AI Engineering, LLMs, Open Source, FinOps]
+---
+
+If an LLM router decides "is this the same target?" by **provider and model name**, it will misreport savings whenever one model is deployed more than once at different prices. That's common: a negotiated enterprise rate next to list price, or two regions. In LiteLLM's auto-router, two differently priced deployments of the same model showed **$0.00 saved**, and one deployment under an alias showed a **loss** that didn't exist. The fix is to compare **deployment identity** first. I opened [PR #38834](https://github.com/BerriAI/litellm/pull/38834) with that fix, and the maintainers resolved the issue upstream in #40206.
+
+## What is an auto-router saving?
+
+An auto-router sends each request to a cheaper model or deployment when it can, instead of a baseline. The dashboard's "savings" number is roughly:
+
+```text
+savings = cost on the baseline target − cost on the target actually used
+```
+
+That's only true if the system correctly decides whether the baseline and the selected target are **the same thing**. If they're the same, the saving is zero by definition.
+
+## Where did the identity check go wrong?
+
+The check compared **provider + model name** only. Take two deployments of the same Claude model:
+
+| Deployment       | Model                     | Input $/token          | Output $/token         |
+| ---------------- | ------------------------- | ---------------------- | ---------------------- |
+| `opus-expensive` | `anthropic/claude-opus-5` | 0.00002                | 0.00006                |
+| `opus-cheap`     | `anthropic/claude-opus-5` | lower, negotiated rate | lower, negotiated rate |
+
+The router correctly sends a request to `opus-cheap`. But the savings check sees `anthropic/claude-opus-5` on both sides, decides they're identical, and reports **$0.00**, even though the cheaper deployment really did cost less.
+
+The mirror-image bug: put one deployment behind an **alias**, compare it with its base model, and the names differ even though the target is identical. The dashboard can then show a saving or a loss where there was none.
+
+## How should routing identity work?
+
+Identity should follow **what actually prices and serves the request**: the deployment.
+
+- **Thread the deployment ids** of both the baseline and the selected target into the identity check.
+- **Compare by deployment id when both sides have one.** Different ids mean different pricing, even with the same model name.
+- **Fall back to the canonical provider/model** only when an id is missing, so older configurations keep working.
+
+With that change, the cost-optimisation page reports the baseline deployment's cost minus the selected deployment's cost, which is the negotiated-rate saving operators actually care about.
+
+## Why does this matter beyond one dashboard?
+
+Teams use these numbers to justify routing, negotiate contracts and choose models. A saving reported as **zero** makes a good routing setup look useless. A **phantom loss** can get it switched off.
+
+The general lesson for anyone building LLM infrastructure: **model name is not identity.** The same model can come with different prices, regions, rate limits, context windows and data-handling terms. Anything that reasons about cost or behaviour should key on the deployment.
+
+## How was the PR tested?
+
+The PR included regression tests for both failures (same model at different rates, and alias vs base) and passed all 79 CI checks. The maintainers then resolved the issue in a separate change (#40206), which is common in a fast-moving project. The PR still did its job: it pinned down the bug with a reproducible configuration.
+
+Related: [the context-compression bug that made agents loop](/blog/litellm-context-compression-bug/).

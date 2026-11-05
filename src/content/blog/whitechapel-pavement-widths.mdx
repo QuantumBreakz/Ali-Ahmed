@@ -1,0 +1,56 @@
+---
+title: "How wide are London's pavements? Measuring 7,908 cross-sections in Whitechapel"
+description: "No UK dataset records pavement width. I measured left pavement, road and right pavement for 10 Whitechapel streets, then tried four ways to prove myself wrong."
+publishedAt: 2026-11-05
+tags: [Geospatial, Data Engineering, Accessibility, Python]
+---
+
+No public dataset tells you how wide a pavement is in the UK: not the left side, not the right side, and not the carriageway in between. So I measured all three on the same cross-section for 10 streets in Whitechapel, East London, and ended up with **7,908 cross-sections**. Measuring was the easy part. The work was deciding which numbers to trust.
+
+## Why does pavement width matter?
+
+Width decides whether a wheelchair, a pushchair or two people walking side by side can get down a street. UK government guidance (_Inclusive Mobility_, Department for Transport) recommends 2 metres of clear footway and treats **1.5 metres as the minimum acceptable** where space is constrained. Councils and planners make decisions against those numbers every day, usually without a measured baseline for the street in front of them.
+
+I picked Whitechapel because the UK's geospatial data for it is publicly available and the streets are a good stress test: old, narrow, irregular, full of junctions.
+
+## What is wrong with the obvious method?
+
+The obvious method fires a line straight out from the road centreline and measures the pavement it crosses. On a straight street that works.
+
+At a junction it fails badly. The line shoots down the side street and counts the whole side street as pavement. My first run told me one pavement was **44 metres wide**.
+
+The bigger problem is that this method is right about **95% of the time**. The failures don't move the average, so summary statistics look fine. They hide in the tail, **4.7% of readings**, and the tail is where the bad decisions get made: those are the junctions and pinch points that matter most for accessibility.
+
+## How did I fix the measurement?
+
+I changed the question each measurement asks:
+
+- **Aim at the kerb, not the middle of the road.** Each cross-section is anchored to the kerb line, so a junction ends the measurement instead of extending it.
+- **Measure from surveyed Ordnance Survey geometry.** Aerial imagery is used only to check a number, never to set one.
+- **Let OpenStreetMap fix what OS mislabels.** Cycle tracks filed as "path" would otherwise be counted as pavement.
+- **Reject anything it can't trust, and record why.** Every discarded cross-section carries a reason code. Nothing disappears silently.
+
+## How do you know the numbers are right?
+
+I tried to prove myself wrong four ways that share no code with the measurement:
+
+1. **Against Ordnance Survey's own carriageway widths:** median difference **0.19 m**, correlation **r = 0.91**.
+2. **Against the surveyed surface:** the median measured pavement strip sits **99.9%** on surveyed pavement polygons.
+3. **Closure against building frontage:** where buildings line both sides, left + road + right should add up to the frontage-to-frontage distance. The median gap is **0.00 m**.
+4. **Sensitivity:** 12 different parameter settings move the answer by **under 10 cm**.
+
+None of these proves the data perfect. Together they make it very hard for a systematic error to hide.
+
+## What did the data show?
+
+**58% of Gunthorpe Street's pavement is narrower than 1.5 m**, below what UK guidance calls the minimum acceptable. Along **41% of one side there is no pavement at all**.
+
+That is the kind of finding an average would never surface, and the kind a council can act on.
+
+## What I took away from it
+
+- **Validate the tail, not the mean.** A method that is right 95% of the time can still be useless for the decisions that matter.
+- **Separate the instrument from the check.** Imagery that sets numbers can't also be the thing that validates them.
+- **Make rejection a first-class output.** "We couldn't measure this, and here's why" is data too.
+
+I'm planning to publish the cross-sections and strip maps for all 10 streets. If you work on streets, accessibility or urban data and want them sooner, [get in touch](/contact/).

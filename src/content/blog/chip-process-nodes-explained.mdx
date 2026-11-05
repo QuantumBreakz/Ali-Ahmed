@@ -1,0 +1,48 @@
+---
+title: "From 10 µm to 3 nm: how chips got so small (and why 3 nm isn't 3 nm)"
+description: "Intel's first microprocessor was built on a 10 µm process. Today's chips are sold as 3 nm. What shrinking transistors buys you, and what the node name really means."
+publishedAt: 2026-11-05
+tags: [Hardware, Semiconductors]
+---
+
+In 1971 Intel's first microprocessor, the **4004**, was built on a **10 micrometre** process and held about **2,300 transistors**. Today's leading chips are marketed as **3 nm** and hold **tens of billions** of transistors. The largest packages pass 100 billion. Shrinking transistors lets you fit more onto the same silicon, which means more parallel work, more cache and more specialised hardware. The catch: "3 nm" is now a product name, not a measurement.
+
+## How big is 10 micrometres?
+
+A human hair is roughly 70–100 µm thick, so the 4004's features were already a fraction of a hair. 10 µm is **10,000 nm**. On the node names alone, going from 10,000 to 3 is a shrink of more than **3,000 times**, while transistor counts grew by a factor of **millions**.
+
+## Why do smaller transistors mean faster chips?
+
+A transistor is an electronic switch. Every calculation, image and AI model comes down to billions of switches turning on and off. Smaller transistors give you three things:
+
+- **More of them** in the same area: more cores, bigger caches, dedicated AI and media engines
+- **Less energy per switch**, so more work per watt
+- **Shorter distances** for signals to travel
+
+## Is a 3 nm chip actually 3 nanometres?
+
+No. Until the late 1990s the node name roughly matched a real physical dimension (the transistor gate length). Since then it has become a **generation label**. No feature on a "3 nm" chip is 3 nm wide; real gate pitches are several times larger. The industry now judges progress by **transistor density** and by performance and power at each new node, not by the name.
+
+## Why is shrinking so hard now?
+
+At these sizes, engineers are fighting physics more than machinery:
+
+- **Leakage:** electrons tunnel through barriers that should block them, wasting power when a switch is meant to be off.
+- **Heat:** more switches in less space means more heat per square millimetre.
+- **Variation:** an error of a few atoms can ruin a transistor, and one bad transistor can ruin a chip.
+
+## How did the industry keep going?
+
+By reinventing the transistor itself, more than once:
+
+1. **Planar transistors:** a flat channel with the gate on top. This worked for decades.
+2. **FinFETs** (from about 2011): the channel stands up as a fin, and the gate wraps it on three sides for better control.
+3. **Gate-all-around (GAA) / nanosheets** (2 nm-class nodes): the gate wraps the channel completely.
+
+Patterning moved to **extreme ultraviolet (EUV) lithography**, which uses 13.5 nm light to print features that older light sources couldn't.
+
+## The bigger picture
+
+A modern chip isn't a scaled-down 1971 chip. Decades of materials science, quantum physics, chemistry, optics and computer engineering separate them. The story of computing is partly the story of humans learning to control matter with absurd precision, and we're still finding ways to go smaller.
+
+Related: [what's inside a GPU](/blog/gpu-architecture-explained/).

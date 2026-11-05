@@ -1,0 +1,56 @@
+---
+title: "Why our AI agent looped forever: a context-compression bug in an LLM gateway"
+description: "In LiteLLM, content an agent retrieved was compressed back into the same hash, so Claude Code never saw it and kept retrying. How the bug worked and how PR #38591 fixed it."
+publishedAt: 2026-11-05
+tags: [AI Engineering, LLMs, Open Source, Debugging]
+---
+
+An LLM gateway that compresses context has to remember one thing: **content the agent just asked to retrieve must never be compressed again.** In LiteLLM's Headroom compression, it was. For clients that run their own tool loop, such as Claude Code, the retrieved text went back through compression, was swapped for the same placeholder, and the agent either looped on the same hash forever or answered without the content. My fix, [LiteLLM PR #38591](https://github.com/BerriAI/litellm/pull/38591), was merged in September 2026.
+
+_This is the technical deep dive. The story of making the contribution is in [how I got my first PR merged into LiteLLM](/blog/first-litellm-contribution/)._
+
+## How does context compression in an LLM gateway work?
+
+Long tool results, such as a large JIRA issue, eat the context window. LiteLLM's Headroom guardrail compresses them. Large content in a request is replaced with a compact marker like `<<ccr:HASH,…>>`, and the original is kept on the gateway side.
+
+When the model needs the full text, it calls a retrieval tool (`headroom_retrieve`) with the hash and gets the original back. That's **CCR: compress, cache, retrieve.** Done right, it keeps context small without losing anything.
+
+## What went wrong?
+
+The bug only appeared for clients that **run their own tool loop**, where each round trip is a fresh request through the proxy. Here's the failing flow with Claude Code pointed at the proxy (`ANTHROPIC_BASE_URL`) and the retrieve tool exposed through LiteLLM's MCP gateway:
+
+1. Claude Code fetches a large JIRA issue through an MCP tool. It's full and correct.
+2. The next `/v1/messages` request carries that result, and the gateway compresses the body to `<<ccr:HASH,…>>`. This part is correct.
+3. The model calls `headroom_retrieve` and gets the original description back. Also correct.
+4. Claude Code sends the next `/v1/messages` request carrying the **retrieved** text, and the gateway compresses it again, **to the same hash**.
+5. The model sees the placeholder it just resolved, retrieves it again, and loops, or gives up and answers from an empty skeleton.
+
+Retrieval was effectively a no-op. Nothing crashed and no error was logged. The agent just quietly got worse.
+
+## Why was it hard to spot?
+
+- **It depended on who runs the loop.** When the gateway runs tools itself, it can keep track of what it already expanded. When the client runs the loop, every request looks new.
+- **The output looked plausible.** An agent summarising a ticket without the description body still produces a summary.
+- **Tool names vary.** The retrieve tool appeared as `headroom_retrieve` or, through the MCP gateway, as `mcp__<server>__headroom_retrieve`. Long names can also be truncated by clients.
+
+## How did the fix work?
+
+The fix holds **retrieved tool-result rows back from the compression service** and leaves everything else alone:
+
+- It recognises results from both `headroom_retrieve` and `mcp__<server>__headroom_retrieve`.
+- When a long tool name has been truncated, it falls back to matching the **tool-call id** that links the result to its call.
+- It reuses the gateway's **existing protected-row path**, so the rest of the history still compresses normally. Nothing outside retrieved content is exempt.
+
+After the fix, the same Claude Code session returns a summary that includes the real description body, and the agent stops looping.
+
+## How did I prove it?
+
+- Reproduced it end to end: a Vertex AI Claude model behind the proxy, compression on, the retrieve tool exposed through MCP, and the before/after transcripts in the PR.
+- Added tests for both tool-name forms and the truncated-name fallback.
+- Ran the full LiteLLM CI (lint, type checks, the schema sync check and the unit suites) before asking for review.
+
+## What's the lesson for agent infrastructure?
+
+**Any layer that rewrites model context must know which content is load-bearing.** Compression, summarisation, redaction and caching all rewrite context. If they can't tell "data the agent explicitly asked for" from "old history", they can undo the agent's own actions, and the symptom will look like a dumb model rather than a bug.
+
+I fixed a second, unrelated LiteLLM issue in [why cost dashboards lie when two deployments share a model name](/blog/llm-router-savings-deployment-id/).

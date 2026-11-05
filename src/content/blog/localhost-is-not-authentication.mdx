@@ -1,0 +1,64 @@
+---
+title: "Localhost is not authentication: fixing a CWE-306 webhook in an AI agent framework"
+description: "NanoClaw's loopback webhook accepted any local POST, letting other processes forge button clicks (CWE-306, CVSS 6.6). My fix, the maintainers' simpler one, and why theirs was better."
+publishedAt: 2026-11-05
+tags: [Security, AI Agents, Open Source, Node.js]
+---
+
+Binding a server to `127.0.0.1` keeps the internet out. It does **not** keep out the other programs on the same machine. In **NanoClaw**, an AI agent framework, a loopback webhook that relays chat-gateway events accepted **any** local POST, so any unprivileged process could forge button clicks into the agent's response pipeline. That's **CWE-306, missing authentication for a critical function**, rated CVSS 6.6. I wrote a fix ([#3065](https://github.com/nanocoai/nanoclaw/pull/3065)). The maintainers then shipped a simpler fix ([#4013](https://github.com/nanocoai/nanoclaw/pull/4013)) that credited it, and comparing the two is the most useful part of this story.
+
+## What was the vulnerability?
+
+The issue (#2970) was reported by security researcher YLChen-007. NanoClaw's chat bridge started a small HTTP server on `127.0.0.1:<port>/webhook` to receive events forwarded from the chat gateway (Discord, in this case). Every POST body went straight into the event handler, and the loopback address was the only trust boundary.
+
+So any local process could send a forged `GATEWAY_INTERACTION_CREATE` payload, and the agent would treat it as a real user clicking a button: approving an action, answering a question, choosing an option. For an agent that acts on those answers, that's a direct path to making it do things nobody approved.
+
+## Why isn't localhost a trust boundary?
+
+On a shared machine, CI runner, container host or developer laptop, "local" includes browser helpers, other users' processes, compromised dependencies and malware with no special privileges. Any of them can open a TCP connection to `127.0.0.1`. If an endpoint changes behaviour, it needs to know **who** is calling, not just **from where**.
+
+## How did my fix work?
+
+I generated a **256-bit random secret** with `crypto.randomBytes(32)` when the server starts, and put it in the **path** of the webhook URL handed to the gateway listener:
+
+```text
+http://127.0.0.1:<ephemeral-port>/webhook/<64-hex-char-secret>
+```
+
+Every request was checked with `crypto.timingSafeEqual` **before the body was read**, and anything else got `401`. My reasons:
+
+- **The secret goes in the path, not a header,** so the adapter interface doesn't change: it already accepts a webhook URL.
+- **`timingSafeEqual` is defence in depth.** Loopback timing attacks are impractical, but it costs nothing.
+- **A length check comes first**, because `timingSafeEqual` needs equal-length buffers. The length of the correct path isn't secret, so this leaks nothing.
+
+Four regression tests covered: a valid POST to the secret path, the original proof-of-concept path rejected, a wrong secret rejected, and a control payload that reaches the server but triggers no action.
+
+## What did the maintainers ship instead?
+
+Their fix in #4013 makes each request carry an `x-discord-gateway-token` header equal to the **bot token**, compared in constant time. The adapter's listener **already sends that header on every forward**, so there's no new secret, no URL change, and no conflict with later changes to the bridge. A missing or wrong token gets `401` before the body is read, and if no bot token is configured, every request is rejected.
+
+Their PR superseded mine (which by then conflicted with the bridge) and credited it.
+
+## Why was their fix better?
+
+Both close the hole. Theirs wins on things a reviewer cares about more than an outside contributor tends to:
+
+| Aspect                                              | Secret in URL path (mine) | Existing token in header (shipped) |
+| --------------------------------------------------- | ------------------------- | ---------------------------------- |
+| New secret to manage                                | Yes, per process          | No, reuses the bot token           |
+| URL / interface change                              | URL changes               | None                               |
+| Merge conflicts with ongoing work                   | Yes                       | No                                 |
+| Fails closed when not configured                    | —                         | Yes: no token, no access           |
+| Risk of the secret leaking via logs that print URLs | Some                      | Lower: headers are rarely logged   |
+
+The lesson: **before inventing a credential, look for one the system already sends.** The best security fix is often the one with the smallest new surface.
+
+## How should you secure local webhooks?
+
+- **Authenticate every state-changing local endpoint.** Use a shared secret, a token the caller already holds, or a Unix domain socket with file permissions.
+- **Check before reading the body,** and compare in constant time.
+- **Fail closed:** no secret configured means no access, not open access.
+- **Prefer credentials the caller already has** over new ones.
+- **Treat inputs that drive an agent's decisions as security-critical.** A forged "approve" button is a privilege escalation.
+
+I've also written about [building an OAuth 2.1 MCP server](/blog/oauth-mcp-server-crm/), another place where AI agents meet authentication.

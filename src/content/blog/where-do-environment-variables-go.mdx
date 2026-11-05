@@ -1,0 +1,58 @@
+---
+title: "Where do your environment variables go when you deploy?"
+description: "Secrets pasted into Vercel or Render are not bundled into your build. They take a separate path and are injected at runtime, with one Next.js exception. Part 5."
+publishedAt: 2026-11-05
+tags: [Modern Deployments, Security, Next.js]
+---
+
+When you paste an API key into a platform dashboard like Vercel or Render, it is **not bundled into your application**. Your code and your secrets travel separately: code goes through the build and becomes an artifact, while secrets go into an encrypted secret store and are **injected into the process environment when the app starts**. The big exception: in Next.js, any variable prefixed `NEXT_PUBLIC_` is written into the browser bundle, and is therefore public.
+
+_Part 5 of the Modern Deployments series. Previous: [what actually gets deployed](/blog/what-gets-deployed-to-production/)._
+
+## Is my API key inside the Docker image?
+
+The first time I pasted an `OPENAI_API_KEY` into a dashboard and clicked deploy, I wondered: is this bundled with my app? Is it baked into an image someone could pull and read? Have I just uploaded my `.env` to a server that could leak it?
+
+For runtime variables on a properly set up platform, the answer is usually no.
+
+## How do code and secrets travel?
+
+They follow two separate paths that meet only when your app starts:
+
+```text
+Code:     git push → build → compile and bundle → artifact
+Secrets:  dashboard → encrypted secret store → runtime injection → process.env
+```
+
+When your Node.js process boots, the platform has already authenticated the deployment, fetched the secrets for that project and environment, and placed them in the process environment. That's why `process.env.DATABASE_URL` just works even though it was never in your bundle.
+
+## Why does this separation matter?
+
+It's what makes **immutable deployments** practical. You can promote the exact same artifact from development to staging to production and attach different configuration to each. The build doesn't change; only the configuration attached at startup does.
+
+## What's the Next.js exception?
+
+Anything prefixed `NEXT_PUBLIC_` is **inlined into the client-side JavaScript at build time**. Two consequences:
+
+1. **It isn't a secret anymore.** Every browser that loads your site downloads it. Never put a private key behind `NEXT_PUBLIC_`.
+2. **It's baked into the artifact.** Changing it needs a rebuild, not just a restart.
+
+Other frameworks have the same idea with different prefixes, such as `VITE_` in Vite.
+
+## How do you keep deployment secrets safe?
+
+- **Keep secrets server-side.** If the browser needs data from a paid API, proxy the call through your backend.
+- **Use your platform's "sensitive" setting** where it exists, so values can't be read back from the dashboard later.
+- **Scope secrets per environment.** Preview deployments shouldn't hold production database credentials.
+- **Rotate after any doubt.** Rotate when someone leaves, when a third-party integration is compromised, or when a key was ever committed to git.
+- **Audit third-party access.** OAuth apps and integrations with access to your platform account can read what you can.
+
+Once you see the artifact and its configuration as two separate lifecycles, a lot of cloud infrastructure clicks into place.
+
+## The full series
+
+1. [How free tiers work](/blog/how-free-tiers-work/)
+2. [Your app runs on a desired state](/blog/servers-you-deploy-to/)
+3. [Serverless cold starts](/blog/serverless-cold-starts-explained/)
+4. [What gets deployed to production](/blog/what-gets-deployed-to-production/)
+5. Where environment variables go (this post)

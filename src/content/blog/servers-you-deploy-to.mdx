@@ -1,0 +1,45 @@
+---
+title: "Your app doesn't run on a server anymore. It runs on a desired state."
+description: "Containers and orchestrators like Kubernetes mean you deploy a workload, not to a machine. What that changes, and why it matters. Modern Deployments, part 2."
+publishedAt: 2026-11-05
+tags: [Modern Deployments, Containers, Kubernetes, Cloud]
+---
+
+On a modern platform your application isn't attached to a particular server. You deploy a **workload** and declare a **desired state** ("keep three copies of this running"), and an orchestrator decides which machine runs it, moves it when a machine fails, and starts more copies when traffic grows. Servers still exist. They just stopped being the thing you deploy to.
+
+_Part 2 of the Modern Deployments series. Part 1: [how free tiers work](/blog/how-free-tiers-work/)._
+
+## Is "my app runs on an EC2 instance" wrong?
+
+I once heard someone say, "My app is running on an EC2 instance." It's not wrong. It's just not the whole story anymore.
+
+Take a typical deployment on Vercel, Render or Railway. You push code to GitHub. A build pipeline packages the application, often into a container image. The image goes to a registry. The platform schedules it somewhere in its fleet. At no point do you pick a machine, SSH into it, or even learn where your app ended up. That's intentional.
+
+## Why did containers change deployment?
+
+Unlike a virtual machine, a container doesn't carry its own operating system. Containers on a host **share the host's Linux kernel** and keep their own isolated processes, network and filesystem (through kernel features called namespaces and cgroups).
+
+That makes them light: they start in seconds or less, and many fit on one machine. A platform can move, restart or scale your app quickly because there is so little to boot.
+
+## What happens when the machine fails?
+
+Ten years ago, a dead host probably meant downtime and a pager going off.
+
+Today an orchestrator like **Kubernetes** notices that the actual state (two copies running) no longer matches the desired state (three copies) and **schedules a replacement on a healthy node**. Managed platforms run a similar control loop. You just never see it.
+
+That loop is the important idea:
+
+1. You declare what should be true.
+2. The control plane keeps watching what _is_ true.
+3. When they differ, it acts until they match again.
+
+## What does this change for developers?
+
+- **Treat instances as disposable.** Local disk and in-memory state can vanish when your app is moved. Put state in a database, object store or cache.
+- **Health checks matter.** The orchestrator decides what is "healthy" from your health endpoint, so make it honest.
+- **Scale is configuration, not hardware.** Replicas and autoscaling rules replace buying a bigger box.
+- **Which CPU runs your code is an implementation detail**, and it can change during the day.
+
+This is also why [cold starts](/blog/serverless-cold-starts-explained/) exist: if the platform can place your workload anywhere, sometimes it has to create that place first.
+
+Next in the series: [what is a serverless cold start?](/blog/serverless-cold-starts-explained/)

@@ -1,0 +1,47 @@
+---
+title: "What's inside a GPU? Cores, streaming multiprocessors and the memory problem"
+description: "A GPU isn't one powerful processor. It's thousands of simple cores, specialised tensor and ray-tracing units, and a memory system built to keep them fed."
+publishedAt: 2026-11-05
+tags: [Hardware, GPU, AI Engineering]
+---
+
+A modern GPU is not one very powerful processor. It is **thousands of simple arithmetic cores** grouped into **streaming multiprocessors**, plus specialised **tensor cores** for matrix maths and **ray-tracing cores** for light simulation, all surrounded by schedulers, caches and a very wide memory system. The hard engineering problem isn't the maths. It's moving data fast enough to keep all those cores busy.
+
+## What are CUDA cores?
+
+Most of the work runs on simple parallel arithmetic units. NVIDIA calls them **CUDA cores**, AMD calls them **stream processors** (inside its compute units), and Apple simply counts **GPU cores**. Each is much simpler than a CPU core, but there are thousands of them running the same instruction across different data at once.
+
+A common confusion: **CUDA, ROCm and Metal are software platforms**, not hardware. CUDA is NVIDIA's programming model, ROCm is AMD's, and Metal is Apple's graphics and compute API.
+
+## What do tensor cores do?
+
+Tensor cores are specialised for **matrix multiply-and-accumulate**: multiplying two small matrices and adding the result to a third in one step. That one operation is the core of neural networks, so tensor cores are a big part of why GPUs became the foundation for AI training and inference. They also power upscaling features like NVIDIA's **DLSS** (Deep Learning Super Sampling).
+
+Yes, it's linear algebra all the way down.
+
+## What are ray-tracing cores?
+
+RT cores are dedicated hardware for the expensive parts of ray tracing: testing whether a ray of light hits a triangle, and walking the tree structures (bounding volume hierarchies) that make those tests fast. Without them, realistic lighting in real time would be far too slow.
+
+## How is a GPU organised?
+
+The structure is hierarchical:
+
+1. **Cores** do the arithmetic.
+2. Cores are grouped into **streaming multiprocessors (SMs)**, each with its own schedulers, registers, shared memory and L1 cache. AMD's equivalent is the compute unit.
+3. SMs are grouped into larger **processing clusters**.
+4. All of it sits on a shared **L2 cache**, **memory controllers** and the off-chip **VRAM**.
+
+The schedulers inside each SM switch between groups of threads (NVIDIA calls a group of 32 a _warp_). When one group stalls waiting for memory, another runs. That's how a GPU hides latency: not by being fast at any single task, but by always having other work ready.
+
+## Why does memory bandwidth matter so much?
+
+Doing trillions of operations a second is impressive. **Feeding** thousands of cores without starving them is harder.
+
+That's the job of **GDDR** (Graphics Double Data Rate) memory and a very wide memory bus. High-end consumer GPUs now move **over 1 TB of data per second** between VRAM and the chip. Data-centre GPUs use stacked **HBM** (High Bandwidth Memory) to reach **several TB/s**. For many AI workloads, especially LLM inference, memory bandwidth, not compute, is the real limit on how fast tokens come out.
+
+## The takeaway
+
+Raw compute is only half the story. The real achievement is coordination: thousands of cores, caches, schedulers and memory channels kept in sync so well that a game frame, a training step or a generated image looks instantaneous.
+
+If you like this kind of under-the-hood breakdown, read [how chips got 3,000 times smaller](/blog/chip-process-nodes-explained/) next.

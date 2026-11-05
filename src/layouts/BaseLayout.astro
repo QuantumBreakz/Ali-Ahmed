@@ -21,6 +21,7 @@ interface Props {
     height: number;
   };
   footerVariant?: "default" | "compact" | "home";
+  jsonLd?: Record<string, unknown>[];
 }
 
 const {
@@ -32,8 +33,9 @@ const {
   type = "website",
   socialImage = site.socialImage,
   footerVariant = "default",
+  jsonLd,
 } = Astro.props;
-const pageTitle = title ? `${title} · ${site.fullName}` : site.fullName;
+const pageTitle = title ? `${title} · ${site.fullName}` : site.homeTitle;
 const path = Astro.url.pathname === "/" ? "/" : `${Astro.url.pathname.replace(/\/$/, "")}/`;
 const canonical = canonicalPath === false ? undefined : new URL(canonicalPath ?? path, site.url).toString();
 const socialImageUrl = new URL(socialImage.src, site.url).toString();
@@ -55,6 +57,7 @@ const socialImageUrl = new URL(socialImage.src, site.url).toString();
       imageAlt={socialImage.alt}
       imageWidth={socialImage.width}
       imageHeight={socialImage.height}
+      jsonLd={jsonLd}
     />
     <slot name="head" />
     <ThemeInit />

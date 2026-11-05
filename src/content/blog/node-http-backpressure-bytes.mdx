@@ -1,0 +1,71 @@
+---
+title: "Why Node.js HTTP backpressure must count bytes, not string length"
+description: "Node's OutgoingMessage counted buffered strings in UTF-16 code units, so multi-byte bodies were under-counted up to 3× and write() kept saying there was room. My fix, and how I verified it."
+publishedAt: 2026-11-05
+tags: [Node.js, Open Source, Performance, JavaScript]
+---
+
+In Node.js, `string.length` counts **UTF-16 code units, not bytes**. When Node's HTTP `OutgoingMessage` buffered a write, it added `data.length` to the counters that drive backpressure, so multi-byte response bodies were **under-counted by 2× for two-byte characters and 3× for most CJK text**. `write()` kept returning `true` after the buffer was past its high-water mark, and the server paused the socket later than it should. My fix, [nodejs/node#66039](https://github.com/nodejs/node/pull/66039) (in review), counts bytes instead.
+
+## What is backpressure in Node HTTP?
+
+When you write to a response faster than the network can send, data queues in memory. **Backpressure** is how Node tells you to slow down: `response.write()` returns `false` once the buffer reaches its `highWaterMark`, and you're expected to wait for `'drain'`. Internally, Node also tracks a per-connection total to **pause the TCP socket and the HTTP parser** when too much output is queued.
+
+Both decisions depend on one number: how much data is buffered. If that number is wrong, backpressure is wrong.
+
+## How small is the bug?
+
+Small enough to show in four lines:
+
+```js title="Reproduction"
+const msg = new OutgoingMessage({ highWaterMark: 100 });
+msg._implicitHeader = () => {};
+msg.write("é".repeat(50));
+```
+
+That's 50 characters, but exactly 100 bytes in UTF-8:
+
+| Build          | `outputSize` | `write()` returns |
+| -------------- | ------------ | ----------------- |
+| Before the fix | 50           | `true`            |
+| After the fix  | 100          | `false`           |
+
+`'é'` is one UTF-16 code unit but two UTF-8 bytes. The buffer is full, and Node said it was half empty.
+
+## Why wasn't this caught earlier?
+
+The fix was already half-built. An earlier change (#46601) added a `size` argument to `_writeRaw()` so callers could pass the byte length they'd already computed, **but nothing ever read it**. Issue #57985 reported exactly that. A follow-up that would have used it (#46605) was closed during review over a different point. The plumbing landed, but the code that should have used it never did.
+
+## What did the fix change?
+
+- **Use the byte length callers already supplied** (`size`), and fall back to `Buffer.byteLength(chunk, encoding)` only when it's missing.
+- **Handle the prepended header.** On the first write, Node prepends the response header to the body string, so a body-only byte count would drop the header's bytes. The fix adds the header's byte length. Header values are restricted to `\x00–\xff`, so no multi-byte character can straddle the join and the two lengths simply add up.
+- **Leave everything else alone.** What's written to the socket doesn't change, only the accounting. ASCII, `Buffer` and `latin1` writes behave exactly as before.
+
+The one visible change is intentional: `write()` can now return `false` for multi-byte bodies where it used to return `true`.
+
+## Does counting bytes cost performance?
+
+I measured instead of guessing:
+
+- The extra `Buffer.byteLength()` only runs on the **buffered** path, and only when no length was supplied. On a keep-alive server, **83.3%** of `_writeRaw()` calls go straight to the socket and never reach that code.
+- End-to-end throughput with a multi-byte body on every response was **unchanged** within run-to-run noise (2.8 kB and 70 kB bodies, 16 connections, 3 runs each).
+- A micro-benchmark that forces every write to buffer shows about 25% overhead **on that operation alone**, but that path only runs once data is already queuing.
+
+## How do you use an AI coding agent on a Node.js core PR?
+
+Node.js has an [AI use policy](https://github.com/nodejs/node/blob/HEAD/doc/contributing/ai-guidelines.md), and I disclosed in the PR that the patch and test were written with an AI coding agent (Claude Code). The rule I followed: **trust nothing the agent claims until a build proves it.**
+
+- **Reproduced the bug on a released binary** (v22.22.2) before changing anything.
+- **Proved the test catches the defect:** it fails on unpatched `main` (`100 !== 200`) and passes with the fix.
+- **Checked every expected value by hand.** Each fix-dependent case fails with exactly the UTF-16 code-unit value (e.g. `119` vs `219` with a header, `8` vs `4` for hex and base64), while ASCII, `Buffer` and `latin1` pass both before and after.
+- **Ran the full parallel and sequential suites:** 5,038 pass. The 4 failures also fail on an unpatched build from the same tree, so they come from my build configuration.
+- **Measured the performance question** with the instrumentation and A/B runs above.
+
+The agent made the change fast. Verifying it like a reviewer would is what made it a PR worth reviewing.
+
+## The takeaway
+
+Anywhere you budget memory or I/O by `string.length`, you are counting characters, not bytes. For ASCII it doesn't matter. For the rest of the world's text it's off by up to 3×. Use `Buffer.byteLength()`, or pass the length you've already computed.
+
+More upstream fixes are on my [projects page](/projects/).

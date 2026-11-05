@@ -1,0 +1,71 @@
+---
+title: "Streaming LLM output through a Next.js proxy: why you only get stream_end"
+description: "Server-Sent Events through a Next.js route handler often arrive all at once or not at all. The headers, runtime flags and client parsing that make real-time LLM streaming work."
+publishedAt: 2026-11-05
+tags: [Next.js, Streaming, LLMs, Web Development]
+---
+
+When you proxy an LLM backend's **Server-Sent Events (SSE)** through a Next.js route handler, the usual failure is that nothing arrives until the end, and then everything arrives at once, or the client only ever sees the final `stream_end`. Something between the backend and the browser is **buffering**. The fix is a handful of specific things: the Node.js runtime, `dynamic = 'force-dynamic'`, the right headers (`Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`), passing bytes through as they arrive, and a client that parses SSE frames properly. I learned these building **Turbo Alan Refiner**, a multi-pass LLM text-refinement app ([frontend source](https://github.com/QuantumBreakz/TurboAlanRefinerFrontend)).
+
+## Why proxy SSE through Next.js at all?
+
+Routing every backend call through `/api/*` route handlers avoids CORS, keeps tokens server-side, and lets you normalise the request. The cost is that your route is now a hop in a streaming pipeline, and every hop is a chance to buffer.
+
+## What does the route handler need?
+
+```ts title="Route segment config"
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+```
+
+- `runtime = "nodejs"` gives full streaming support without edge-runtime limits.
+- `dynamic = "force-dynamic"` stops Next.js caching or pre-rendering the route.
+- `maxDuration = 300` lets long refinements outlive the default function timeout.
+
+Then return a `ReadableStream` that forwards the upstream body as it arrives, with these headers:
+
+```ts title="Streaming response headers"
+return new Response(stream, {
+  headers: {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  },
+});
+```
+
+`X-Accel-Buffering: no` tells nginx-style proxies not to buffer.
+
+`no-transform` matters more than it looks. A proxy that gzips the response has to collect bytes before it can compress them, which is exactly the buffering you're trying to avoid.
+
+## How should the proxy forward events?
+
+- **Read with `getReader()` and decode with a streaming `TextDecoder`.** Never `await upstream.text()`, which waits for the whole response.
+- **Forward events, don't re-wrap them.** If the upstream already sends `data: {...}` and your proxy prefixes `data: ` again, the client receives `data: data: {...}`.
+- **Send errors as events.** If the upstream fails mid-stream, emit a final `data: {"type":"error",...}` frame so the UI can show it, instead of the stream just stopping.
+- **Pass the client's abort on.** Use an `AbortController` so closing the tab cancels the upstream request, rather than leaving an LLM job running for nobody.
+
+## Why does the client only see stream_end?
+
+Usually one of three things:
+
+1. **Something buffered the stream** (missing headers, the wrong runtime, a proxy in front), so all the events arrived together and the UI only rendered the last one.
+2. **The client parsed chunks, not lines.** A network chunk can end in the middle of an event. Keep the incomplete tail in a buffer:
+
+   ```ts title="Client: keep the incomplete last line"
+   buffer += decoder.decode(chunk, { stream: true });
+   const lines = buffer.split("\n");
+   buffer = lines.pop() ?? "";
+   ```
+
+3. **The client stopped too early.** Treat only true terminal events (`complete`, `error`) as the end. Keep processing everything already buffered before you close.
+
+Be lenient about input, too: strip a doubled `data: data: ` prefix, and accept raw JSON lines as well as SSE-formatted ones.
+
+## How do you debug it?
+
+Open DevTools → Network → the streaming request → **EventStream**. If events show up one by one there but the UI updates all at once, the bug is in your client. If they all show up together, something upstream is buffering: check the headers, the runtime, and any proxy or CDN in front.
+
+Related: [what a serverless cold start really is](/blog/serverless-cold-starts-explained/) (long-lived streams and function timeouts run into the same platform limits).

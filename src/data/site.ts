@@ -22,6 +22,26 @@ export const site = {
   sourceRepositoryPublic: sourceRepository.public,
   sourceRepositoryBranch: sourceRepository.branch,
   description: "AI engineer, product builder, security enthusiast (in that order).",
+  homeTitle: "Ali Ahmed · AI Engineer, LLMs, Computer Vision & OCR · Lahore",
+  homeDescription:
+    "Ali Ahmed is an AI engineer in Lahore who shipped KYC computer vision and multilingual OCR at ShuftiPro, multi-agent LLMs at Kryptomind, and LiteLLM fixes.",
+  jobTitle: "AI Engineer",
+  worksFor: { name: "SmartLogics", url: "https://smart-logics.vercel.app" },
+  alumniOf: "National University of Computer and Emerging Sciences (FAST-NUCES)",
+  location: { locality: "Lahore", country: "PK" },
+  sameAs: ["https://github.com/QuantumBreakz", "https://www.linkedin.com/in/ali-ahmed-dev/"],
+  knowsAbout: [
+    "Artificial intelligence",
+    "Large language models",
+    "Retrieval-augmented generation",
+    "AI agents",
+    "Computer vision",
+    "Optical character recognition",
+    "Full-stack web development",
+    "Serverless computing",
+    "Application security",
+    "Product management",
+  ],
   favicon: "/favicon.svg",
   socialImage: {
     src: "/images/ali-ahmed.jpg",
@@ -31,11 +51,14 @@ export const site = {
   },
 } as const;
 
+export const personId = `${site.url}/#person`;
+
 export const pageDescriptions = {
   about: site.description,
   projects:
     "AI products, full-stack platforms, and open-source experiments I have built, from multi-agent financial intelligence to offline RAG and computer vision.",
-  experience: "Where I have worked: AI engineering, computer vision for identity verification, LLM-powered products, and product management.",
+  experience:
+    "Where I've worked: KYC computer vision and multilingual OCR at ShuftiPro, multi-agent LLM systems at Kryptomind, product management and SOC 2 at Arrivy, and SmartLogics.",
   leadership: "Communities I have helped lead at FAST-NUCES, from SOFTEC to the university's first capture-the-flag competition.",
   education: "My Computer Science education at FAST-NUCES, together with the tools and technologies I work with.",
   contact: "Feel free to reach out about AI products, collaboration opportunities, or questions.",
@@ -57,10 +80,11 @@ export const githubRepositoriesUrl = "https://github.com/QuantumBreakz?tab=repos
 export const about = {
   profileImage: "/images/ali-ahmed.jpg",
   profileFacts: [
-    "Leading AI and full-stack product development @ SmartLogics",
-    "Product Manager I @ Arrivy (2025–2026)",
     "Built KYC computer vision and multilingual OCR @ ShuftiPro",
+    "Multi-agent LLM systems for financial intelligence @ Kryptomind",
     "Open-source contributor to LiteLLM, Symfony, Node.js, NanoClaw, Grafana Pyroscope, and LibrePods",
+    "Product Manager I @ Arrivy (2025–2026)",
+    "Leading AI and full-stack product development @ SmartLogics",
     "Organizer of FAST's first CTF competition (150+ participants)",
     "CS Grad from FAST-NUCES",
   ],
@@ -142,7 +166,10 @@ export const featuredProjects: ReadonlyArray<{
     href: "https://nitspot-frontend-rust.vercel.app",
     description:
       "Contacts and lead pipeline, LinkedIn outreach, opportunities, daily reports, calendar, dashboards, and notifications across in-app, email, and web push. The browser talks to Supabase directly behind row-level security, while a Hono API on Cloudflare Workers or Render handles privileged work, scheduled jobs, and an OAuth-secured MCP connector for AI clients.",
-    resources: [{ label: "Live app", href: "https://nitspot-frontend-rust.vercel.app" }],
+    resources: [
+      { label: "Live app", href: "https://nitspot-frontend-rust.vercel.app" },
+      { label: "How the MCP connector works", href: "/blog/oauth-mcp-server-crm/", external: false },
+    ],
   },
   {
     title: "Cuttlefish",
@@ -164,6 +191,7 @@ export const featuredProjects: ReadonlyArray<{
       { label: "Live app", href: "https://turboalanrefiner-ten.vercel.app" },
       { label: "Frontend source", href: "https://github.com/QuantumBreakz/TurboAlanRefinerFrontend" },
       { label: "Backend source", href: "https://github.com/QuantumBreakz/TurboRefinerBackend" },
+      { label: "Streaming through Next.js", href: "/blog/nextjs-sse-proxy-streaming/", external: false },
     ],
   },
   {
@@ -173,7 +201,10 @@ export const featuredProjects: ReadonlyArray<{
     href: "https://github.com/QuantumBreakz/Linkedin-Automation",
     description:
       "A privacy-first platform for researchers: connect a research identity once through ORCID, OpenAlex, arXiv, PubMed, or Crossref, and it continuously turns new publications into authentic LinkedIn content that stays faithful to the source.",
-    resources: [{ label: "Source", href: "https://github.com/QuantumBreakz/Linkedin-Automation" }],
+    resources: [
+      { label: "Source", href: "https://github.com/QuantumBreakz/Linkedin-Automation" },
+      { label: "How it stops invented numbers", href: "/blog/stop-llm-inventing-numbers/", external: false },
+    ],
   },
   {
     title: "NitLead",
@@ -207,7 +238,7 @@ export const openSourceContributions: ReadonlyArray<{
   project: string;
   href: string;
   description: string;
-  pullRequests: ReadonlyArray<{ label: string; href: string; status: ContributionStatus }>;
+  pullRequests: ReadonlyArray<{ label: string; href: string; status: ContributionStatus; writeup?: string }>;
 }> = [
   {
     project: "LiteLLM",
@@ -219,11 +250,13 @@ export const openSourceContributions: ReadonlyArray<{
         label: "Stop re-compressing retrieved CCR content in client tool loops",
         href: "https://github.com/BerriAI/litellm/pull/38591",
         status: "Merged",
+        writeup: "/blog/litellm-context-compression-bug/",
       },
       {
         label: "Identify auto-router savings targets by deployment",
         href: "https://github.com/BerriAI/litellm/pull/38834",
         status: "Fixed upstream",
+        writeup: "/blog/llm-router-savings-deployment-id/",
       },
     ],
   },
@@ -240,28 +273,38 @@ export const openSourceContributions: ReadonlyArray<{
     href: "https://github.com/nodejs/node",
     description:
       "A change to the HTTP module so buffered outgoing data is counted in bytes rather than string length, letting backpressure apply when the socket buffer is actually full.",
-    pullRequests: [{ label: "http: count buffered outgoing data in bytes", href: "https://github.com/nodejs/node/pull/66039", status: "In review" }],
+    pullRequests: [
+      {
+        label: "http: count buffered outgoing data in bytes",
+        href: "https://github.com/nodejs/node/pull/66039",
+        status: "In review",
+        writeup: "/blog/node-http-backpressure-bytes/",
+      },
+    ],
   },
   {
     project: "NanoClaw",
     href: "https://github.com/nanocoai/nanoclaw",
     description:
-      "Reported and fixed an unauthenticated loopback webhook (CWE-306) that let any local process forge interaction responses; the maintainers shipped the fix in #4013, crediting my PR. I also have fixes in review for WhatsApp sender identity across channels and cross-session task visibility.",
+      "Fixed an unauthenticated loopback webhook (CWE-306) that let any local process forge interaction responses; the maintainers shipped a header-based fix in #4013 that superseded and credited my PR. I also have fixes in review for WhatsApp sender identity across channels and cross-session task visibility.",
     pullRequests: [
       {
         label: "Authenticate loopback webhook to prevent action forgery",
         href: "https://github.com/nanocoai/nanoclaw/pull/3065",
         status: "Fixed upstream",
+        writeup: "/blog/localhost-is-not-authentication/",
       },
       {
         label: "Unify WhatsApp sender identity between Baileys and Cloud paths",
         href: "https://github.com/nanocoai/nanoclaw/pull/3070",
         status: "In review",
+        writeup: "/blog/whatsapp-sender-identity-normalization/",
       },
       {
         label: "Fix scheduled task cross-session visibility and errors",
         href: "https://github.com/nanocoai/nanoclaw/pull/3068",
         status: "In review",
+        writeup: "/blog/agent-tool-error-messages/",
       },
       { label: "Correct SECURITY.md for v2", href: "https://github.com/nanocoai/nanoclaw/pull/3066", status: "In review" },
     ],
@@ -275,6 +318,7 @@ export const openSourceContributions: ReadonlyArray<{
         label: "Move prometheus.io/service-monitor to labels for the headless service",
         href: "https://github.com/grafana/pyroscope/pull/5377",
         status: "In review",
+        writeup: "/blog/servicemonitor-labels-vs-annotations/",
       },
     ],
   },
@@ -288,11 +332,13 @@ export const openSourceContributions: ReadonlyArray<{
         label: "Linux: show all connected AirPods in the tray tooltip",
         href: "https://github.com/librepods-org/librepods/pull/676",
         status: "In review",
+        writeup: "/blog/airpods-battery-linux-librepods/",
       },
       {
         label: "Android: skip volume ducking when only one AirPod is worn",
         href: "https://github.com/librepods-org/librepods/pull/675",
         status: "In review",
+        writeup: "/blog/airpods-battery-linux-librepods/",
       },
     ],
   },

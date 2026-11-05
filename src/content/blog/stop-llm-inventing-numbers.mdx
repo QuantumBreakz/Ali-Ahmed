@@ -1,0 +1,71 @@
+---
+title: "How to stop an LLM from inventing numbers: evidence containment and numeral tracing"
+description: "In a research-to-LinkedIn pipeline, LLMs extract and write, but code decides what's true: verbatim evidence checks, discarding unsourced numbers, and tracing every numeral back to the paper."
+publishedAt: 2026-11-05
+tags: [AI Engineering, LLMs, Hallucinations, Evaluation]
+---
+
+You can't prompt an LLM out of inventing statistics, but you can make an invented number **impossible to publish**. In my [Research-to-LinkedIn Automation](https://github.com/QuantumBreakz/Linkedin-Automation) project, which turns a researcher's new papers into LinkedIn posts, the model extracts and drafts, while **deterministic code decides what counts as true**. Every "stated" claim needs a verbatim quote that is actually in the paper, any number without one is thrown away, and every numeral in the final draft must trace back to the source. If code says no, the draft fails, whatever the model thinks.
+
+## Why are invented numbers the worst hallucination?
+
+Posting about someone's research under their name means one wrong number is a public misquote of their own work. A vague sentence is embarrassing. A fabricated "37% reduction" is a correction request. So the design treats **invented statistics as the highest-severity failure**, and spends its strictest checks there.
+
+## Step 1: How do you make extraction honest?
+
+Extraction is schema-driven (Zod plus the provider's structured-output mode), so there's no free-text parsing. Each claim carries a **provenance**:
+
+- **`STATED`**: the paper says it. `evidence` must be a verbatim quote.
+- **`INFERRED`**: a reasonable conclusion that isn't stated directly.
+- **`ABSENT`**: the paper doesn't say. The prompt tells the model this is **correct and preferred over guessing**.
+
+Two structural choices do most of the work:
+
+1. **Ask only for what the source can support.** If only the abstract is available, the schema doesn't even have fields for methodology, dataset or limitations. The model can't make up a methodology because there's nowhere to put one.
+2. **Confidence is computed, not self-reported.** It's the share of claims that survive verification, not a number the model gives itself.
+
+## Step 2: What is evidence containment?
+
+After the model answers, code checks every `STATED` claim:
+
+```ts
+function containsEvidence(source: string, evidence: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+  return norm(evidence).length > 0 && norm(source).includes(norm(evidence));
+}
+```
+
+- A `STATED` claim whose quote **isn't in the paper** is downgraded to `INFERRED`, and its fake evidence is cleared.
+- An **important number** whose quote isn't in the paper is **discarded entirely**. Numbers don't get a downgrade path.
+
+It's plain substring matching after normalising case and whitespace. That's crude, and that's the point: a quote either appears in the paper or it doesn't, and no model gets a vote.
+
+## Step 3: How do you verify the finished draft?
+
+The drafting model writes from the extraction, not the paper, so errors can creep back in. The draft then goes through **two independent checks in parallel**, and both must pass:
+
+**A. An LLM fact-checker** labels each claim `SUPPORTED`, `HEDGED_OK`, `UNSUPPORTED` or `CONTRADICTED`, and flags overstatement and anything that reads like medical advice.
+
+**B. Deterministic checks**, which **override** the LLM:
+
+- **Numeral tracing.** Every numeral in the draft (including forms like `12.5%` or `3×`) must appear in the verified important numbers or literally in the source text. One unmatched number fails the draft.
+- **Causal-language guard.** If a sentence uses "causes", "proves", "cures", "prevents" or similar, and the backing finding is phrased as correlation ("associated", "suggests", "may"), the draft fails for overstatement.
+
+The rule from the design doc: **if a check can be decided in code, code decides it.** An LLM judge is good at nuance and bad at reliably noticing that 0.37 became 37%.
+
+## What doesn't this catch?
+
+Being honest about the gaps matters as much as the checks:
+
+- **A real number in the wrong place.** Tracing confirms a number exists in the source, not that the draft attaches it to the right finding. The LLM pass is what catches that.
+- **Paraphrase drift.** A claim can be reworded until it no longer means what the quote supports. Containment checks the evidence, not the paraphrase.
+- **Substring matching is literal.** A quote broken by a hyphenation artefact from PDF extraction can fail even though it's real. That's the safe direction to fail in.
+
+## The general pattern
+
+1. Let the model say **"I don't know"** (`ABSENT`), and reward it.
+2. Make every claim carry **verifiable evidence**, and verify it in code.
+3. **Delete**, don't downgrade, anything high-stakes that fails.
+4. Use an LLM judge for nuance, with **deterministic checks holding the veto**.
+
+Related: [writing tool errors that AI agents understand](/blog/agent-tool-error-messages/), and [building an OAuth 2.1 MCP server](/blog/oauth-mcp-server-crm/).

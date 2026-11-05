@@ -1,0 +1,50 @@
+---
+title: "How Rosetta, Wine and DXVK run software on machines it was never built for"
+description: "Rosetta translates CPU instructions, Wine reimplements the Windows API, and DXVK turns DirectX into Vulkan. Three translation layers, three different problems."
+publishedAt: 2026-11-05
+tags: [Systems, Operating Systems, Gaming]
+---
+
+Translation layers let software run on hardware or operating systems it was never built for, without a full virtual machine. They work at different levels: **Rosetta 2 translates CPU instructions** (x86-64 to ARM), **Wine reimplements the Windows API** on Linux and macOS, and **DXVK and VKD3D-Proton turn DirectX graphics calls into Vulkan**. None of them pretends to be the original system. They translate intent.
+
+## What problem do translation layers solve?
+
+A Windows game or an Intel-only Mac app depends on two things its new home may lack:
+
+1. **The CPU's instruction set.** x86-64 and ARM speak different machine languages.
+2. **The operating system's APIs.** Windows programs call `CreateWindow`, DirectX, the registry and Windows file semantics.
+
+A virtual machine emulates the whole computer, which is heavy. Translation layers replace only the missing piece.
+
+## How does Rosetta 2 work?
+
+Apple Silicon Macs use ARM chips, but years of Mac software was compiled for Intel's x86-64. **Rosetta 2 doesn't emulate an Intel processor.** It **translates x86-64 machine code into ARM machine code**, mostly ahead of time when an app is first launched, and on the fly for code generated at runtime (JIT compilers in browsers and runtimes, for example).
+
+It's fast partly because Apple designed the hardware to help. Apple Silicon has a mode that matches x86's stricter memory-ordering rules, so translated code doesn't need expensive extra barriers. The app thinks it's running normally.
+
+## How does Wine work?
+
+A Windows `.exe` contains x86 instructions, which already run fine on an x86 Linux machine, but it also expects Windows to be underneath. **Wine** (the name is a recursive acronym for "Wine Is Not an Emulator") **reimplements the Windows API** on top of Linux and macOS.
+
+When a program calls a Windows function, Wine provides its own version of that function and does the equivalent work with Linux or macOS system calls. It translates **operating-system behaviour**, not CPU instructions.
+
+## How does DXVK turn DirectX into Vulkan?
+
+Games add one more dependency: **Direct3D**, Microsoft's graphics API, which only exists on Windows.
+
+- **DXVK** translates Direct3D 9, 10 and 11 calls into **Vulkan**.
+- **VKD3D-Proton** does the same for **Direct3D 12**.
+
+The game asks for DirectX, the system provides Vulkan, and the game never knows. Valve's **Proton** bundles Wine, DXVK and VKD3D-Proton, which is how the Steam Deck runs a large share of the Windows game library on Linux. On the Mac, Apple's **Game Porting Toolkit** applies the same idea, translating DirectX to Metal.
+
+## Translation, not emulation
+
+| Layer               | Translates       | From → To                 |
+| ------------------- | ---------------- | ------------------------- |
+| Rosetta 2           | CPU instructions | x86-64 → ARM64            |
+| Wine                | OS API calls     | Windows API → Linux/macOS |
+| DXVK / VKD3D-Proton | Graphics calls   | Direct3D → Vulkan         |
+
+One CPU instruction becomes another. One Windows API call becomes a Linux call. One DirectX command becomes a Vulkan command. Different languages, same meaning.
+
+Some of the most impressive engineering in computing happens quietly like this: whole software ecosystems surviving platform changes because people figured out how to make different worlds understand each other.

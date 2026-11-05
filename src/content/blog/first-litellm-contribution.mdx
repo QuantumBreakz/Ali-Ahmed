@@ -1,0 +1,45 @@
+---
+title: "How I got my first pull request merged into LiteLLM"
+description: "What my LiteLLM fix for context compression taught me about making a first open-source contribution to a large project: finding the issue, CI, and getting merged."
+publishedAt: 2026-11-05
+tags: [Open Source, AI Engineering, LLMs]
+---
+
+My first contribution to **LiteLLM**, the open-source LLM gateway, was [PR #38591](https://github.com/BerriAI/litellm/pull/38591). It fixed a bug where content an agent had retrieved was compressed again and lost, which made agents loop. It was merged. If you want to make your first open-source contribution, the short version is: pick a project you already use, reproduce one specific bug, fix only that bug, and let the project's CI teach you its standards.
+
+## What was the bug?
+
+LiteLLM can compress long context before sending it to a model. Large content is swapped for a compact reference, and the model can call a retrieval tool with that reference to get the full content back when it needs it.
+
+The bug hit clients that **run their own tool loop**. When the agent asked for the full content, the retrieved text went back through compression and was **replaced by the same reference again**. The agent never saw the content it had asked for, so it either asked again (a loop) or answered from an empty skeleton.
+
+The fix was to **stop re-compressing content that had just been retrieved** in those client-side tool loops.
+
+## How do you find something to work on?
+
+I wasn't hunting for a famous repository. I was using LiteLLM, had some free time, and saw something I could pick up. That's the best starting point, because you already understand the problem as a user.
+
+What worked for me:
+
+- **Start from your own friction.** A bug you've hit is a bug you can reproduce.
+- **Read the issue tracker for "good first issue" or a recent regression,** and check nobody has already claimed it.
+- **Reproduce it locally first.** A failing test or a minimal script is worth more than a long description.
+
+## What did the CI teach me?
+
+LiteLLM is a big, fast-moving repository, and its CI/CD is thorough: linting, type checks, a large test suite and more. Going through those checks was one of the most useful parts. I picked up ideas I've since applied to my own projects, including at [SmartLogics](/experience/).
+
+A big project's CI is a free code review of your habits. Let it fail, read why, and fix it properly rather than working around it.
+
+## How do you get a PR merged?
+
+- **Keep it small.** One bug, one fix, one test. Reviewers merge what they can understand quickly.
+- **Explain the failure, not just the change.** Steps to reproduce, what was expected, what happened.
+- **Add the test that would have caught it.**
+- **Respond quickly to review comments.**
+
+## What came next?
+
+That first PR made the next ones easier. I've since contributed to **Node.js** (counting buffered HTTP output in bytes, not string length, so backpressure works), **Symfony**, **Grafana Pyroscope**, **LibrePods**, and **NanoClaw**, where I wrote a fix for an [unauthenticated loopback webhook](/blog/localhost-is-not-authentication/). The full list is on my [projects page](/projects/).
+
+The best part wasn't the code. It was seeing that a small, careful fix to a project used by thousands of people is completely within reach. Here's to many more.

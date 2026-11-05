@@ -52,6 +52,8 @@ export function BlogCodeBlock({ children, ...props }: ComponentProps<typeof Code
       {...props}
       ref={content}
       allowCopy={false}
+      // Each scroll region is a landmark: give titled blocks a distinct name so several per page stay unique.
+      viewportProps={{ ...props.viewportProps, "aria-label": typeof props.title === "string" ? `Code: ${props.title}` : "Code" }}
       Actions={({ className }) => (
         <div className={className}>
           <button type="button" className="blog-code-copy" aria-label="Copy code" disabled={state === "copying"} onClick={() => void copy()}>

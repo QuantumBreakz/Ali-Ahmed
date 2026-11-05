@@ -1,5 +1,5 @@
 ---
-import { site } from "../data/site";
+import { personId, site } from "../data/site";
 
 interface Props {
   title: string;
@@ -13,13 +13,51 @@ interface Props {
   imageAlt?: string;
   imageWidth?: number;
   imageHeight?: number;
+  /** Extra schema.org nodes for this page; the Person and WebSite nodes are always included. */
+  jsonLd?: Record<string, unknown>[];
 }
 
-const { title, description, canonical, markdown, llms, robots, type = "website", image, imageAlt, imageWidth, imageHeight } = Astro.props;
+const {
+  title,
+  description,
+  canonical,
+  markdown,
+  llms,
+  robots,
+  type = "website",
+  image,
+  imageAlt,
+  imageWidth,
+  imageHeight,
+  jsonLd = [],
+} = Astro.props;
 const canonicalUrl = canonical?.toString();
 const markdownUrl = markdown?.toString();
 const llmsUrl = llms?.toString();
 const imageUrl = image?.toString();
+const structuredData = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": personId,
+      name: site.fullName,
+      alternateName: "QuantumBreakz",
+      url: `${site.url}/`,
+      image: new URL(site.socialImage.src, site.url).href,
+      email: `mailto:${site.email}`,
+      jobTitle: site.jobTitle,
+      description: site.homeDescription,
+      worksFor: { "@type": "Organization", name: site.worksFor.name, url: site.worksFor.url },
+      alumniOf: { "@type": "CollegeOrUniversity", name: site.alumniOf },
+      address: { "@type": "PostalAddress", addressLocality: site.location.locality, addressCountry: site.location.country },
+      knowsAbout: site.knowsAbout,
+      sameAs: site.sameAs,
+    },
+    { "@type": "WebSite", "@id": `${site.url}/#website`, url: `${site.url}/`, name: site.fullName, publisher: { "@id": personId } },
+    ...jsonLd,
+  ],
+}).replace(/</g, "\\u003c");
 ---
 
 <meta name="generator" content={Astro.generator} />
@@ -37,7 +75,7 @@ const imageUrl = image?.toString();
 {imageAlt && <meta property="og:image:alt" content={imageAlt} />}
 {imageWidth && <meta property="og:image:width" content={String(imageWidth)} />}
 {imageHeight && <meta property="og:image:height" content={String(imageHeight)} />}
-<meta name="twitter:card" content="summary" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content={title} />
 {description && <meta name="twitter:description" content={description} />}
 {imageUrl && <meta name="twitter:image" content={imageUrl} />}
@@ -52,3 +90,4 @@ const imageUrl = image?.toString();
 {markdownUrl && <link rel="alternate" type="text/markdown" href={markdownUrl} title={`${title} as Markdown`} />}
 {llmsUrl && <link rel="alternate" type="text/plain" href={llmsUrl} title="LLM content index" />}
 <title>{title}</title>
+<script type="application/ld+json" is:inline set:html={structuredData} />

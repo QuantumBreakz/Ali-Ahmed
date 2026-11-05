@@ -1,0 +1,61 @@
+---
+title: "What actually gets deployed to production? (Not your code)"
+description: "Production runs an immutable build artifact (a Docker image, bundle or JAR), not your repository. Why that makes rollbacks instant. Modern Deployments, part 4."
+publishedAt: 2026-11-05
+tags: [Modern Deployments, CI/CD, DevOps]
+---
+
+What gets deployed to production is **not your source code but a build artifact**: an immutable snapshot your pipeline produced from it, such as a Docker image, a compiled Next.js output, a Java JAR or a serverless package. Production servers never pull your repository or compile TypeScript on demand. They run the artifact. That one idea explains rollbacks, environment changes and most of CI/CD.
+
+_Part 4 of the Modern Deployments series. Previous: [serverless cold starts](/blog/serverless-cold-starts-explained/)._
+
+## What happens between git push and production?
+
+A simplified pipeline looks like this:
+
+```text
+git push
+  → clone repository
+  → install dependencies
+  → compile / transpile
+  → bundle and optimise
+  → run tests
+  → create build artifact
+  → deploy artifact
+```
+
+The interesting part isn't the pipeline. It's what comes out of it.
+
+## What is a build artifact?
+
+An artifact is the **runnable output** of a build, frozen at one point in time:
+
+| Stack        | Typical artifact                                |
+| ------------ | ----------------------------------------------- |
+| Containers   | Docker / OCI image                              |
+| Next.js      | `.next` build output, or a static `out/` folder |
+| Java         | JAR or WAR file                                 |
+| Serverless   | Zipped function package                         |
+| Static sites | A folder of HTML, CSS and JS                    |
+
+It's **immutable**: once built, it never changes. If you want different behaviour, you build a new one.
+
+## Why are rollbacks so fast?
+
+When you roll back on Vercel or Render, the platform usually **doesn't rebuild anything**. It points traffic back at a previous artifact that already exists. Switching a pointer takes seconds, while a rebuild takes minutes.
+
+The same idea explains preview deployments: every branch gets its own artifact and its own URL.
+
+## Why does changing a dependency need a new deployment?
+
+Because you aren't editing a running application. A new dependency, a build setting, or (on many platforms) a build-time environment variable changes the inputs to the build, so you need a **new artifact**. Runtime configuration is different, and is the subject of the next post: [where your environment variables actually go](/blog/where-do-environment-variables-go/).
+
+## How should this change how you think about CI/CD?
+
+Once this clicked for me, CI/CD stopped feeling like "automation" and started feeling like a **manufacturing line**. Every commit goes in, and a production-ready artifact comes out. Three practical consequences:
+
+- **Build once, promote everywhere.** The artifact that passed staging should be the exact artifact that reaches production.
+- **Make builds reproducible.** Lockfiles, pinned base images and pinned tool versions mean the same commit gives the same artifact.
+- **Tag artifacts with the commit.** When something breaks, you should know exactly which code is running.
+
+We're not deploying repositories anymore. We're deploying artifacts, and everything before that is the process of making them.

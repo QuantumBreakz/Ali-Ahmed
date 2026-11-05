@@ -1,0 +1,41 @@
+---
+title: "One phone number, two users: normalising WhatsApp sender IDs across Baileys and the Cloud API"
+description: "Baileys sends 15551234567@s.whatsapp.net, the WhatsApp Cloud API sends 15551234567, so one person became two users with different roles. Canonical IDs and a merge migration fix it."
+publishedAt: 2026-11-05
+tags: [Open Source, AI Agents, Databases, WhatsApp]
+---
+
+If a system can receive messages from the same person through two integrations, **both must produce the same user ID**, or that person silently becomes two users with different permissions. In **NanoClaw**, the Baileys WhatsApp integration identified a sender as `15551234567@s.whatsapp.net` (a JID), while the WhatsApp Cloud API path used the bare `wa_id`, `15551234567`. Roles and group memberships granted to one identity never applied to the other. My fix ([#3070](https://github.com/nanocoai/nanoclaw/pull/3070), in review) normalises the handle at one point and migrates existing data, merging the duplicates.
+
+## Why did one number become two users?
+
+| Path                                       | Sender handle                | Stored user ID                        |
+| ------------------------------------------ | ---------------------------- | ------------------------------------- |
+| Baileys (native WhatsApp Web protocol)     | `15551234567@s.whatsapp.net` | `whatsapp:15551234567@s.whatsapp.net` |
+| WhatsApp Cloud API (via a chat SDK bridge) | `15551234567`                | `whatsapp:15551234567`                |
+
+Both paths use the channel type `whatsapp`, so the two IDs became two rows in `users`. Anyone moving a number from Baileys to the Cloud API, or running both at once, found that the approvals, roles and agent-group memberships they'd set up "didn't work". In fact they'd been granted to a different user.
+
+The cause was one line: the code built the user ID directly from whatever raw handle the adapter emitted.
+
+## How should you normalise identifiers?
+
+1. **Pick one canonical form.** Here that's bare digits, which the Cloud API already emits.
+2. **Normalise at one point, as early as possible.** A `normalizeWhatsAppHandle(channelType, handle)` helper strips the `@s.whatsapp.net` domain and the optional `:device` suffix, and it's applied exactly where the user ID is built.
+3. **Scope it narrowly.** It only touches WhatsApp **user** JIDs. Group JIDs (`@g.us`) and every other channel pass through unchanged.
+4. **Don't normalise identifiers that mean something else.** The messaging-group routing ID is left as the raw JID on purpose, because routing depends on it. "Who sent this" and "where to reply" are different identities.
+
+## How do you fix data that's already split?
+
+Normalising new messages isn't enough: existing installations already have both rows. A one-time migration:
+
+- **Rewrites** every user ID stored in JID form to the canonical form.
+- **Cascades** the rename through every table that references users: roles, agent-group members, DMs, and the optional approval and dropped-message tables.
+- **Merges** when a canonical row already exists (because the person also messaged through the Cloud API). Roles and memberships are **unioned** into the canonical row and the JID row is deleted, so nobody loses access in the merge.
+- **Runs in a transaction**, with the migration runner checking foreign-key integrity before it commits.
+
+## The general lesson
+
+Any system with more than one way in (two messaging providers, email plus OAuth, a web app plus an API) needs a **canonical identity** decided at the boundary. Otherwise permission bugs show up as "it works for some people", which is the hardest kind to debug. For agent platforms the stakes are higher: identity decides who may approve what an agent does.
+
+Related: [localhost is not authentication](/blog/localhost-is-not-authentication/), another NanoClaw fix.

@@ -1,0 +1,63 @@
+---
+title: "Labels vs annotations: how one YAML indent made Prometheus scrape Pyroscope twice"
+description: "A Helm refactor moved prometheus.io/service-monitor from labels to annotations, so the ServiceMonitor stopped excluding Pyroscope's headless service and metrics were duplicated."
+publishedAt: 2026-11-05
+tags: [Kubernetes, Prometheus, Helm, Open Source]
+---
+
+A Prometheus `ServiceMonitor` selects Services by **labels**. It never looks at **annotations**. In Grafana Pyroscope's Helm chart, a refactor nested `prometheus.io/service-monitor: "false"` under `annotations` instead of `labels` on the headless Service, so the exclusion silently stopped working. Prometheus scraped every pod twice, as `job="pyroscope"` and `job="pyroscope-headless"`. My fix, [grafana/pyroscope#5377](https://github.com/grafana/pyroscope/pull/5377) (in review), moves the key back under `metadata.labels`.
+
+## What's the difference between labels and annotations in Kubernetes?
+
+Both are key-value metadata, but they do different jobs:
+
+| Aspect                                                      | Labels                          | Annotations                               |
+| ----------------------------------------------------------- | ------------------------------- | ----------------------------------------- |
+| Purpose                                                     | Identify and **select** objects | Attach non-identifying information        |
+| Used by selectors (Services, ServiceMonitors, kubectl `-l`) | **Yes**                         | No                                        |
+| Typical content                                             | `app`, `component`, `tier`      | build info, tool configuration, long text |
+
+Some tools read _annotations_ for configuration, like the old `prometheus.io/scrape` convention for annotation-based scraping. That's exactly why the two get mixed up. But the Prometheus Operator's `ServiceMonitor` uses a **label selector**.
+
+## How did the chart exclude the headless Service?
+
+Pyroscope runs a normal Service and a headless one pointing at the same pods. Scraping both would duplicate every metric, so the chart's `ServiceMonitor` excludes Services marked with a label:
+
+```yaml title="ServiceMonitor selector"
+selector:
+  matchExpressions:
+    - key: prometheus.io/service-monitor
+      operator: NotIn
+      values:
+        - "false"
+```
+
+The headless Service carries `prometheus.io/service-monitor: "false"`, so it's left out. That only works if the key is a **label**.
+
+## What broke?
+
+A change that added support for custom `headlessAnnotations` (#4451) changed the YAML nesting in `services.yaml`. The `prometheus.io/service-monitor: "false"` line ended up under `metadata.annotations`.
+
+Nothing failed. `helm template` still rendered valid YAML, the Service still worked, and Prometheus still scraped. It just scraped the same pod IPs twice under two job names (issue #5215): duplicate series, double the storage for those metrics, and dashboards that sum by job quietly counting double.
+
+## How did I fix it?
+
+- I moved the `prometheus.io/service-monitor: "false"` block so it renders under `metadata.labels` for the headless Service.
+- I kept the `headlessAnnotations` feature from #4451 working.
+- I bumped the chart version (2.1.2 → 2.1.3) and regenerated the rendered golden fixtures with `make helm/check`.
+
+You can verify it with:
+
+```bash title="Check the rendered headless Service"
+helm template . -s templates/services.yaml --set serviceMonitor.enabled=true
+```
+
+and check that the key now sits under `metadata.labels` on the headless Service.
+
+## How do you catch this class of bug?
+
+- **Test the selection, not just the rendering.** A golden-file test that asserts "the headless Service has label X" would have failed when the key moved.
+- **Watch for duplicate series.** The same `instance` showing up under two `job` values is a classic sign of double scraping.
+- **Review YAML nesting changes like logic changes.** In Helm templates, indentation _is_ the logic.
+
+More upstream fixes, from LiteLLM to Node.js, are on my [projects page](/projects/).

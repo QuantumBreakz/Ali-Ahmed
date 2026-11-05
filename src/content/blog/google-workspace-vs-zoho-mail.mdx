@@ -1,0 +1,57 @@
+---
+title: "Google Workspace vs Zoho Mail for a small startup: is the price gap worth it?"
+description: "For a 10-person team, Zoho Mail Lite cost about $120–150 a year against roughly $840 for Google Workspace. The trade-offs, and the DNS setup it took."
+publishedAt: 2026-11-05
+tags: [Startups, Email, DNS]
+---
+
+For a startup that mainly needs business email, **Zoho Mail is far cheaper than Google Workspace**. For our 10-person team it came to roughly **$120–150 a year** on Zoho Mail Lite, against about **$840 a year** for Google Workspace Business Starter. That's because Workspace charges for a whole productivity suite. If your team lives in Docs, Drive, Meet and Gemini, Workspace earns its price. If you need reliable email with proper admin controls, Zoho is the easy call.
+
+_Prices are what I saw when I set this up. Both change, so check current pricing._
+
+## Why does business email cost so much?
+
+Nobody tells you that the expensive part of starting a company isn't always the engineering. It's the subscriptions: Slack, ClickUp, GitHub, hosting, domains, monitoring, and then business email.
+
+My first instinct was Google Workspace. It's the default and a great product. When I did the maths, though, I realised I wasn't paying for email. I was paying for a productivity suite.
+
+## How do the costs compare for 10 people?
+
+| Aspect                                  | Google Workspace Business Starter         | Zoho Mail Lite                          |
+| --------------------------------------- | ----------------------------------------- | --------------------------------------- |
+| Approx. price per user / month (annual) | ~$7                                       | ~$1–1.25                                |
+| 10 users / year                         | ~$840                                     | ~$120–150                               |
+| Includes                                | Gmail, Drive, Docs, Meet, Gemini features | Mail, calendar, contacts, admin console |
+
+That difference alone covered several of our other subscriptions.
+
+## What does the Zoho setup involve?
+
+It isn't as polished as clicking "Next" a few times. It took an afternoon:
+
+1. **Verify the domain** with a TXT record.
+2. **MX records** to route incoming mail to Zoho.
+3. **SPF**: a TXT record listing who may send mail for your domain.
+4. **DKIM**: a public key in DNS, so receivers can verify your messages weren't altered.
+5. **DMARC**: a policy telling receivers what to do with mail that fails SPF or DKIM. Start with `p=none` and monitor, then tighten.
+6. **Create mailboxes, groups and aliases** (such as `hello@` and `support@`).
+7. **Enforce MFA** for everyone from the admin panel.
+8. **Connect clients** over IMAP or POP3 for people who prefer Gmail, Outlook or Apple Mail.
+
+Get SPF, DKIM and DMARC right and deliverability is a non-issue. Get them wrong and your emails land in spam, whichever provider you use.
+
+## Did anyone notice the difference?
+
+No. Everyone had their own address at the company domain, shared inboxes worked, authentication was in place, and people kept using whichever mail client they liked. From the team's side, email just worked.
+
+## When is Google Workspace worth it?
+
+- Your team collaborates in Docs, Sheets and Drive every day
+- You rely on Meet and Calendar scheduling across the company
+- You want Gemini built into your documents and mail
+
+If that's you, pay for Workspace. If not, you're paying for software you won't open.
+
+## The broader lesson
+
+Early on, **every recurring subscription deserves the same scrutiny as a big technical decision**. Small monthly choices compound into big annual savings, and early-stage runway is made of exactly those choices.

@@ -27,8 +27,9 @@ interface Props {
   tags?: string[];
   article?: boolean;
   draftPreview?: boolean;
+  jsonLd?: Record<string, unknown>[];
 }
-const { title, description, article = false, draftPreview = false, ...page } = Astro.props;
+const { title, description, article = false, draftPreview = false, jsonLd, ...page } = Astro.props;
 const entries = await getPublishedBlog();
 ---
 
@@ -52,6 +53,7 @@ const entries = await getPublishedBlog();
       imageAlt={site.socialImage.alt}
       imageWidth={site.socialImage.width}
       imageHeight={site.socialImage.height}
+      jsonLd={jsonLd}
     />
   </head>
   <body class="blog-surface">

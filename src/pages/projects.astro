@@ -57,6 +57,12 @@ import { featuredProjects, githubContributionsUrl, githubRepositoriesUrl, openSo
               {contribution.pullRequests.map((pullRequest) => (
                 <li>
                   <ExternalLink href={pullRequest.href}>{pullRequest.label}</ExternalLink> · {pullRequest.status}
+                  {pullRequest.writeup && (
+                    <>
+                      {" · "}
+                      <a href={pullRequest.writeup}>Read the write-up</a>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

@@ -1,0 +1,45 @@
+---
+title: "What is a serverless cold start, really?"
+description: "A cold start is the time a platform spends creating an execution environment before your handler runs. What happens step by step, and how to make it shorter."
+publishedAt: 2026-11-05
+tags: [Modern Deployments, Serverless, Performance]
+---
+
+A **cold start** is the extra time a serverless platform spends creating an execution environment before your code can handle a request: finding compute, starting an isolated sandbox, booting the language runtime, loading your code and running its top-level initialisation. A **warm** request reuses an environment that already exists, which is why the first request after idle can take 2–3 seconds and the next one about 100 ms.
+
+_Part 3 of the Modern Deployments series. Previous: [your app runs on a desired state](/blog/servers-you-deploy-to/)._
+
+## Did the function "go to sleep"?
+
+That's the usual explanation, and it's a decent mental model, but it isn't what happens. Nothing sleeps. The platform **reclaims** the environment. On a traditional server, your process is already running: memory allocated, runtime initialised, waiting for the next request. Serverless flips that. If a function hasn't been invoked for a while, the platform takes its CPU and memory back, because there is no reason to keep resources reserved for idle code.
+
+## What happens during a cold start?
+
+When the next request arrives, your handler is not the first thing that runs. The platform has to:
+
+1. **Find available compute** in its fleet.
+2. **Create an isolated execution environment**: a container, a micro-VM (AWS Lambda uses Firecracker), or a V8 isolate on edge runtimes.
+3. **Start the language runtime**: Node.js, Python, the JVM.
+4. **Load your deployment artifact.** See [what actually gets deployed](/blog/what-gets-deployed-to-production/).
+5. **Run module-level initialisation**: imports, globals, SDK clients, config loading.
+6. **Invoke your handler.**
+
+All of that is the cold start. On a warm invocation, steps 1–5 are skipped.
+
+## Why does bundle size matter?
+
+Steps 4 and 5 grow with your code. The more you ship, and the more work you do at import time, the longer it takes before the first line of your handler runs. A function that imports a huge SDK to call one endpoint pays for the whole SDK on every cold start.
+
+## How do you reduce cold starts?
+
+- **Ship less code.** Tree-shake, bundle, and drop dependencies you don't use.
+- **Initialise lazily.** Create expensive clients on first use, not at import time. Reuse them across warm invocations by keeping them in module scope.
+- **Pick a lighter runtime** where you can. Isolate-based edge runtimes start much faster than full containers, but support fewer APIs.
+- **Keep instances warm** with provisioned concurrency or minimum instances. This works, but you're now paying for idle compute again, which is the thing serverless was meant to avoid.
+- **Put the database close by.** A cold start next to a slow database connection handshake feels twice as bad.
+
+## Are cold starts a bug?
+
+No. They're the price of creating compute on demand instead of paying to keep it running. Once you understand the lifecycle, the behaviour stops being surprising, and you can decide case by case whether to optimise it away or pay for warmth.
+
+Next: [what actually gets deployed to production?](/blog/what-gets-deployed-to-production/)

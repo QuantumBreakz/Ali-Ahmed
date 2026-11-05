@@ -1,0 +1,49 @@
+---
+title: "How does Uber show cars moving in real time? A system design breakdown"
+description: "Push instead of polling, H3 hexagonal indexing to find nearby drivers, and prediction plus correction to keep cars moving smoothly. How ride-hailing works at scale."
+publishedAt: 2026-11-05
+tags: [System Design, Distributed Systems, Geospatial]
+---
+
+A ride-hailing app like Uber shows cars moving in real time by combining three ideas: **push messaging** (the server sends updates only when something changes, instead of the app polling), **spatial indexing with hexagons** (Uber's open-source **H3** library, so a request only looks at drivers in nearby cells instead of every driver), and **prediction plus correction** on the phone, which keeps the car icon gliding even when network updates arrive late.
+
+## Why not just poll for updates?
+
+The naive design has the app ask the server every few seconds: _"Any updates? How about now?"_ Uber's engineers have written about how this fell apart at scale. Most polling requests come back with nothing new, yet each one costs battery, bandwidth and server capacity, and on app launch they compete with the requests that matter.
+
+So Uber moved to **push**. It built a real-time messaging platform, called **RAMEN** in its engineering blog, that keeps a connection open to each app and sends updates when they exist. That platform decides:
+
+- **When** to send: only on meaningful change. If a driver moves two metres, the rider doesn't need a message.
+- **What** to send: a small diff, not the whole trip state.
+- **How** to send it: over a long-lived connection (Server-Sent Events at first, later gRPC streams).
+
+## How do you find nearby drivers among millions?
+
+Computing the distance from a rider to every driver is fine with 100 drivers and hopeless with millions.
+
+Instead, the world is divided into cells. Uber open-sourced its grid as **H3**, a hierarchical **hexagonal** index. Every latitude and longitude maps to a cell ID at a chosen resolution. Drivers report their location, and the system keeps track of which cell each driver is in. To find drivers near a rider:
+
+1. Look up the rider's cell.
+2. Take that cell plus its ring of neighbours (`k`-ring).
+3. Check only the drivers in those cells.
+
+The search no longer scales with the total number of drivers on the platform, only with the number nearby.
+
+## Why hexagons instead of squares?
+
+In a square grid, a cell has 4 edge neighbours and 4 corner neighbours at different distances, so "one ring of neighbours" is a lumpy shape. In a hexagonal grid **all 6 neighbours sit at the same distance** from the centre. Rings of hexagons approximate circles much better, which makes "everything within roughly X km" simple and fair.
+
+## How do cars move smoothly with patchy data?
+
+Real networks drop packets and phones report GPS irregularly. If the app just jumped the icon to each new position, cars would teleport. Two standard techniques fix this:
+
+- **Prediction (dead reckoning):** between updates, estimate where the car should be from its last speed, heading and the road it's on, and animate it there.
+- **Correction (filtering):** when a real update arrives, blend the prediction with the measurement instead of snapping. A **Kalman filter** is the classic tool: it weighs each source by how much it can be trusted.
+
+Snapping positions to the road network (map matching) removes the rest of the jitter.
+
+## What's the lesson?
+
+"A car moving on a map" turns out to be real-time distributed messaging, event filtering, spatial indexing, predictive modelling and network optimisation, all working together quietly. **The simplest user experiences are often powered by the most complex systems.**
+
+If you like system design breakdowns, read [what a serverless cold start really is](/blog/serverless-cold-starts-explained/).

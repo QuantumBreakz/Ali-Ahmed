@@ -1,0 +1,41 @@
+---
+title: "Your AI agent thinks its tasks were deleted: how to write tool errors for LLM agents"
+description: "An agent saw 'task not found' and recreated its schedules, causing duplicates. Tool errors for LLMs must say why and what to do next. Lessons from NanoClaw and an MCP server."
+publishedAt: 2026-11-05
+tags: [AI Agents, AI Engineering, MCP, Open Source]
+---
+
+A human reads "not found" and goes looking. An AI agent reads "not found", concludes the thing is gone, and **acts on that conclusion**: it recreates it, deletes something else, or tells the user their data was lost. In **NanoClaw**, an agent framework, a bare "task not found" across sessions led agents to decide their scheduled tasks had been deleted, so they created duplicates. The fix I proposed ([#3068](https://github.com/nanocoai/nanoclaw/pull/3068), in review) changed no logic. It made the errors and outputs tell the agent **where the task actually is and what to do next**.
+
+## What went wrong?
+
+In NanoClaw, scheduled tasks are **scoped to the agent group, not the session**. A group can have several sessions (a broadcast channel and an operator console, for example), and a task created in one is visible from the others.
+
+But the task tools gave poor feedback across sessions. When an agent in one session called `get_task` or `update_task` on a task that lived in a sibling session (or had completed or been cancelled), the answer amounted to "not found". The agent's mental model, "tasks are mine and per-session", filled in the rest: _my task was deleted._ So it scheduled it again, which produced duplicated or misconfigured schedules (issue #2992).
+
+## How do you fix an agent's wrong mental model?
+
+Three changes, none of which touch the scheduler itself:
+
+1. **Errors that explain.** When a task isn't found in the current session, the tool now searches the other sessions in the group. If the task is there, the error names the **session and messaging group it lives in** and its status (such as `completed` or `cancelled`), and tells the agent to look it up with `get <id>` instead of assuming it was deleted.
+2. **Context in normal output.** `list_tasks` and `get_task` now include the task's **origin messaging group** (id and name), so the agent can tell which task belongs to which setup without guessing.
+3. **Instructions that match the implementation.** The scheduling instructions the agent reads now say plainly that task visibility is group-scoped, and explain cross-session listing.
+
+A regression test reproduces the original cross-session scenario from #2992.
+
+## What makes a good tool error for an LLM?
+
+I've applied the same rules in the read-only [MCP server I built for a CRM](/blog/oauth-mcp-server-crm/):
+
+- **Say why, not just what.** "deals are not visible to your role" stops a retry loop. "403" starts one.
+- **Say what to do next.** "The result is too large: use a smaller limit or more filters" gives the model a concrete next move.
+- **Never leave a believable but wrong conclusion open.** If "not found" could mean deleted, elsewhere, or never existed, say which one.
+- **Separate tool failures from protocol failures.** In MCP, a tool that ran and failed returns content with `isError: true`, which the model reads. A malformed request is a JSON-RPC error. Mixing them up hides the useful message.
+- **Don't leak internals.** "The query failed" is better than echoing database error text into a model's context, and into its answer to the user.
+- **Hide what the user can't use.** Tools a role can't call shouldn't appear in `tools/list` at all.
+
+## Why does this matter so much for agents?
+
+With a human user, a vague error costs a support ticket. With an agent it costs an **action**: a duplicate schedule, a second email, a recreated record. Agents act on the most likely reading of what they see. The tool's output is effectively part of the prompt, so write it like part of the prompt.
+
+More AI engineering write-ups: [how to stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/) and [the context-compression bug that made agents loop](/blog/litellm-context-compression-bug/).
