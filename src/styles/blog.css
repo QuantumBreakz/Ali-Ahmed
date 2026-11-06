@@ -211,7 +211,6 @@
 }
 .blog-filters a span {
   font-variant-numeric: tabular-nums;
-  opacity: 0.8;
 }
 .blog-filter-status {
   color: var(--muted);

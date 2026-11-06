@@ -1,0 +1,100 @@
+---
+title: "A tamper-evident audit log for AI agents: three bugs in my hash chain, and the fix"
+description: "Cuttlefish logs every agent action to a SHA-256 hash chain. Reviewing it, I found hashes nobody could recompute, parallel agents forking the chain, and a 'recent entries' query returning the oldest. Here's a version that verifies."
+publishedAt: 2026-11-06
+tags: [AI Agents, Security, Python, AI Engineering]
+---
+
+A hash-chained audit log only works if someone can **recompute every hash later**. Each entry stores the hash of the previous one, so changing any old entry breaks every link after it. **Cuttlefish**, an agentic financial intelligence platform I built ([backend source](https://github.com/QuantumBreakz/Cuttlefish-backend)), logs each agent action this way in what it calls the TrustGraph. Reviewing it, I found three bugs. The worst one made the chain **impossible to verify at all**. Below are the bugs and a 40-line version, tested, that fixes them.
+
+## Why do AI agents need an audit log?
+
+In Cuttlefish, several agents (builder, signal, permit, predictive, compliance, and a meta-auditor) work on one task, sometimes in parallel. Their output feeds ESG scores and financial analysis. When a number looks wrong, you need to answer "which agent did what, with which input, in which order?", and you need confidence that the record hasn't been edited since. An append-only log where each entry carries `previous_hash` and `current_hash` is the simplest structure that gives you both.
+
+## Bug 1: a hash nobody can recompute
+
+The hash was computed over the entry **plus `time.time()` taken at the moment of hashing**:
+
+```python title="The original hash input"
+data = {
+    "entry_id": entry.entry_id,
+    "agent_action": action_dict,
+    "previous_hash": entry.previous_hash,
+    "timestamp": time.time(),
+}
+```
+
+That timestamp was never saved. The file stores a *different* timestamp (`datetime.now().isoformat()`, taken later). To verify an entry, you have to rebuild exactly the bytes that were hashed, and one of them is gone. So **no entry can ever be verified**. A tampered log and an untouched one look the same. The chain only looked secure.
+
+**Rule:** hash exactly what you store, serialised the same way every time (sorted keys, fixed separators), and store every field that went into the hash.
+
+## Bug 2: parallel agents fork the chain
+
+To append, the code reads the last line's hash, builds the entry, then writes it, with an `await` on file I/O in between. Parallel workflows run agents with `asyncio.gather`, and each one logs its action. Two agents can both read the same "last hash" before either writes. Both entries then point to the same parent. The chain forks, and a verifier walking the file in order sees a broken link where nothing was tampered with.
+
+**Rule:** reading the head and appending must be one atomic step. In one process, an `asyncio.Lock` around both is enough. With several workers you need a file lock, or a database with a unique constraint on `previous_hash`, so the second writer fails and retries.
+
+## Bug 3: "most recent" returned the oldest
+
+The query for recent entries stopped reading once it had `limit` entries, then returned `entries[-limit:]`. Since it stopped early, those were the **first** entries in the file. The docstring said "most recent". The fix is to read everything and keep the last `limit`, for example with `collections.deque(maxlen=limit)`.
+
+## A version that verifies
+
+This is the version I'd ship. A test appends 20 entries concurrently, checks that the chain verifies, edits one score, and checks that the verifier reports that exact line:
+
+```python title="trust_log.py"
+import asyncio, hashlib, json, time, uuid
+from pathlib import Path
+
+LOG = Path("trust.jsonl")
+_lock = asyncio.Lock()
+
+def entry_hash(body: dict) -> str:
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+def last_hash() -> str | None:
+    if not LOG.exists():
+        return None
+    lines = LOG.read_text().splitlines()
+    return json.loads(lines[-1])["current_hash"] if lines else None
+
+async def append(action: dict) -> dict:
+    async with _lock:
+        body = {
+            "entry_id": str(uuid.uuid4()),
+            "action": action,
+            "previous_hash": last_hash(),
+            "recorded_at": time.time(),
+        }
+        entry = {**body, "current_hash": entry_hash(body)}
+        with LOG.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+        return entry
+
+def verify() -> int | None:
+    previous = None
+    for number, line in enumerate(LOG.read_text().splitlines(), start=1):
+        entry = json.loads(line)
+        stored = entry.pop("current_hash")
+        if entry["previous_hash"] != previous or entry_hash(entry) != stored:
+            return number
+        previous = stored
+    return None
+```
+
+`verify()` returns `None` for an intact log, or the number of the first line that doesn't match. Reading the whole file to find the last hash is fine for thousands of entries. For millions, keep the head hash in memory or in the database.
+
+## Is a hash chain enough on its own?
+
+No. A chain proves the log is **internally consistent**. Anyone who can write the file can still rewrite every entry and recompute every hash. To make tampering detectable, **publish the head hash somewhere the writer can't change**: a separate service, a signed daily checkpoint, or a public anchor. The original entry even had an `ipfs_reference` field for this, but it was never set. Without that anchor, the chain is a good integrity check but not proof against someone who controls the server.
+
+## The checklist
+
+- **Hash exactly what you store**, with canonical JSON.
+- **Make "read head, append" atomic.**
+- **Ship a verifier** and run it in CI or on a schedule. An unverified chain is decoration.
+- **Anchor the head hash** outside the system that writes the log.
+- **Test tampering on purpose:** edit one entry and assert that the verifier finds it.
+
+More on making AI systems accountable: [stopping an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/) and [authorisation for AI clients with OAuth and row-level security](/blog/oauth-mcp-server-crm/).

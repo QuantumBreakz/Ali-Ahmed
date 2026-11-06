@@ -1,0 +1,105 @@
+---
+title: "Error budgets and burn rates explained with code: what 14.4 means, and a maintenance-window bug"
+description: "A 99.9% SLO over 30 days allows 43.2 minutes of failure. How to compute error budget spent and burn rate, why a burn rate of 14.4 over an hour pages someone, and the maintenance-window mismatch I found in my own monitoring console."
+publishedAt: 2026-11-06
+tags: [SRE, Monitoring, TypeScript, Reliability]
+---
+
+An **error budget** is the amount of failure your SLO allows: a 99.9% target over 30 days allows 0.1% of that time, which is **43.2 minutes**. **Burn rate** is how fast you're spending it: a burn rate of 1 uses the whole budget exactly by the end of the window, and a burn rate of **14.4 sustained for one hour spends 2% of a 30-day budget**, which is the usual threshold for paging someone. Below is how I compute both in **Kestrel**, a small synthetic-monitoring console I built ([source](https://github.com/QuantumBreakz/Kestrel)), and a mismatch I found where the two calculations treat planned maintenance differently.
+
+## What is an SLO, in numbers?
+
+- **SLI (indicator):** what you measure. In Kestrel, the fraction of HTTP checks that succeeded.
+- **SLO (objective):** the target for it over a window, such as 99.9% over 30 days.
+- **Error budget:** `1 − target`, as a share of the window. 0.1% of 30 days is 43.2 minutes.
+
+| Target | Budget over 30 days |
+| ------ | ------------------- |
+| 99%    | 7 h 12 min          |
+| 99.5%  | 3 h 36 min          |
+| 99.9%  | 43.2 min            |
+| 99.95% | 21.6 min            |
+| 99.99% | 4.3 min             |
+
+## How do you compute budget spent?
+
+Kestrel takes the checks inside the window, drops the ones that ran during **planned maintenance**, and measures availability as successful checks ÷ checks. Maintenance time is also taken out of the window itself, so the budget isn't charged for downtime you announced:
+
+```ts title="slo.ts (core of evaluateSlo)"
+const failures = considered.filter((run) => !run.ok).length;
+const availability = (considered.length - failures) / considered.length;
+
+const windowMs = evaluation.end - evaluation.start - excusedTime(windows, evaluation);
+const allowedDowntimeMs = windowMs * (1 - monitor.sloTarget);
+const observedDowntimeMs = windowMs * (1 - availability);
+
+const budgetSpent = allowedDowntimeMs > 0 ? observedDowntimeMs / allowedDowntimeMs : 0;
+```
+
+`budgetSpent` above 1 means the SLO is breached. One detail matters in `excusedTime`: overlapping maintenance windows are **merged before they're summed**, so a minute covered by two announcements isn't excused twice. Without that, two overlapping two-hour windows would excuse four hours.
+
+## What is burn rate, and why 14.4?
+
+Burn rate compares the recent failure rate with the failure rate the SLO allows:
+
+```ts title="Burn rate"
+const failureRate = failedChecks / totalChecks;
+const allowedFailureRate = 1 - monitor.sloTarget;
+const burnRate = failureRate / allowedFailureRate;
+```
+
+At burn rate 1, you finish the window with exactly zero budget left. At 10, you'd use 30 days of budget in 3 days.
+
+The 14.4 comes from asking "how much budget can one bad hour cost before someone should wake up?" A 30-day window has 720 hours. Burning at 14.4× for 1 hour uses 14.4 ÷ 720 = **2% of the budget**. Google's SRE workbook recommends paging pairs along these lines:
+
+| Burn rate | Measured over | Budget used | Action  |
+| --------- | ------------- | ----------- | ------- |
+| 14.4      | 1 hour        | 2%          | Page    |
+| 6         | 6 hours       | 5%          | Page    |
+| 1         | 3 days        | 10%         | Ticket  |
+
+A short window catches outages quickly; a long one catches slow leaks that never look dramatic in any single hour. Real alerting also checks a much shorter window (say five minutes) at the same time, so the alert stops soon after the problem does.
+
+## What was the maintenance-window bug?
+
+`evaluateSlo` excludes checks during planned maintenance. `fastBurnRate`, the short-window function for paging, **doesn't take maintenance windows at all**. During a planned one-hour migration where every check fails, the 30-day report correctly charges nothing, while the burn rate reads 1,000 for a 99.9% target, far above the 14.4 threshold. An alert built on it would page someone for maintenance everyone already knew about.
+
+It hadn't caused a page yet because nothing in the UI calls `fastBurnRate`. That's the moment to fix it, before alerting is built on it. The fix is to filter with the same rule in both places:
+
+```ts title="Same exclusion for both calculations"
+export function fastBurnRate(
+  monitor: Monitor,
+  runs: CheckRun[],
+  windows: MaintenanceWindow[],
+  now: number,
+  lookbackMs: number,
+): number {
+  const recent = runs.filter(
+    (run) =>
+      run.startedAt >= now - lookbackMs &&
+      run.startedAt <= now &&
+      !isExcused(run.startedAt, windows),
+  );
+  if (recent.length === 0) return 0;
+
+  const failureRate = recent.filter((run) => !run.ok).length / recent.length;
+  const allowedFailureRate = 1 - monitor.sloTarget;
+  if (allowedFailureRate <= 0) return failureRate > 0 ? Infinity : 0;
+  return failureRate / allowedFailureRate;
+}
+```
+
+And a test that pins the behaviour: a window where every check fails inside maintenance must return a burn rate of 0.
+
+## What are the limits of check-based availability?
+
+Counting checks treats each one equally. If one region checks every 30 seconds and another every 5 minutes, the fast region dominates the number. Either check every region at the same interval, or weight each check by the time it represents. And a synthetic check only measures what it requests: a green health endpoint says nothing about a broken checkout page.
+
+## Summary
+
+- Error budget = `(1 − target) × window`. 99.9% over 30 days = 43.2 minutes.
+- Budget spent = observed downtime ÷ allowed downtime; above 1 means breached.
+- Burn rate = failure rate ÷ allowed failure rate. 14.4 for an hour spends 2% of a 30-day budget.
+- **Apply the same exclusions** (maintenance, test traffic) to every calculation that feeds an alert.
+
+For more on what runs in production and why, see [what actually gets deployed to production](/blog/what-gets-deployed-to-production/) and [labels vs annotations in Prometheus ServiceMonitors](/blog/servicemonitor-labels-vs-annotations/).

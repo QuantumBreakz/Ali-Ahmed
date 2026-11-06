@@ -178,7 +178,10 @@ export const featuredProjects: ReadonlyArray<{
     href: "https://cuttlefish-frontend.vercel.app",
     description:
       "I built an agentic financial intelligence platform combining LLM orchestration, document ingestion, semantic retrieval, conversational memory, and RAG. The FastAPI backend adds ESG scoring, multi-agent swarm orchestration, and a trust graph that keeps an audit trail of every agent's work.",
-    resources: [{ label: "Live app", href: "https://cuttlefish-frontend.vercel.app" }],
+    resources: [
+      { label: "Live app", href: "https://cuttlefish-frontend.vercel.app" },
+      { label: "Fixing the agent audit log", href: "/blog/ai-agent-audit-log-hash-chain/", external: false },
+    ],
   },
   {
     title: "Turbo Alan Refiner",
@@ -220,7 +223,10 @@ export const featuredProjects: ReadonlyArray<{
     stack: "Python · TypeScript · Docker",
     description:
       "LeadForge turns raw business search results into qualified leads. Each stage, from prospect discovery and company enrichment to scoring, email drafting, and campaign preparation, runs and can be tested on its own.",
-    resources: [],
+    resources: [
+      { label: "Source", href: "https://github.com/QuantumBreakz/LeadForge" },
+      { label: "Guarding the LLM against prompt injection", href: "/blog/prompt-injection-scraped-data-llm-outreach/", external: false },
+    ],
   },
   {
     title: "ZKFT",

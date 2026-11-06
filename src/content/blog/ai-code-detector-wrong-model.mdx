@@ -1,0 +1,80 @@
+---
+title: "My AI-written code detector judged Python with a JavaScript model: lessons from building one for interviews"
+description: "An interview platform scored candidates' code as AI- or human-written. Reviewing it, I found every language went through the JavaScript model, line-level evidence that was manufactured, and a dataset too small to trust."
+publishedAt: 2026-11-06
+tags: [AI Engineering, Machine Learning, Hiring, Python]
+---
+
+An AI-written code detector can look like it's working while it checks your code with the wrong model. **Master the Interview**, an AI technical interviewer I built ([source](https://github.com/QuantumBreakz/Master-the-Interview)), labels a candidate's code as AI- or human-written. Reviewing it later, I found its API scored **Python and Java with the models trained on JavaScript**. The cause was one block at the end of the training script. It raised no error, and the output still looked confident. Its line-by-line evidence was partly **made up by the code itself**, and the dataset was too small for any accuracy figure to mean much. Here is what went wrong and what I'd ship instead.
+
+## How does the detector work?
+
+The setup is a common one for text classification:
+
+- **Training data:** folders of AI-written and human-written files per language. Python has 48 AI and 78 human files, Java 18 and 18, JavaScript 21 and 21.
+- **Features:** TF-IDF over **character n-grams**, with different ranges per language (3–5 characters for Python, 3–7 for Java's longer keywords, 2–6 for JavaScript) and 5,000 features each.
+- **Models:** logistic regression, random forest, gradient boosting and XGBoost, trained per language.
+- **Ensemble:** each model votes with its confidence, and the side with the larger total wins.
+- **Explanations:** a line-by-line view, plus regex "characteristics" such as docstrings and type hints (counted as AI) or TODO comments and short variable names (counted as human).
+
+## Why did Python go through the JavaScript model?
+
+The training script trains each language in a loop and saves each one correctly to `model/<language>/`. Then, after the loop, a leftover block saves the models again to the top-level `model/` folder:
+
+```python title="End of train.py"
+joblib.dump(log_model, "model/logistic.pkl")
+joblib.dump(rf_model, "model/randomforest.pkl")
+joblib.dump(gb_model, "model/gradientboost.pkl")
+joblib.dump(vectorizer, "model/vectorizer.pkl")
+joblib.dump(xgb_model, "model/xgboost.pkl")
+```
+
+`log_model`, `vectorizer` and the others are loop variables. After the loop they hold the **last language trained**, which is JavaScript. The API loads exactly these top-level files. The repository proves it: `model/vectorizer.pkl` and `model/xgboost.pkl` are **byte-for-byte identical** to the files in `model/javascript/`, with the same SHA-1 hashes.
+
+So a Python submission was split into the JavaScript vectorizer's character n-grams and judged by four models that had only ever seen about 33 JavaScript files (the 80% training share of 42). Nothing crashed. Every request returned a label and a confidence.
+
+The fix is to choose the model by language and refuse anything else:
+
+```python title="Load the model for the submission's language"
+from pathlib import Path
+import joblib
+
+SUPPORTED = {"python", "java", "js"}
+
+def load_language(language: str) -> dict:
+    if language not in SUPPORTED:
+        raise ValueError(f"No detector trained for {language!r}")
+    folder = Path("model") / language
+    return {name: joblib.load(folder / f"{name}.pkl")
+            for name in ("vectorizer", "logistic", "random_forest", "gradient_boost", "xgboost")}
+```
+
+Then delete the leftover block so the top-level files can't be loaded by mistake again.
+
+## Is the ensemble really four opinions?
+
+Not really. All four models are trained on **the same features from the same few files**, so their mistakes are correlated. "4 of 4 models agree" sounds like strong evidence, but it is closer to one opinion asked four times. With features this similar, one well-calibrated model and an honest confidence interval are worth more than a vote.
+
+## What was wrong with the line-by-line evidence?
+
+The line view ran each line through the model on its own, which is already shaky: the model was trained on whole files, and a single line looks nothing like one. Worse, a "consistency check" then **changed the results**. If the file was judged AI but fewer than 30% of its lines were, the code flipped the least confident "human" lines to "AI" with a fixed confidence of 0.55 until half of them agreed. The reverse happened for human verdicts.
+
+An interviewer seeing highlighted "AI" lines would reasonably take them as evidence. Some were created to match a conclusion already reached. If the parts disagree with the whole, show that disagreement. It's a real signal of uncertainty, and hiding it is worse than an ugly chart.
+
+## Do style heuristics detect AI code?
+
+They mostly detect **style**. Rules that score docstrings, type hints and error handling as "AI", and TODOs, debug prints and one-letter names as "human", reward sloppy code and penalise careful engineers. They are also trivial to game: paste AI output, rename a few variables, and add a `TODO`.
+
+## How much data do you need to trust an accuracy number?
+
+More than this. With an 80/20 split, the Java test set is about **8 files**, so each file moves accuracy by 12.5 percentage points. A detector can score 100% on 8 files by luck. Before showing any accuracy, I would want:
+
+- **Hundreds of files per language**, from many authors and many models, including code that was edited after generation.
+- **A test set from different authors** than the training set, so the model can't learn individual style.
+- **Per-language metrics with confidence intervals**, published next to the feature.
+
+## What should an AI code detector be used for in hiring?
+
+Not for rejecting anyone. Even well-built detectors make mistakes, and an AI label can cost a person a job. The useful version is a **prompt for the interviewer**: "This section reads as generated. Ask the candidate to walk through it and change it live." A person who wrote the code, or understands what an AI wrote for them, passes that easily. That question works on its own, without a model.
+
+The same rule runs through my other AI work: a model's output is a claim to check, not a fact. See [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/) and [how to write errors an AI agent can act on](/blog/agent-tool-error-messages/).
