@@ -1,0 +1,56 @@
+---
+title: "Face liveness detection explained: presentation attacks, injection attacks and how they're measured"
+description: "Liveness detection checks that a live person, not a photo, screen replay or mask, is in front of the camera. Active vs passive liveness, the ISO 30107-3 metrics APCER and BPCER, and why deepfake injection needs a separate defence."
+publishedAt: 2026-11-06
+tags: [KYC, Computer Vision, Security, AI Engineering]
+---
+
+**Liveness detection** checks that the face in front of the camera belongs to a **live person who is present right now**, rather than a printed photo, a video replayed on a screen, or a mask. In the standards it's called **presentation attack detection (PAD)**, and it's measured with two error rates from **ISO/IEC 30107-3**: **APCER** (attacks wrongly accepted) and **BPCER** (real people wrongly rejected). There's a second, newer threat that PAD alone doesn't cover: **injection attacks**, where a deepfake video is fed straight into the app through a virtual camera, so nothing is ever "presented" to a lens. A KYC system needs a defence against both.
+
+## Why does face matching need liveness?
+
+[Face matching](/blog/face-match-threshold-far-frr/) answers "is this the same person as the document photo?" A fraudster with someone's ID card often also has their photo, from social media or from the card itself. Without liveness, holding that photo up to the camera would pass the face match. Liveness is the step in the [KYC pipeline](/blog/how-kyc-identity-verification-works/) that makes the face match mean something.
+
+## What attacks does liveness have to stop?
+
+Roughly in order of cost to the attacker:
+
+| Attack                     | Example                                                        | Typical cost |
+| -------------------------- | -------------------------------------------------------------- | ------------ |
+| Printed photo              | A photo, sometimes with eyes cut out                           | Very low     |
+| Screen replay              | A video of the victim played on a phone                        | Low          |
+| Paper or cloth mask        | A printed face worn over the attacker's                        | Low          |
+| 3D mask                    | Resin, latex or silicone mask                                  | High         |
+| Injected video or deepfake | Synthetic video fed through a virtual camera or a modified app | Falling fast |
+
+## Active vs passive liveness
+
+- **Active liveness** asks the user to do something: turn the head, blink, follow a dot, or read out digits. It's harder to replay a fixed video, but it's slower, users fail the instructions, and a real-time deepfake can follow instructions too.
+- **Passive liveness** decides from a selfie or a short clip with no instructions. Models look for cues such as moiré patterns from screens, paper texture, missing depth, unnatural reflections and edges around a mask. It's a better experience, and it's now the common choice, but it needs training data that covers many attack types and many cameras.
+
+Many systems combine both: passive by default, with an active challenge when the passive score is uncertain.
+
+## How is liveness measured?
+
+ISO/IEC 30107-3 defines the two error rates that matter:
+
+- **APCER (attack presentation classification error rate):** the share of attacks classified as real. Measured **per attack type**, and the worst type is what counts, because attackers use whatever works.
+- **BPCER (bona fide presentation classification error rate):** the share of real people classified as attacks. Every one of these is a genuine customer who failed to sign up.
+
+Like a [face match threshold](/blog/face-match-threshold-far-frr/), the liveness threshold trades one against the other. Independent labs test products against these metrics; iBeta's conformance testing, for example, has levels that differ in how much time and money the testers may spend on each attack. A vendor's claim of "99% accuracy" without APCER per attack type and BPCER at the same threshold doesn't tell you much.
+
+## Why are injection attacks different?
+
+Presentation attack detection assumes the image came from a real camera looking at **something**. An injection attack skips the camera: a virtual camera driver, an emulator, a hooked app or a man-in-the-middle swaps in a pre-recorded or real-time deepfake stream. The pixels can be a perfectly "live-looking" face, because they were generated to be.
+
+Defending against it is mostly **not a vision problem**. It needs signals about the capture path: device integrity and attestation, detecting virtual cameras and emulators, checking that the stream really came from the device's camera, and binding the capture to the session with a server-issued challenge. In Europe, CEN/TS 18099 now covers evaluating defences against injection attacks, separately from PAD.
+
+## What should a team building KYC take away?
+
+- **Treat liveness as two problems:** presentation attacks (vision) and injection attacks (device and transport security).
+- **Ask for APCER per attack type and BPCER at one threshold**, not a single accuracy number.
+- **Test on your own users' devices.** Cheap phone cameras, low light and compression change what the model sees.
+- **Measure fairness.** Error rates can differ across skin tones, ages and genders, and an unequal BPCER means some groups are turned away more often.
+- **Log every decision with its scores**, so rejections can be explained and audited later. See [tamper-evident audit logs](/blog/ai-agent-audit-log-hash-chain/) for one way to do that.
+
+Related: [how passport MRZ check digits work](/blog/passport-mrz-check-digits/) and [OCR for non-Latin scripts](/blog/ocr-non-latin-scripts-arabic-urdu/). I worked on computer vision for identity verification at ShuftiPro; more on the [home page](/).

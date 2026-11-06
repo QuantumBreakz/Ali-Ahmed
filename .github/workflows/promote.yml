@@ -1,0 +1,78 @@
+name: Promote new posts
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/content/blog/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Index, cross-post and announce
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+
+      - name: Find posts added by this push
+        id: new
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          slugs=""
+          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            slugs=$(git diff --diff-filter=A --name-only "$BEFORE" "$AFTER" -- 'src/content/blog/*.md' 'src/content/blog/*.mdx' \
+              | xargs -r -n1 basename | sed -E 's/\.mdx?$//' | grep -E '^[a-z0-9-]+$' | tr '\n' ' ' || true)
+          fi
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+          echo "New posts: ${slugs:-none}"
+
+      - name: Wait for Cloudflare to deploy them
+        env:
+          SLUGS: ${{ steps.new.outputs.slugs }}
+        run: |
+          if [ -z "$SLUGS" ]; then sleep 300; exit 0; fi
+          for slug in $SLUGS; do
+            for attempt in $(seq 1 80); do
+              curl --silent --fail --output /dev/null "https://aliahmed.si/blog/$slug.md" && break
+              [ "$attempt" = 80 ] && { echo "$slug is not live after 20 minutes"; exit 1; }
+              sleep 15
+            done
+            echo "$slug is live"
+          done
+
+      - name: Submit the sitemap to IndexNow
+        run: node scripts/promote/indexnow.mjs
+
+      - name: Cross-post to DEV
+        env:
+          DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
+        run: |
+          if [ -z "$DEVTO_API_KEY" ]; then echo "DEVTO_API_KEY secret not set; skipping DEV."; exit 0; fi
+          node scripts/promote/devto.mjs --publish
+
+      - name: Announce on Bluesky and Mastodon
+        env:
+          SLUGS: ${{ steps.new.outputs.slugs }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
+          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+        run: node scripts/promote/announce.mjs $SLUGS

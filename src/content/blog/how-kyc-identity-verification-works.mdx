@@ -1,0 +1,61 @@
+---
+title: "How KYC identity verification works: document capture, OCR, face match and liveness, step by step"
+description: "What happens between 'take a photo of your ID' and 'verified': document detection, classification, OCR and MRZ checks, face matching, liveness, and the decision. An AI engineer's walkthrough of each stage and where it fails."
+publishedAt: 2026-11-06
+tags: [KYC, Computer Vision, OCR, AI Engineering]
+---
+
+Online **KYC (Know Your Customer) verification** answers two questions: **is this identity document genuine and readable**, and **is the person holding the phone the person on the document**? A typical pipeline runs six stages: capture, document detection and classification, data extraction (OCR and the MRZ), authenticity checks, face matching, and liveness detection, followed by a decision that combines them. I worked on the computer vision and multilingual OCR side of this at ShuftiPro, for documents from more than 100 countries. This post walks through each stage in order, and links to a deeper post on each one.
+
+## Step 1: Capture: why most failures start here
+
+Most rejected verifications aren't fraud. They're **bad photos**: glare on a laminated card, a thumb over the date of birth, motion blur, or a card photographed at an angle so steep that the text is unreadable. Good systems check quality **on the device, before upload**: is the whole card in frame, is it sharp enough, is there glare over a text field? Telling the user "move away from the light" during capture is cheaper than rejecting them two minutes later.
+
+## Step 2: Detect and classify the document
+
+The system finds the card's four corners, corrects the perspective so it becomes a flat rectangle, and decides **what document it is**: a Pakistani CNIC, a UK driving licence, a passport data page. Classification matters because every later step depends on it. It tells the system where each field sits, which script it's printed in, and which security features to expect. Thousands of document types and versions exist, and countries reissue designs, so this is a large classification problem with a long tail of rare classes.
+
+## Step 3: Extract the data: OCR and the MRZ
+
+Text recognition reads the fields: name, document number, dates, nationality. Two things make it harder than reading a receipt:
+
+- **Many scripts.** Arabic and Urdu, Cyrillic, Thai, Devanagari and Chinese each fail differently. Urdu's Nastaliq style, for example, has no straight baseline. See [why OCR struggles with Arabic, Urdu and other non-Latin scripts](/blog/ocr-non-latin-scripts-arabic-urdu/).
+- **Cross-checks.** Passports and many ID cards carry a **machine-readable zone (MRZ)** with built-in check digits, so the system can verify that what it read is internally consistent. See [how passport MRZ check digits work, with code](/blog/passport-mrz-check-digits/).
+
+When the visible text and the MRZ disagree, that's either an OCR error or a tampered document, and both deserve a closer look.
+
+## Step 4: Check that the document is genuine
+
+Authenticity checks look for signs of tampering: fonts that don't match the template, a photo pasted over the original, edited dates, a screen or printout being photographed instead of a physical card, and expected security features such as holograms that are missing. Some documents also have NFC chips that can be read and cryptographically verified, which is far stronger than any visual check, but needs a phone with NFC and the user's cooperation.
+
+## Step 5: Match the selfie to the document photo
+
+A face recognition model turns the document portrait and the selfie into **embeddings** (vectors), and compares them. The decision is a **threshold** on their similarity, and choosing it is a trade-off between letting impostors through and rejecting real people. See [how face match thresholds trade false accepts against false rejects](/blog/face-match-threshold-far-frr/).
+
+## Step 6: Prove the person is live
+
+Matching a face proves nothing if the "face" is a printed photo, a phone screen or a mask. **Liveness detection** (presentation attack detection) checks that a live person is in front of the camera, and a separate check is needed against **injected video** such as deepfakes fed through a virtual camera. See [face liveness detection explained](/blog/face-liveness-detection-explained/).
+
+## Step 7: The decision
+
+Each stage produces a result and a confidence. The final decision combines them with rules: approve, reject, or **send to a human reviewer**. Two design rules matter more than any single model:
+
+- **Every rejection needs a reason.** "Document expired" or "face mismatch" can be acted on. "Rejected" can't, and it becomes a support ticket. I used the same rule in a small [MQTT KYC verification pipeline](/blog/mqtt-kyc-verification-pipeline/), where every rejected card carries its list of reasons.
+- **Thresholds are business decisions.** A bank onboarding high-value accounts and a marketplace verifying sellers should not use the same thresholds.
+
+## Where does AI fit, and where doesn't it?
+
+Computer vision does the heavy lifting: detection, classification, OCR, face embeddings and liveness. Large language models are useful around the edges, for example normalising messy addresses or explaining a rejection to a reviewer, but the core checks should stay **deterministic and auditable**. When a regulator asks why someone was rejected, "the model felt unsure" isn't an answer. The same principle runs through [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/) and [tamper-evident audit logs for AI agents](/blog/ai-agent-audit-log-hash-chain/).
+
+## Summary
+
+| Stage               | Question it answers                     | Main failure mode                       |
+| ------------------- | --------------------------------------- | --------------------------------------- |
+| Capture             | Is the photo usable?                    | Glare, blur, cropping                   |
+| Detect and classify | Which document is this?                 | Rare or new document versions           |
+| OCR and MRZ         | What does it say, and is it consistent? | Non-Latin scripts, worn cards           |
+| Authenticity        | Is the document genuine?                | Good-quality forgeries                  |
+| Face match          | Is it the same person?                  | Threshold choice, ageing, image quality |
+| Liveness            | Is a live person present?               | Masks, replays, injected deepfakes      |
+
+More about my work on identity verification and AI systems is on the [home page](/) and the [projects page](/projects/).

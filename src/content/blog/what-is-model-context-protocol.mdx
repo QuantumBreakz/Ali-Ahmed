@@ -1,0 +1,58 @@
+---
+title: "What is the Model Context Protocol (MCP)? Tools, resources, transports and auth, explained by someone who built a server"
+description: "MCP is an open protocol that lets AI assistants call tools and read data from other systems. How it works (JSON-RPC, tools, resources, prompts), stdio vs Streamable HTTP, OAuth for remote servers, and what to get right when you build one."
+publishedAt: 2026-11-06
+tags: [MCP, AI Agents, LLMs, AI Engineering]
+---
+
+The **Model Context Protocol (MCP)** is an open protocol, introduced by Anthropic in November 2024, for connecting AI applications to tools and data. An **MCP server** exposes capabilities, mainly **tools** the model can call, **resources** it can read, and **prompts** users can choose. An **MCP client**, inside an app such as Claude, ChatGPT or an IDE, connects to the server and offers those capabilities to the model. Messages are **JSON-RPC 2.0**, carried over **stdio** for local servers or **Streamable HTTP** for remote ones, and remote servers use **OAuth 2.1** for authorization. Before MCP, every AI app needed its own integration for every service; with MCP, one server works with any client that speaks the protocol. I built an [OAuth 2.1 MCP server for a CRM](/blog/oauth-mcp-server-crm/), and this post explains the parts you need to understand to do the same.
+
+## What problem does MCP solve?
+
+An assistant is much more useful when it can **look things up and take actions**: search your CRM, read a ticket, create a calendar event. Without a standard, each app (Claude, Cursor, ChatGPT, your own agent) needs a custom connector for each service, so the work grows as apps × services. MCP makes it apps + services: each service writes one server, and each app writes one client.
+
+## What are the building blocks?
+
+| Primitive | Offered by | Who decides to use it | Example                            |
+| --------- | ---------- | --------------------- | ---------------------------------- |
+| Tools     | Server     | The model             | `search_contacts`, `create_task`   |
+| Resources | Server     | The application       | A file, a record, a schema         |
+| Prompts   | Server     | The user              | "Summarise this account" template  |
+| Sampling  | Client     | The server asks       | The server requests a completion   |
+| Roots     | Client     | The application       | Which folders a server may work in |
+
+Tools are what most people mean by MCP. Each tool has a name, a description and a **JSON Schema** for its input. The model reads the descriptions to decide when to call a tool, so writing them is closer to writing documentation than code. The same goes for errors: [how to write tool errors an AI agent can act on](/blog/agent-tool-error-messages/) covers why "not found" can make an agent do the wrong thing.
+
+## How does a session work?
+
+1. **Initialise.** The client and server exchange protocol versions and capabilities.
+2. **Discover.** The client lists the server's tools, resources and prompts.
+3. **Use.** When the model decides to call a tool, the client sends a `tools/call` request with arguments matching the schema; the server runs it and returns content.
+4. **Notify.** Either side can send notifications, for example when the tool list changes.
+
+## stdio or Streamable HTTP?
+
+- **stdio:** the client launches the server as a local process and talks over standard input and output. Simple, no network, good for local tools like file access. Trust comes from the fact that you installed and launched it.
+- **Streamable HTTP:** the server is a web endpoint that accepts JSON-RPC over HTTP POST and can stream responses. This is how you offer a server to users of hosted assistants. It replaced the earlier HTTP-with-SSE transport.
+
+A remote server is a public API, so it needs the security of one: authentication, authorization, rate limits and input validation.
+
+## How does authorization work for remote servers?
+
+The MCP authorization spec builds on **OAuth 2.1**. The MCP server acts as a resource server, and clients get tokens through an authorization server using the authorization code flow with **PKCE**. The decisions that mattered most when I built one:
+
+- **PKCE with S256 only**, exact redirect URI matching, and **single-use authorization codes**.
+- **Make the token a real user session**, so every tool call runs as that user and the database's existing permissions apply. In my CRM, Postgres **row-level security** decides what the AI can see, with no second permission system to keep in sync.
+- **Don't trust the transport as authentication.** A server bound to localhost is still reachable by every process on the machine; see [localhost is not authentication](/blog/localhost-is-not-authentication/).
+
+All of it is in [building an OAuth 2.1 MCP server for a CRM](/blog/oauth-mcp-server-crm/).
+
+## What should you get right when building an MCP server?
+
+- **Few, well-named tools** with precise descriptions and schemas. Twenty overlapping tools confuse the model.
+- **Errors that say why and what to do next.**
+- **Treat tool inputs as untrusted.** The model may have been steered by injected content; validate everything on the server. See [prompt injection from scraped data](/blog/prompt-injection-scraped-data-llm-outreach/).
+- **Least privilege.** Read-only tools by default; make destructive tools explicit.
+- **Log every call** with who, what and the result. For a tamper-evident version, see [audit logs for AI agents](/blog/ai-agent-audit-log-hash-chain/).
+
+More of my AI agent work, including the [Nitspot CRM](/projects/) MCP connector, is on the [projects page](/projects/).

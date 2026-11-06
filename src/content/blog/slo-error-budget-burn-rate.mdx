@@ -52,11 +52,11 @@ At burn rate 1, you finish the window with exactly zero budget left. At 10, you'
 
 The 14.4 comes from asking "how much budget can one bad hour cost before someone should wake up?" A 30-day window has 720 hours. Burning at 14.4× for 1 hour uses 14.4 ÷ 720 = **2% of the budget**. Google's SRE workbook recommends paging pairs along these lines:
 
-| Burn rate | Measured over | Budget used | Action  |
-| --------- | ------------- | ----------- | ------- |
-| 14.4      | 1 hour        | 2%          | Page    |
-| 6         | 6 hours       | 5%          | Page    |
-| 1         | 3 days        | 10%         | Ticket  |
+| Burn rate | Measured over | Budget used | Action |
+| --------- | ------------- | ----------- | ------ |
+| 14.4      | 1 hour        | 2%          | Page   |
+| 6         | 6 hours       | 5%          | Page   |
+| 1         | 3 days        | 10%         | Ticket |
 
 A short window catches outages quickly; a long one catches slow leaks that never look dramatic in any single hour. Real alerting also checks a much shorter window (say five minutes) at the same time, so the alert stops soon after the problem does.
 
@@ -67,19 +67,8 @@ A short window catches outages quickly; a long one catches slow leaks that never
 It hadn't caused a page yet because nothing in the UI calls `fastBurnRate`. That's the moment to fix it, before alerting is built on it. The fix is to filter with the same rule in both places:
 
 ```ts title="Same exclusion for both calculations"
-export function fastBurnRate(
-  monitor: Monitor,
-  runs: CheckRun[],
-  windows: MaintenanceWindow[],
-  now: number,
-  lookbackMs: number,
-): number {
-  const recent = runs.filter(
-    (run) =>
-      run.startedAt >= now - lookbackMs &&
-      run.startedAt <= now &&
-      !isExcused(run.startedAt, windows),
-  );
+export function fastBurnRate(monitor: Monitor, runs: CheckRun[], windows: MaintenanceWindow[], now: number, lookbackMs: number): number {
+  const recent = runs.filter((run) => run.startedAt >= now - lookbackMs && run.startedAt <= now && !isExcused(run.startedAt, windows));
   if (recent.length === 0) return 0;
 
   const failureRate = recent.filter((run) => !run.ok).length / recent.length;
@@ -103,3 +92,5 @@ Counting checks treats each one equally. If one region checks every 30 seconds a
 - **Apply the same exclusions** (maintenance, test traffic) to every calculation that feeds an alert.
 
 For more on what runs in production and why, see [what actually gets deployed to production](/blog/what-gets-deployed-to-production/) and [labels vs annotations in Prometheus ServiceMonitors](/blog/servicemonitor-labels-vs-annotations/).
+
+Latency SLOs need percentiles, and those have their own trap: [why you can't average p95 latencies](/blog/latency-percentiles-p95-averaging/).

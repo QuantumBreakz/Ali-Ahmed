@@ -1,0 +1,56 @@
+---
+title: "Why OCR struggles with Arabic, Urdu and other non-Latin scripts, and what helps"
+description: "Connected letters with up to four shapes, Urdu's sloping Nastaliq baseline, right-to-left text with left-to-right numbers, Eastern Arabic digits, and scripts without spaces. What breaks OCR on identity documents and how pipelines handle it."
+publishedAt: 2026-11-06
+tags: [OCR, Computer Vision, KYC, AI Engineering]
+---
+
+OCR models are mostly trained and benchmarked on **Latin text in straight lines**. Identity documents from 100+ countries break those assumptions: **Arabic** letters join and change shape by position, **Urdu** is usually written in **Nastaliq**, whose words slope down diagonally, text runs **right to left** while numbers run left to right, some documents use **Eastern Arabic digits**, and **Thai** and **Chinese** don't put spaces between words. What helps most is identifying the script first, routing to a model trained on it, and normalising the output before validating it. This is the part of KYC I worked on at ShuftiPro, building multilingual OCR for identity documents.
+
+## Why is Arabic script hard for OCR?
+
+- **Letters connect.** Arabic is cursive in print as well as handwriting, so you can't segment a word into separate characters the way you can with Latin text.
+- **One letter, up to four shapes.** Most letters have isolated, initial, medial and final forms. The model has to recognise all of them as the same character.
+- **Dots carry meaning.** Several letters differ only in the number and position of dots (ب ت ث). A speck of dust or a worn laminate can change the letter.
+- **Optional diacritics.** Short vowels are usually omitted, so the same spelling can have several pronunciations, and transliterating a name into Latin letters is ambiguous.
+
+## What makes Urdu Nastaliq harder still?
+
+Urdu uses the Arabic alphabet with extra letters, but it's commonly typeset in **Nastaliq**, a calligraphic style where each joined group of letters **slopes from upper right to lower left**. There's no single horizontal baseline, letters stack and overlap, and the same word can have a different width depending on its neighbours. Models built for Naskh-style Arabic, which sits on a flat baseline, do noticeably worse on Nastaliq. Pakistani documents carry Urdu next to English, so a pipeline has to handle both on one card.
+
+## Right-to-left text with left-to-right numbers
+
+Arabic and Urdu read right to left, but numbers inside them read **left to right**. Unicode stores text in **logical order** (the order you'd type it) and leaves display order to the bidirectional algorithm. An OCR model that outputs characters in visual order, left to right across the image, scrambles mixed text. Dates such as `12/04/1990` inside Urdu text are the classic failure.
+
+## Eastern Arabic digits
+
+Many documents print digits as **٠١٢٣٤٥٦٧٨٩** (Arabic-Indic) or the Persian and Urdu variants **۰۱۲۳۴۵۶۷۸۹**. They're different Unicode characters from `0–9`, so a database lookup or a date parser fails unless you normalise them:
+
+```python title="Normalise Eastern Arabic and Persian digits"
+EASTERN = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+
+assert "٣٥٢٠١-۱۲۳".translate(EASTERN) == "35201-123"
+```
+
+Normalise **before** validation, so a document number read in either digit set passes the same checks.
+
+## Scripts without spaces, and very large alphabets
+
+- **Thai, Lao, Khmer, Chinese and Japanese** don't separate words with spaces, so splitting a name into given and family names needs language knowledge, not whitespace.
+- **Chinese and Japanese** have thousands of characters in common use, so rare characters in names are under-represented in training data.
+- **Devanagari** (Hindi, Nepali) joins letters under a horizontal headline and forms conjuncts, which again defeats character-by-character segmentation.
+
+## What actually helps
+
+1. **Detect the document type and script first,** then route to a recogniser trained on that script and font. One model for everything is rarely the most accurate.
+2. **Use the layout.** On a known document template, you know where each field is and which script and format to expect, so a date field can only contain a date.
+3. **Prefer the MRZ when there is one.** It's Latin, fixed-format and has check digits. See [how passport MRZ check digits work](/blog/passport-mrz-check-digits/). Use it to cross-check the native-script fields.
+4. **Normalise output:** digits, Unicode normalisation (NFC), and the different code points for visually identical letters (Arabic and Persian `ي` and `ی`, for example).
+5. **Train on real captures,** with glare, blur and worn cards, not just clean renders. Synthetic data helps fill the gaps for rare scripts.
+6. **Measure accuracy per script and per field.** An overall accuracy number hides the script where the system fails most.
+
+## Where this fits
+
+OCR is one stage of [how KYC identity verification works](/blog/how-kyc-identity-verification-works/), alongside [face matching](/blog/face-match-threshold-far-frr/) and [liveness detection](/blog/face-liveness-detection-explained/). For a much smaller pipeline that checks fields after extraction, see the [MQTT KYC verification project](/blog/mqtt-kyc-verification-pipeline/). And if you're building retrieval over documents in these scripts, [offline RAG with Ollama](/blog/offline-rag-chatbot-ollama/) covers the chunking side.
+
+More about my computer vision and OCR work is on the [home page](/).

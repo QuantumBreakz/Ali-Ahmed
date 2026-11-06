@@ -24,7 +24,7 @@ data = {
 }
 ```
 
-That timestamp was never saved. The file stores a *different* timestamp (`datetime.now().isoformat()`, taken later). To verify an entry, you have to rebuild exactly the bytes that were hashed, and one of them is gone. So **no entry can ever be verified**. A tampered log and an untouched one look the same. The chain only looked secure.
+That timestamp was never saved. The file stores a _different_ timestamp (`datetime.now().isoformat()`, taken later). To verify an entry, you have to rebuild exactly the bytes that were hashed, and one of them is gone. So **no entry can ever be verified**. A tampered log and an untouched one look the same. The chain only looked secure.
 
 **Rule:** hash exactly what you store, serialised the same way every time (sorted keys, fixed separators), and store every field that went into the hash.
 

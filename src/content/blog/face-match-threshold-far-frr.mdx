@@ -1,0 +1,67 @@
+---
+title: "Face match thresholds: how false accepts trade against false rejects in identity verification"
+description: "Face verification compares two embeddings and applies a threshold. What FMR and FNMR (FAR and FRR) mean, how to choose a threshold from data with code, and why image quality, ageing and demographics move the numbers."
+publishedAt: 2026-11-06
+tags: [KYC, Computer Vision, Machine Learning, Python]
+---
+
+Face verification turns two face images into **embeddings** (vectors) and compares them. If their similarity is above a **threshold**, they're declared the same person. Every threshold makes two kinds of mistake: a **false match** (an impostor accepted, measured as **FMR**, also called FAR) and a **false non-match** (the real person rejected, **FNMR**, also called FRR). Raising the threshold lowers one and raises the other. The right threshold isn't a property of the model; it's a business decision, made from data, about which mistake costs more.
+
+## How does face verification work?
+
+1. **Detect and align** the face in each image (the selfie and the document portrait), so eyes and mouth sit in standard positions.
+2. **Embed** each face with a recognition model. Similar faces map to nearby vectors.
+3. **Compare**, usually with cosine similarity.
+4. **Decide** with a threshold.
+
+This is **1:1 verification** ("is this the claimed person?"). It's different from 1:N identification ("who is this, out of a million people?"), where errors scale with the size of the database. KYC is mostly 1:1, as one stage of the [verification pipeline](/blog/how-kyc-identity-verification-works/).
+
+## What are FMR and FNMR?
+
+To measure them, you need labelled pairs:
+
+- **Genuine pairs:** two images of the same person. FNMR is the share of these scoring **below** the threshold.
+- **Impostor pairs:** two images of different people. FMR is the share of these scoring **at or above** the threshold.
+
+```python title="Error rates at a threshold"
+import numpy as np
+
+def error_rates(genuine: np.ndarray, impostor: np.ndarray, threshold: float):
+    fnmr = float(np.mean(genuine < threshold))
+    fmr = float(np.mean(impostor >= threshold))
+    return fmr, fnmr
+
+def threshold_for_fmr(impostor: np.ndarray, target_fmr: float) -> float:
+    return float(np.quantile(impostor, 1 - target_fmr))
+```
+
+`threshold_for_fmr` picks the threshold that lets through the target share of impostors. You then read FNMR at that threshold, and that tells you how many real customers will fail.
+
+## How do you choose the threshold?
+
+Start from the mistake that's more expensive, and fix its rate:
+
+- **Fix FMR first** when a false accept is costly: bank accounts, payments, account recovery. Typical targets are 1 in 10,000 down to 1 in 1,000,000 impostor attempts. Then check that FNMR is acceptable.
+- Plot **FNMR against FMR** across thresholds (a DET curve) to see the trade-off. A better model moves the whole curve down, which is the only way to improve both at once.
+- **Send the uncertain middle to a human** instead of forcing a yes or no. A band just under the threshold, reviewed manually, often costs less than either kind of error.
+
+Be careful with small numbers. Estimating an FMR of one in a million needs **millions of impostor pairs**; with 10,000 pairs, "zero false matches" says very little.
+
+## What moves the numbers in real KYC?
+
+Benchmarks use clean photos. Real verification compares a **phone selfie** with a **small, printed, sometimes years-old document portrait**, and the error rates move with:
+
+- **Image quality:** glare on the card, low light, motion blur, heavy compression.
+- **Ageing:** a passport photo can be ten years old. The gap between genuine scores and impostor scores shrinks as the age difference grows.
+- **Demographics:** NIST's evaluations (NIST IR 8280, 2019) found error rates for many algorithms varied by age, sex and race, with false match rates often differing by large factors between groups. **Measure FMR and FNMR per group** on your own data before choosing one global threshold.
+- **Attacks:** a high similarity score from a printed photo is still a "match". That's why [liveness detection](/blog/face-liveness-detection-explained/) runs alongside face matching.
+
+## The checklist
+
+- Pick the threshold **from your own genuine and impostor pairs**, not a vendor default.
+- **Fix the costly error rate first**, then measure the other.
+- Report rates **with sample sizes**, and per demographic group.
+- Keep a **manual review band** for borderline scores.
+- **Log scores, not just decisions**, so you can re-tune later without re-running every verification.
+
+Related: [how passport MRZ check digits work](/blog/passport-mrz-check-digits/), [OCR for Arabic, Urdu and other scripts](/blog/ocr-non-latin-scripts-arabic-urdu/), and why a classifier's confident output still needs checking, from [my AI code detector post-mortem](/blog/ai-code-detector-wrong-model/). More of my work is on the [home page](/).

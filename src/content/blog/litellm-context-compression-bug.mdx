@@ -54,3 +54,5 @@ After the fix, the same Claude Code session returns a summary that includes the 
 **Any layer that rewrites model context must know which content is load-bearing.** Compression, summarisation, redaction and caching all rewrite context. If they can't tell "data the agent explicitly asked for" from "old history", they can undo the agent's own actions, and the symptom will look like a dumb model rather than a bug.
 
 I fixed a second, unrelated LiteLLM issue in [why cost dashboards lie when two deployments share a model name](/blog/llm-router-savings-deployment-id/).
+
+Context compression is one of several cost levers; the others are in [how to cut LLM API costs](/blog/reduce-llm-api-costs/).

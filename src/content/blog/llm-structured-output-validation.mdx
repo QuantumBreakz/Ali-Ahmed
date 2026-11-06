@@ -1,0 +1,88 @@
+---
+title: "Getting reliable JSON from LLMs: schemas, validation, retries and a deterministic fallback"
+description: "LLMs return malformed or wrong-shaped JSON more often than you'd like. How to combine provider structured outputs, Pydantic validation, a retry that feeds the error back, business-rule checks and a safe fallback, with tested Python."
+publishedAt: 2026-11-06
+tags: [LLMs, AI Engineering, Python, Reliability]
+---
+
+To get reliable structured data from an LLM, use **four layers**: ask for a **JSON Schema** (and use the provider's structured-output or tool-calling mode where available), **validate the result in code** with a schema library such as Pydantic, **retry once with the validation error** included in the prompt, and fall back to a **deterministic default** if it still fails. Schema-constrained decoding fixes the shape, but not the **content**: a perfectly valid object can still contain an invented number or a leftover `{name}` placeholder, so business rules must be checked in code too.
+
+## Why isn't "respond in JSON" enough?
+
+In plain prompting, models regularly:
+
+- wrap the JSON in Markdown code fences or add a sentence before it,
+- leave out required fields, or add fields you didn't ask for,
+- return a number as a string, or a list where you wanted one item,
+- produce valid JSON with **wrong content**: a placeholder token, an empty string, a value outside the allowed set.
+
+Any of these, passed to the next step of a pipeline, becomes a bug far from its cause.
+
+## Layer 1: give the model a schema
+
+Most major APIs now support structured outputs, either through a JSON Schema response format or through tool calling, where the tool's input schema defines the shape. Where the provider **constrains decoding** to the schema, malformed JSON mostly disappears. Use it when you can. But keep layer 2 anyway: you may switch providers or models, use a gateway such as LiteLLM, or hit a model that doesn't support strict mode.
+
+## Layer 2: validate in code
+
+Define the shape once, and validate every response against it:
+
+```python title="schema.py"
+from typing import Literal
+from pydantic import BaseModel, Field, ValidationError
+
+class LeadSummary(BaseModel):
+    company: str = Field(min_length=1, max_length=200)
+    industry: Literal["saas", "ecommerce", "services", "other"]
+    employees: int | None = Field(default=None, ge=1)
+    summary: str = Field(min_length=20, max_length=600)
+```
+
+`LeadSummary.model_validate_json(text)` either returns a typed object or raises a `ValidationError` that says exactly which field failed and why. Limits such as lengths and allowed values belong in the schema, not in a comment in the prompt.
+
+## Layer 3: retry with the error
+
+When validation fails, send the error back. Models are good at fixing a mistake they're shown:
+
+```python title="extract.py"
+def extract(llm, prompt: str, attempts: int = 2) -> LeadSummary | None:
+    message = prompt
+    for _ in range(attempts):
+        text = llm(message)
+        try:
+            return LeadSummary.model_validate_json(strip_fences(text))
+        except ValidationError as error:
+            message = f"{prompt}\n\nYour last answer was invalid:\n{error}\nReturn corrected JSON only."
+    return None
+
+def strip_fences(text: str) -> str:
+    start, end = text.find("{"), text.rfind("}")
+    return text[start : end + 1] if start >= 0 and end > start else text
+```
+
+One retry fixes most failures. More than two attempts usually means the prompt or schema is wrong, and repeated retries only add cost and latency.
+
+## Layer 4: check the content, then fall back
+
+Schema-valid isn't the same as correct. Add checks that only your domain knows:
+
+- **No unfilled placeholders** such as `{first_name}` or `[COMPANY]`.
+- **Numbers must come from the source.** If the input never mentioned 500 employees, the output can't either; see [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/).
+- **Cross-field rules,** for example an end date after a start date.
+
+If the output still fails, return a **deterministic fallback**: a template, a "needs review" status, or `None` that the caller handles. In [LeadForge](/blog/prompt-injection-scraped-data-llm-outreach/), an email that fails validation twice is replaced by an industry template filled in by code. A worse but predictable result beats an unpredictable one.
+
+## What to log
+
+For every call: the model, the prompt version, whether it validated first time, the validation error if not, and whether the fallback was used. The **fallback rate** is the most useful health metric for an LLM feature. When it rises, a model update or a prompt change has broken something, often silently.
+
+## Summary
+
+| Layer                  | Catches                                         |
+| ---------------------- | ----------------------------------------------- |
+| Schema in the request  | Malformed JSON, missing fields                  |
+| Validation in code     | Wrong types, out-of-range values                |
+| Retry with the error   | Most one-off mistakes                           |
+| Content checks         | Placeholders, invented numbers, rule violations |
+| Deterministic fallback | Everything else, safely                         |
+
+Related: [evaluating RAG systems](/blog/rag-retrieval-evaluation-metrics/), [cutting LLM API costs](/blog/reduce-llm-api-costs/), and [writing tool errors AI agents can act on](/blog/agent-tool-error-messages/). More on the [projects page](/projects/).

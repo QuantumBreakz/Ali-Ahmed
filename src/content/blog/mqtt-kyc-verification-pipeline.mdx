@@ -51,3 +51,5 @@ That has a consequence I'd design for in a production version: every consumer mu
 This was a course project, deliberately simple: rule-based checks on structured fields. Production KYC, which I worked on at ShuftiPro, starts one step earlier, from a **photo of the document**. Computer vision finds and classifies the document, OCR reads it in the right script, face matching and liveness checks confirm the person, and only then do field checks like these run. The pipeline shape is the same, though: independent stages, explicit reasons, and test data that is deliberately bad.
 
 Related: [the Uber system design breakdown](/blog/uber-real-time-location-system/) uses push messaging for the same reason, and [the voice agent webhook post](/blog/voice-ai-webhook-security/) covers idempotency for repeated events.
+
+For how production identity verification works end to end, see [how KYC verification works](/blog/how-kyc-identity-verification-works/) and [how passport MRZ check digits work](/blog/passport-mrz-check-digits/).

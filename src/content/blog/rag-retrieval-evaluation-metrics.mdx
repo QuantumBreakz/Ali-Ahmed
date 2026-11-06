@@ -1,0 +1,84 @@
+---
+title: "How to evaluate a RAG system: recall@k, MRR and groundedness, with code"
+description: "Most RAG failures are retrieval failures. How to build a small golden set, measure retrieval with recall@k and MRR, check that answers are grounded in the retrieved text, and use the numbers to tune chunk size and top-k."
+publishedAt: 2026-11-06
+tags: [RAG, LLMs, AI Engineering, Python]
+---
+
+Evaluate a RAG system in **two separate parts**: **retrieval** (did the right chunks come back?) and **generation** (is the answer supported by those chunks?). Measure retrieval with **recall@k** and **MRR** against a small hand-labelled **golden set** of questions; measure generation with a **groundedness** check that every claim in the answer appears in the retrieved text. Split it this way because most bad RAG answers are retrieval failures, and no prompt can fix an answer whose source never reached the model. Here's the method I use, with tested code.
+
+## Step 1: build a golden set
+
+You need **50 to 100 real questions** with the chunks (or documents) that answer each one. Take them from real users or support tickets if you have them, and include:
+
+- **Easy lookups** ("What's the notice period?")
+- **Paraphrases** that share no keywords with the source
+- **Multi-part questions** whose answer spans two chunks
+- **Questions with no answer** in the corpus, where the right response is "I don't know"
+
+Fifty labelled questions take an afternoon and are worth more than any generic benchmark, because they're your documents and your users' wording.
+
+## Step 2: measure retrieval
+
+Two metrics cover most needs:
+
+- **recall@k:** of the chunks that answer the question, what share appear in the top k results? If the answer isn't retrieved, the model can't use it.
+- **MRR (mean reciprocal rank):** how high the first relevant chunk ranks, averaged over questions. Rank 1 scores 1, rank 3 scores 1/3. It matters because models pay more attention to some positions than others, and because you may cut to fewer chunks later.
+
+```python title="rag_eval.py"
+def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
+    return len(set(retrieved[:k]) & relevant) / len(relevant)
+
+def reciprocal_rank(retrieved: list[str], relevant: set[str]) -> float:
+    for rank, doc in enumerate(retrieved, start=1):
+        if doc in relevant:
+            return 1 / rank
+    return 0.0
+
+def evaluate(golden: list[dict], search, k: int = 3) -> dict:
+    answerable = [q for q in golden if q["relevant"]]
+    recalls = [recall_at_k(search(q["question"]), set(q["relevant"]), k) for q in answerable]
+    ranks = [reciprocal_rank(search(q["question"]), set(q["relevant"])) for q in answerable]
+    return {"recall@k": sum(recalls) / len(recalls), "mrr": sum(ranks) / len(ranks)}
+```
+
+Each golden item is `{"question": ..., "relevant": [chunk ids]}`, and `search` is your retriever. Unanswerable questions are skipped here and tested in step 3.
+
+## Step 3: check groundedness
+
+An answer is **grounded** if every factual claim in it is supported by the retrieved chunks. Two practical ways to check:
+
+- **Ask for citations, then verify them.** Have the model quote or cite the chunk for each claim, and check in code that the quoted text really appears in that chunk. Cheap and deterministic.
+- **Use an LLM as a judge** for claims that are paraphrased. It's useful but noisy, so spot-check its verdicts by hand and keep the judge model and prompt fixed between runs.
+
+For numbers, be strict: every figure in the answer should appear in the sources. I use exactly this check in [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/). For unanswerable questions, the correct output is a refusal; count how often the system makes something up instead.
+
+## Step 4: use the numbers to tune
+
+With a golden set and two metrics, tuning becomes an experiment instead of guesswork:
+
+| Change                         | What to watch                                             |
+| ------------------------------ | --------------------------------------------------------- |
+| Chunk size and overlap         | recall@k (too small loses context, too large dilutes it)  |
+| top-k                          | recall@k goes up, groundedness can go down as noise grows |
+| Embedding model                | recall@k and MRR, on your own data                        |
+| Hybrid search (BM25 + vectors) | recall on names, codes and exact terms                    |
+| A reranker                     | MRR, and latency                                          |
+
+In my [offline RAG chatbot](/blog/offline-rag-chatbot-ollama/), settling on 600-character chunks, 200 overlap and top 3 came from this kind of comparison: with a 7B local model, more chunks added more confusion than recall.
+
+## Common mistakes
+
+- **Evaluating only end-to-end answers.** When an answer is wrong, you can't tell whether retrieval or generation failed.
+- **Testing on questions written by reading the documents.** They share keywords with the source, so retrieval looks better than it will be with real users.
+- **Changing several things at once.** Change one setting, rerun, compare.
+- **Not re-running after re-indexing.** New documents change what's retrieved for old questions.
+
+## Related
+
+- [Offline RAG with Ollama, ChromaDB and Redis](/blog/offline-rag-chatbot-ollama/)
+- [Validating structured output from LLMs](/blog/llm-structured-output-validation/)
+- [How to cut LLM API costs](/blog/reduce-llm-api-costs/)
+- [Why a LiteLLM context-compression bug made Claude Code loop](/blog/litellm-context-compression-bug/)
+
+More of my AI engineering work is on the [projects page](/projects/).

@@ -51,3 +51,5 @@ The general lesson for anyone building LLM infrastructure: **model name is not i
 The PR included regression tests for both failures (same model at different rates, and alias vs base) and passed all 79 CI checks. The maintainers then resolved the issue in a separate change (#40206), which is common in a fast-moving project. The PR still did its job: it pinned down the bug with a reproducible configuration.
 
 Related: [the context-compression bug that made agents loop](/blog/litellm-context-compression-bug/).
+
+For the wider picture of where LLM spend goes and how to reduce it, see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).

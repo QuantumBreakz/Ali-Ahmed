@@ -1,0 +1,70 @@
+---
+title: "Why you can't average p95 latencies, and how to combine percentiles correctly"
+description: "Averaging per-server p95s can halve the latency you report. A worked example with real numbers, how percentile interpolation works on small samples, and the right ways to aggregate: raw samples, histograms or sketches."
+publishedAt: 2026-11-06
+tags: [Monitoring, SRE, TypeScript, LLMs]
+---
+
+**You can't average percentiles.** If one server's p95 latency is 2,000 ms and another's is 100 ms, the combined p95 is **not** 1,050 ms. A percentile depends on the whole distribution, and averaging two of them throws away how many requests each server handled and how slow the slow ones were. To combine latency correctly, merge the **raw samples**, merge **histograms with shared buckets**, or use a mergeable **sketch** such as t-digest or DDSketch. Here's a worked example, and the percentile code from **Kestrel**, the monitoring console I built ([source](https://github.com/QuantumBreakz/Kestrel)).
+
+## A worked example
+
+Two servers, one minute:
+
+- **Server A:** 1,000 requests. 900 take 100 ms, 100 take 2,000 ms. Its p95 is **2,000 ms**.
+- **Server B:** 100 requests, all 100 ms. Its p95 is **100 ms**.
+
+Average of the two p95s: **1,050 ms**. Real p95 across all 1,100 requests: 100 of them (9%) are slow, so the 95th percentile falls among the slow ones, at **2,000 ms**. The average **understates the latency by half**, and it gets worse when the quiet server is the one that looks fast.
+
+It can go the other way too. If server A had only 40 slow requests out of 1,000, its p95 would be 100 ms and so would B's, but its **p99 would be 2,000 ms**. Percentiles summarise one distribution; they don't add up across distributions.
+
+## How is a percentile calculated?
+
+Sort the samples and pick the value at the right rank. With few samples, the rank falls between two values, and you have to choose: take the nearest one, or **interpolate**. Kestrel interpolates linearly, which keeps p95 stable on the small sample counts a single monitor produces in an hour:
+
+```ts title="percentile.ts"
+export function percentile(sortedSamples: number[], q: number): number {
+  if (sortedSamples.length === 0) return 0;
+  if (sortedSamples.length === 1) return sortedSamples[0];
+
+  const clamped = Math.min(1, Math.max(0, q));
+  const rank = clamped * (sortedSamples.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+
+  if (lower === upper) return sortedSamples[lower];
+
+  const weight = rank - lower;
+  return sortedSamples[lower] * (1 - weight) + sortedSamples[upper] * weight;
+}
+```
+
+Different tools use different definitions (numpy alone has several), so two dashboards can show different p95s for the same data. With 20 samples, p95 is decided by the one or two slowest requests; with 5 samples it's barely meaningful. **Show the sample count next to every percentile.**
+
+## How do you aggregate percentiles correctly?
+
+| Method                             | When it fits                        | Trade-off                        |
+| ---------------------------------- | ----------------------------------- | -------------------------------- |
+| Merge raw samples                  | Small volumes, one process          | Memory grows with traffic        |
+| Histograms with shared buckets     | Prometheus and most metrics systems | Accuracy limited by bucket edges |
+| Sketches (t-digest, DDSketch, HDR) | High volume, many servers           | Approximate, with bounded error  |
+| Average of percentiles             | Never, for reporting                | Wrong, as shown above            |
+
+With Prometheus histograms, sum the bucket counters across instances **first**, then calculate the quantile from the summed buckets. Choose bucket boundaries around your SLO threshold (for example 250, 500 and 1,000 ms), because the estimate is only as precise as the buckets near the value you care about.
+
+## Watch out for averaged sparklines
+
+Kestrel's `downsample` function averages neighbouring points so a week-long sparkline doesn't render thousands of nodes. That's fine for a trend line of **means**. Applied to a series of p95 values, it has the same problem as above: averaging smooths away exactly the spikes you're looking for. For latency charts, downsample by taking the **maximum** in each bucket, or recompute the percentile from the samples in each bucket.
+
+## Why this matters for LLM features
+
+LLM latency distributions have **long tails**: most requests finish in a couple of seconds, but long outputs, retries and rate limits create requests that take 30 seconds or more. Averages and averaged percentiles hide them. Report p50, p95 and p99 per model and per feature, together with the sample count. The [LLM cost post](/blog/reduce-llm-api-costs/) covers logging those per feature, and [streaming through Next.js](/blog/nextjs-sse-proxy-streaming/) covers making long responses feel fast.
+
+## Summary
+
+- Percentiles describe one distribution; **you can't average them**.
+- Aggregate with raw samples, **summed histogram buckets**, or sketches.
+- Show **sample counts**; percentiles from a few samples are noisy.
+- Downsample latency charts with **max**, not mean.
+
+Related: [error budgets and burn rates](/blog/slo-error-budget-burn-rate/), which also comes from Kestrel, and [Prometheus ServiceMonitor labels vs annotations](/blog/servicemonitor-labels-vs-annotations/). More on the [projects page](/projects/).

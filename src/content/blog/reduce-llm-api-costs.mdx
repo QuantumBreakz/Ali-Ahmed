@@ -1,0 +1,61 @@
+---
+title: "How to cut LLM API costs without making the product worse: caching, routing, batching and context"
+description: "LLM bills are mostly input tokens. The levers that work in production: measure cost per feature, trim context, prompt caching, routing easy requests to cheaper models, batch APIs for offline work, and limits on output and retries."
+publishedAt: 2026-11-06
+tags: [LLMs, AI Engineering, LiteLLM, Cost]
+---
+
+Most LLM bills are dominated by **input tokens**: long system prompts, conversation history and retrieved documents sent again on every request. The levers that cut cost without hurting quality, roughly in order of effort, are: **measure cost per feature**, **send less context**, use **prompt caching** for repeated prefixes, **route** easy requests to cheaper models, use **batch APIs** for anything that isn't interactive, and **cap output length and retries**. Before changing anything, run an evaluation set so you can prove quality didn't drop. I've worked on this from the gateway side as a contributor to LiteLLM, and in the products I build.
+
+## Step 1: Measure cost per feature first
+
+A total monthly bill doesn't tell you what to fix. Tag every request with the **feature** and **prompt version**, and record input tokens, output tokens, cached tokens, model and latency. A gateway such as LiteLLM can do this centrally. One feature, often a chat with a long history or an agent loop, usually accounts for most of the spend.
+
+Make sure the cost numbers are right. In LiteLLM's auto-router, savings were reported as $0.00 when two deployments of the same model had different prices, because it compared model names instead of deployments. I fixed that in [#38834](https://github.com/BerriAI/litellm/pull/38834); the write-up is [why model name is not identity](/blog/llm-router-savings-deployment-id/).
+
+## Step 2: Send less context
+
+The cheapest token is one you don't send:
+
+- **Trim history:** keep the last few turns plus a short summary, not the whole conversation.
+- **Retrieve less, retrieve better:** three good chunks beat ten mediocre ones, for cost **and** quality. Measure with [recall@k and MRR](/blog/rag-retrieval-evaluation-metrics/) before and after.
+- **Shorten tool results:** an agent that pastes a 20,000-token API response into its context pays for it on every following step. Return the fields the model needs.
+- **Compress carefully.** Context compression can save a lot, but it must never compress what the agent explicitly asked for. That exact bug made Claude Code loop forever behind LiteLLM: [the context-compression fix](/blog/litellm-context-compression-bug/).
+
+## Step 3: Use prompt caching
+
+If many requests start with the same long prefix (system prompt, tool definitions, a document), **prompt caching** lets the provider reuse it. Cached input is billed at a fraction of the normal price; on Anthropic's API, cache reads cost a tenth of the base input price, while OpenAI applies caching automatically at a discount. Check your provider's current pricing. To benefit:
+
+- Put **stable content first** (instructions, tools, documents) and variable content (the user's message) last.
+- Don't put timestamps or request IDs in the prefix, or nothing will ever match.
+- Watch the **cache hit rate** in your logs.
+
+## Step 4: Route requests to the right model
+
+Many requests don't need the largest model: classification, extraction, short rewrites, simple questions. A router sends those to a smaller, cheaper model and keeps the large one for hard requests. Rules (by feature or input length) are a fine start; a classifier-based router comes later. Measure quality per route, since a cheaper model that fails more often costs more in retries and support.
+
+## Step 5: Batch anything that isn't interactive
+
+Embedding a document collection, nightly summaries, evaluation runs and back-fills don't need an answer in two seconds. **Batch APIs** from major providers process requests asynchronously, typically within 24 hours, at about **half the price**.
+
+## Step 6: Cap output and retries
+
+- **Set `max_tokens`** per feature. Output tokens usually cost several times more than input tokens.
+- **Ask for structured output** instead of prose when code consumes the result; it's shorter and easier to validate. See [reliable JSON from LLMs](/blog/llm-structured-output-validation/).
+- **Limit retries and agent steps.** An agent stuck in a loop is the most expensive bug in AI engineering. Errors that tell the agent what to do next prevent many loops; see [tool errors for AI agents](/blog/agent-tool-error-messages/).
+
+## What about semantic caching?
+
+Caching answers for **similar** questions (by embedding similarity) sounds attractive, but it returns one user's answer to a different question that merely looks similar. Use it only where answers don't depend on the user or on time, and with a strict similarity threshold. Exact-match caching, keyed by a hash of the prompt and context, is safe and simple, as in my [offline RAG chatbot](/blog/offline-rag-chatbot-ollama/).
+
+## The checklist
+
+1. Tag and measure cost per feature.
+2. Build an evaluation set, so quality is checked after every change.
+3. Trim context and tool results.
+4. Order prompts for caching.
+5. Route easy requests to smaller models.
+6. Batch offline work.
+7. Cap output tokens, retries and agent steps.
+
+More about my LiteLLM contributions and AI work is on the [home page](/) and the [projects page](/projects/).
