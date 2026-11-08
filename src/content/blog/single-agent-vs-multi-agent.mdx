@@ -1,0 +1,58 @@
+---
+title: "Single agent or multi-agent? What I learned building a multi-agent financial intelligence system"
+description: "Multi-agent LLM systems add coordination, cost and new failure modes. When splitting work across agents helps, when one agent with good tools is better, and three design lessons from Cuttlefish: timeouts, failing closed and audit trails."
+publishedAt: 2026-11-08
+tags: [AI Agents, LLMs, AI Engineering, Python]
+---
+
+**Start with one agent and good tools.** Split into several agents only when the work has **parts that need different instructions, tools or permissions**, parts that can **run in parallel**, or a step that should **independently check** another's output. Each extra agent adds coordination, latency, cost and new ways to fail, so it has to earn its place. I built **Cuttlefish**, a multi-agent financial intelligence platform ([backend source](https://github.com/QuantumBreakz/Cuttlefish-backend)), with seven agent types and sequential, parallel and hybrid workflows. Here's what that taught me about when it's worth it and how to make it safe.
+
+## What does a multi-agent system actually add?
+
+In Cuttlefish, separate agents handle building and scenario analysis, market signals, permits, predictions, compliance, refactoring, and a **meta-auditor** that reviews the combined result. A workflow lists which agents run, and in what mode:
+
+- **Sequential:** each agent sees the context built by the ones before it.
+- **Parallel:** independent agents run at the same time with `asyncio.gather`, cutting wall-clock time.
+- **Hybrid:** a mix of both.
+
+The real benefits were **separation** (each agent has a short, focused prompt and only the tools it needs) and **parallelism** (independent analyses don't wait for each other). Neither needs autonomous agents negotiating with each other; a fixed workflow did the job, and was much easier to debug.
+
+## When is one agent better?
+
+- The task is **one line of reasoning**: answer a question, fix a bug, fill a form.
+- The steps need **all the same context**. Splitting means copying context between agents, paying for it again, and losing details in the handoff.
+- You can't yet **evaluate** one agent reliably. Several agents multiply the cases you have to test; see [how to evaluate AI agents](/blog/evaluating-ai-agents/).
+
+Most "multi-agent" problems are solved by one agent with well-designed [tools](/blog/llm-tool-calling-explained/).
+
+## Lesson 1: every agent needs a timeout
+
+One slow agent stalls a sequential workflow and holds a parallel one open. Cuttlefish gives each agent a default timeout (25 seconds, configurable per agent type) and records a timeout as an error entry in the result, then moves on to the next agent. Decide up front what the workflow does without that agent's output: continue with a gap clearly marked, or fail the task.
+
+## Lesson 2: checks must fail closed
+
+Reviewing the code later, I found the workflow treated a **missing meta-auditor as a pass**: if the auditor agent wasn't registered, the audit returned `passed: True` with the message "No meta-auditor available, skipping audit". A misconfigured deployment would therefore mark every result as audited. A verification step that passes when it can't run isn't a verification step. It should **fail closed**: no auditor, no "audited" status. It's the same rule I apply to [send gates for LLM-written emails](/blog/prompt-injection-scraped-data-llm-outreach/).
+
+The audit itself should also be **independent**: a reviewer that only re-reads the same agents' conclusions tends to agree with them. Checks in code (do the numbers trace back to sources? are required fields present?) are worth more than another model's opinion; see [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/).
+
+## Lesson 3: log every agent action
+
+When a final number looks wrong, you need to know which agent produced which input. Cuttlefish logs every agent action to a hash-chained log. That log had three bugs of its own, including entries that could never be verified and parallel agents forking the chain: [the fixes are here](/blog/ai-agent-audit-log-hash-chain/).
+
+## A decision checklist
+
+| Question                                      | If yes                             |
+| --------------------------------------------- | ---------------------------------- |
+| Do parts need different tools or permissions? | Separate agents (least privilege)  |
+| Can parts run independently?                  | Parallel agents save time          |
+| Should one step check another independently?  | A reviewer, ideally checks in code |
+| Does every step need the same full context?   | Keep one agent                     |
+| Can you evaluate a single agent reliably yet? | If not, don't add more             |
+
+## Summary
+
+- One agent with good tools first.
+- Split for **permissions, parallelism or independent review**, using fixed workflows before autonomous ones.
+- Timeouts on every agent, checks that **fail closed**, and a log of every action.
+
+Related: [what MCP is](/blog/what-is-model-context-protocol/), [LLM gateways](/blog/what-is-an-llm-gateway-litellm/), and [tool errors agents can act on](/blog/agent-tool-error-messages/). More about Cuttlefish and my other work is on the [projects page](/projects/).

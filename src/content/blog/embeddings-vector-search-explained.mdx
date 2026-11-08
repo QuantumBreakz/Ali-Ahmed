@@ -1,0 +1,61 @@
+---
+title: "Embeddings and vector search explained: cosine similarity, HNSW and when to add keyword search"
+description: "What an embedding is, why cosine similarity measures meaning, how approximate nearest-neighbour indexes such as HNSW make search fast, and why hybrid search with BM25 beats vectors alone for names, codes and exact terms."
+publishedAt: 2026-11-08
+tags: [RAG, LLMs, AI Engineering, Python]
+---
+
+An **embedding** is a list of numbers (a vector) that a model produces for a piece of text, such that texts with **similar meaning get nearby vectors**. **Vector search** finds the stored vectors closest to a query's vector, usually by **cosine similarity**. Comparing against every vector is too slow at scale, so databases use **approximate nearest-neighbour (ANN)** indexes such as **HNSW**, trading a little recall for a lot of speed. Embeddings are weak at **exact terms**, such as names, IDs and error codes, so most production RAG systems add keyword search (**BM25**) and combine the two: **hybrid search**.
+
+## What is an embedding?
+
+An embedding model maps text to a fixed-length vector, often 384 to 3,072 numbers. Training pushes related texts together: "How do I reset my password?" and "I forgot my login" end up close, even with no words in common. That's the advantage over keyword search, which needs shared words.
+
+You must use **the same model** for documents and queries. Vectors from different models live in different spaces, and comparing them gives nonsense.
+
+## How is similarity measured?
+
+**Cosine similarity** is the cosine of the angle between two vectors: 1 means the same direction, 0 means unrelated.
+
+```python title="cosine.py"
+import numpy as np
+
+def cosine(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+```
+
+Many models output **normalised** vectors (length 1). Then cosine similarity equals the plain dot product, which is cheaper, and many databases assume it. Check your model's documentation, and normalise if unsure.
+
+## How does vector search stay fast?
+
+Comparing a query with every vector (**exact** or brute-force search) is fine up to tens or hundreds of thousands of vectors. Beyond that, ANN indexes help:
+
+- **HNSW (Hierarchical Navigable Small World):** a layered graph in which each vector links to near neighbours. Search starts at a sparse top layer and moves greedily toward the query, layer by layer. It's fast with high recall, but uses a lot of memory. The settings that matter are how many links each node keeps and how widely the search explores (often called `M` and `ef`).
+- **IVF (inverted file):** clusters vectors and searches only the nearest clusters. Lighter on memory, usually combined with compression (product quantisation) for very large collections.
+
+"Approximate" is literal: the index can miss a true nearest neighbour. Measure it with [recall@k on a golden set](/blog/rag-retrieval-evaluation-metrics/), comparing against exact search.
+
+## Why add keyword search?
+
+Embeddings blur exact details. A query for invoice "INV-20931", error `ECONNRESET` or a person's name may retrieve documents about invoices, network errors or other people. **BM25**, the standard keyword ranking, finds exact matches reliably. Hybrid search runs both and merges the results, most simply with **reciprocal rank fusion**: each document scores the sum of `1 / (k + rank)` across the two lists, so documents ranked well by either method rise. A **reranker** (a model that scores query and document together) can then reorder the top 20–50.
+
+## How do you choose the pieces?
+
+| Decision        | Start with                                                           |
+| --------------- | -------------------------------------------------------------------- |
+| Embedding model | A good general model; compare 2–3 on your own data                   |
+| Index           | Exact search until it's too slow, then HNSW                          |
+| Store           | Whatever you already run: pgvector in Postgres, or a vector database |
+| Keyword search  | Add BM25 as soon as users search for names or codes                  |
+| Reranker        | Add when MRR, not recall, is the problem                             |
+
+In my [offline RAG chatbot](/blog/offline-rag-chatbot-ollama/), embeddings come from `nomic-embed-text` through Ollama and ChromaDB stores them on disk, so nothing leaves the machine. How documents are split before embedding matters as much as the model: see [chunking strategies for RAG](/blog/rag-chunking-strategies/).
+
+## Summary
+
+- Embeddings place similar meaning near each other; use one model for documents and queries.
+- Cosine similarity, or dot product on normalised vectors.
+- HNSW for speed at scale, measured against exact search.
+- Hybrid search for names, codes and exact terms.
+
+Related: [evaluating RAG with recall@k and MRR](/blog/rag-retrieval-evaluation-metrics/), [cutting LLM costs](/blog/reduce-llm-api-costs/), and [what MCP is](/blog/what-is-model-context-protocol/). More on the [projects page](/projects/).

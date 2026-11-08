@@ -1,0 +1,68 @@
+---
+title: "How LLM tool calling works: the loop, the schema, and the mistakes that break agents"
+description: "Tool calling (function calling) lets a model ask your code to run a function. The request–execute–return loop step by step, how to write tool schemas and descriptions models use correctly, and the errors, limits and safety checks every agent needs."
+publishedAt: 2026-11-08
+tags: [AI Agents, LLMs, AI Engineering, MCP]
+---
+
+**Tool calling** (also called function calling) lets a language model ask **your code** to run a function. You send the model a list of tools, each with a **name, a description and a JSON Schema** for its arguments. When the model decides a tool would help, it replies with a **tool call** (the tool name and arguments) instead of text. Your code runs the function, sends the **result** back, and the model continues: answering, or calling another tool. That loop is the core of every AI agent. The model never executes anything itself; your code decides what runs, which is where validation and safety live.
+
+## What does the loop look like?
+
+1. **Request:** your app sends the conversation plus the tool definitions.
+2. **Decision:** the model returns either a normal answer or one or more tool calls, such as `get_order(order_id="A1042")`.
+3. **Execute:** your code validates the arguments, checks permissions, runs the function and captures the result or error.
+4. **Return:** you append the tool result to the conversation and call the model again.
+5. **Repeat** until the model answers without a tool call, or you hit a step limit.
+
+In outline:
+
+```python title="agent_loop.py"
+def run(model, messages, tools, handlers, max_steps: int = 8):
+    for _ in range(max_steps):
+        reply = model(messages, tools)
+        messages.append(reply)
+        if not reply.tool_calls:
+            return reply.text
+        for call in reply.tool_calls:
+            result = execute(handlers, call)
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+    return "Stopped: step limit reached."
+```
+
+The exact message format differs between providers (and gateways such as [LiteLLM](/blog/what-is-an-llm-gateway-litellm/) translate between them), but every API follows this shape. **The step limit is not optional**: an agent loop without one is how a bug becomes a large bill.
+
+## How do you write tools a model uses correctly?
+
+The model chooses tools from their **names and descriptions**, so write them like documentation for a new colleague:
+
+- **One clear job per tool**, with a verb-noun name: `search_contacts`, `create_task`. Avoid near-duplicates the model has to choose between.
+- **Say when to use it, and when not to:** "Search contacts by name or email. Use before create_contact to avoid duplicates."
+- **Constrain arguments in the schema:** enums for fixed values, formats for dates, required fields marked. The schema is the contract, so don't rely on the description for limits.
+- **Return only what the model needs.** A 20,000-token API response pasted into the context costs money on every later step and buries the useful part; see [cutting LLM costs](/blog/reduce-llm-api-costs/).
+
+## How should tools report errors?
+
+The model reads tool errors and **acts on them**. A bare "not found" can make an agent conclude something was deleted and recreate it. Errors should say **what happened, why, and what to do next**: "No task with id 42 in this session. Tasks are scoped to the group; call list_tasks with scope=group." I learned this the hard way in an agent framework: [how to write tool errors for LLM agents](/blog/agent-tool-error-messages/).
+
+## What has to stay in your code, not the model?
+
+- **Validation:** check arguments against the schema and your business rules before running anything. The model may produce wrong or malicious arguments, especially after reading [injected content](/blog/prompt-injection-scraped-data-llm-outreach/).
+- **Authorization:** run each tool **as the user**, with their permissions, never with a superuser key. In my [MCP server for a CRM](/blog/oauth-mcp-server-crm/), Postgres row-level security decides what every tool call can see.
+- **Confirmation for destructive actions:** deleting, paying or emailing should need explicit user approval, or at least a dry run.
+- **Logging:** record every call with arguments, result and user; see [audit logs for AI agents](/blog/ai-agent-audit-log-hash-chain/).
+
+## Tool calling, structured output and MCP
+
+- **Structured output** uses the same machinery to make the model return data in a schema, without running anything. See [reliable JSON from LLMs](/blog/llm-structured-output-validation/).
+- **MCP** standardises how tools are **offered** to models across apps, so one server's tools work in any compatible client. See [what the Model Context Protocol is](/blog/what-is-model-context-protocol/).
+
+## Checklist
+
+- Few tools, clear names, precise descriptions and strict schemas.
+- Validate and authorize every call in code.
+- Errors that tell the model what to do next.
+- A step limit and a cost limit on every loop.
+- Confirmation for anything irreversible, and a log of everything.
+
+Related: [when to use one agent or several](/blog/single-agent-vs-multi-agent/) and [how to evaluate AI agents](/blog/evaluating-ai-agents/). More on the [projects page](/projects/).

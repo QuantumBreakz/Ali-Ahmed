@@ -1,0 +1,74 @@
+---
+title: "Preparing ID card photos for OCR with OpenCV: find the card, flatten it, and reject blur and glare"
+description: "Most OCR errors on identity documents come from the photo, not the model. Tested OpenCV code to detect a card's corners, correct perspective to a flat ID-1 rectangle, and score sharpness and glare before OCR runs."
+publishedAt: 2026-11-08
+tags: [Computer Vision, OCR, Python, KYC]
+---
+
+OCR on a phone photo of an ID card fails mostly because of the **photo**: the card is tilted, so text is skewed; it's blurry; or glare washes out a field. Before running OCR, **find the card's four corners, warp it to a flat rectangle at the ID-1 aspect ratio (85.6 × 54 mm), and score sharpness and glare**, rejecting or re-capturing bad frames. The code below does that with OpenCV. It's tested on a synthetic image, and it's the classic approach; production systems usually replace corner detection with a trained model, but the steps after it stay the same.
+
+## Step 1: find the card
+
+On a reasonably contrasting background, the card is the largest four-sided contour:
+
+```python title="find_card.py"
+import cv2
+import numpy as np
+
+def find_card(image: np.ndarray) -> np.ndarray | None:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+        approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+        if len(approx) == 4 and cv2.contourArea(approx) > 0.2 * image.shape[0] * image.shape[1]:
+            return approx.reshape(4, 2).astype("float32")
+    return None
+```
+
+Blur removes noise, Canny finds edges, and `approxPolyDP` simplifies each outline; a card comes out as four points. Requiring the shape to cover at least 20% of the frame rejects small rectangles such as the photo printed on the card. When this returns `None`, tell the user to move closer or use a darker background, rather than guessing.
+
+## Step 2: flatten it
+
+A tilted card is a quadrilateral. A **perspective transform** maps its corners to a rectangle. ID-1 cards (most ID cards and driving licences) are 85.6 × 54 mm, so 856 × 540 pixels keeps the proportions at 10 pixels per millimetre:
+
+```python title="flatten.py"
+def order_corners(pts: np.ndarray) -> np.ndarray:
+    s = pts.sum(axis=1)
+    d = np.diff(pts, axis=1).ravel()
+    return np.array([pts[np.argmin(s)], pts[np.argmin(d)], pts[np.argmax(s)], pts[np.argmax(d)]], dtype="float32")
+
+def flatten_card(image: np.ndarray, corners: np.ndarray, width: int = 856, height: int = 540) -> np.ndarray:
+    src = order_corners(corners)
+    dst = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
+    matrix = cv2.getPerspectiveTransform(src, dst)
+    return cv2.warpPerspective(image, matrix, (width, height))
+```
+
+`order_corners` sorts the points into top-left, top-right, bottom-right and bottom-left: the top-left has the smallest x + y, the bottom-right the largest, and the y − x difference separates the other two. With a flat, fixed-size card, every field is at a **known position** for that document type, which is what makes template-based field extraction possible in [the KYC pipeline](/blog/how-kyc-identity-verification-works/).
+
+## Step 3: score sharpness
+
+The **variance of the Laplacian** is a fast blur measure: sharp images have strong edges and a high variance.
+
+```python title="quality.py"
+def sharpness(gray: np.ndarray) -> float:
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+def glare_ratio(gray: np.ndarray, level: int = 245) -> float:
+    return float(np.mean(gray >= level))
+```
+
+On the test image, a sharp card scored about 237 and a heavily blurred copy about 0.4. The threshold depends on the camera and resolution, so **set it from your own captures**: label a few hundred frames as readable or not, and pick the value that separates them.
+
+## Step 4: detect glare
+
+Laminated cards reflect light. `glare_ratio` measures the share of near-white pixels. Better still, run it **per field region** on the flattened card: 2% glare over the background doesn't matter, but 2% over the date of birth does.
+
+## Run it on the device
+
+Run these checks **on the phone, on the live camera frames**, and capture automatically when the card is found, sharp and glare-free. A user told "tilt the card away from the light" during capture fixes it in a second. The same user rejected two minutes later after upload usually abandons the sign-up.
+
+## What comes next
+
+With a flat, sharp, glare-free card, OCR has a fair chance. The remaining problems are about the text itself: [OCR for Arabic, Urdu and other scripts](/blog/ocr-non-latin-scripts-arabic-urdu/), and validating what was read with [MRZ check digits](/blog/passport-mrz-check-digits/). For e-passports, [reading the NFC chip](/blog/nfc-epassport-chip-verification/) avoids most of this. More of my computer vision work is on the [home page](/).

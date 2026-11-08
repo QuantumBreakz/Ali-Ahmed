@@ -11,7 +11,7 @@ Most LLM bills are dominated by **input tokens**: long system prompts, conversat
 
 A total monthly bill doesn't tell you what to fix. Tag every request with the **feature** and **prompt version**, and record input tokens, output tokens, cached tokens, model and latency. A gateway such as LiteLLM can do this centrally. One feature, often a chat with a long history or an agent loop, usually accounts for most of the spend.
 
-Make sure the cost numbers are right. In LiteLLM's auto-router, savings were reported as $0.00 when two deployments of the same model had different prices, because it compared model names instead of deployments. I fixed that in [#38834](https://github.com/BerriAI/litellm/pull/38834); the write-up is [why model name is not identity](/blog/llm-router-savings-deployment-id/).
+Make sure the cost numbers are right. In LiteLLM's auto-router, savings were reported as $0.00 when two deployments of the same model had different prices, because it compared model names instead of deployments. I reported it with a fix and regression tests in [#38834](https://github.com/BerriAI/litellm/pull/38834), and the maintainers resolved it upstream; the write-up is [why model name is not identity](/blog/llm-router-savings-deployment-id/).
 
 ## Step 2: Send less context
 

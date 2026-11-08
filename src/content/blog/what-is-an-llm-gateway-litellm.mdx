@@ -1,0 +1,59 @@
+---
+title: "What is an LLM gateway? Why teams put LiteLLM between their apps and model providers"
+description: "An LLM gateway is one API in front of many model providers that adds routing, fallbacks, budgets, keys and cost tracking. What it does, when you need one, and what can go wrong, from a LiteLLM contributor."
+publishedAt: 2026-11-08
+tags: [LLMs, LiteLLM, AI Engineering, Open Source]
+---
+
+An **LLM gateway** is a service that sits between your applications and model providers (OpenAI, Anthropic, Google, Bedrock, Azure, local models) and exposes **one API** for all of them, usually OpenAI-compatible. On top of that single API it adds what every team rebuilds otherwise: **routing and fallbacks** between models and deployments, **per-team keys and budgets**, **rate limiting**, **cost tracking**, **caching** and **logging**. **LiteLLM** is a widely used open-source one, as a Python library or a proxy server. I've contributed fixes to it, and both bugs I worked on show what a gateway does, and what happens when it gets it subtly wrong.
+
+## What problems does a gateway solve?
+
+Without a gateway, each application integrates each provider itself: separate SDKs, keys spread across services, no shared view of cost, and an outage at one provider takes down every feature that depends on it. A gateway centralises it:
+
+| Need            | What the gateway does                                   |
+| --------------- | ------------------------------------------------------- |
+| One API         | Translates a single request format to each provider     |
+| Reliability     | Retries, fallbacks to another deployment or provider    |
+| Load balancing  | Spreads traffic across deployments and regions          |
+| Access control  | Virtual keys per team or app, with model allow-lists    |
+| Spend control   | Budgets and rate limits per key, team or user           |
+| Cost visibility | Tokens and cost per request, tagged by team and feature |
+| Caching         | Reuses responses or forwards provider prompt caching    |
+| Observability   | Logs and traces sent to your monitoring tools           |
+
+Switching models becomes a configuration change instead of a code change in every service.
+
+## When do you need one?
+
+- **One app, one provider:** use the provider's SDK. A gateway adds a moving part.
+- **Several apps or teams sharing providers:** the gateway pays off quickly, especially for keys, budgets and cost reporting.
+- **Reliability requirements:** fallbacks across providers are much easier in one place.
+- **Agents and coding tools** used across a company: a gateway is how you see and cap what they spend.
+
+## What can go wrong? Two bugs I worked on
+
+A gateway that rewrites or routes requests sits in the path of every call, so small mistakes have wide effects.
+
+**1. Rewriting context the agent asked for.** LiteLLM can compress large tool results to save tokens. With Claude Code, the agent retrieved the compressed content, and the next request compressed it straight back, so the agent looped forever while nothing reported an error. The fix ([#38591](https://github.com/BerriAI/litellm/pull/38591), merged) keeps retrieved content out of compression. Full story: [why Claude Code looped behind LiteLLM](/blog/litellm-context-compression-bug/).
+
+**2. Comparing models by name instead of deployment.** The auto-router reported $0.00 saved when two deployments of the same model had different negotiated prices, because it compared provider and model name only. Comparing deployment IDs fixes it. I opened [#38834](https://github.com/BerriAI/litellm/pull/38834) with that fix and regression tests, and the maintainers resolved it upstream: [model name is not identity](/blog/llm-router-savings-deployment-id/).
+
+The lesson from both: anything that **changes model context** must know what the client explicitly asked for, and anything that **reports cost** must identify the exact deployment.
+
+## How do you run one well?
+
+- **Keep it stateless and horizontally scaled**, with its database for keys and spend separate.
+- **Put it close to your apps**, since every request now takes an extra hop.
+- **Pin versions and read changelogs.** A gateway update changes behaviour for every app at once.
+- **Test fallbacks on purpose**, by disabling a provider in staging.
+- **Track cost per feature**, not just per key; see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+- **Watch latency percentiles**, correctly aggregated: [why you can't average p95s](/blog/latency-percentiles-p95-averaging/).
+
+## Related
+
+- [My first LiteLLM contribution](/blog/first-litellm-contribution/)
+- [Tool calling explained](/blog/llm-tool-calling-explained/)
+- [What the Model Context Protocol is](/blog/what-is-model-context-protocol/)
+
+More of my open-source work is on the [projects page](/projects/).

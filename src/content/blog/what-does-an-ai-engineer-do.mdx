@@ -1,0 +1,57 @@
+---
+title: "What does an AI engineer do? A working definition, and what to look for when hiring one"
+description: "An AI engineer builds products on top of models: retrieval, agents, evaluation, guardrails and the infrastructure around them. How the role differs from ML engineer and data scientist, the skills that matter, and interview questions for founders hiring one."
+publishedAt: 2026-11-08
+tags: [AI Engineering, Careers, Hiring, LLMs]
+---
+
+An **AI engineer** builds **products and systems on top of AI models**: they connect models to data (retrieval, RAG), give them tools (agents), make their output reliable (validation, evaluation, guardrails), and run them in production at a sensible cost and latency. An **ML engineer** focuses more on training, fine-tuning and serving models; a **data scientist** on analysis, experiments and modelling for decisions. The lines blur, and good AI engineers know enough of both, but the defining skill is **shipping AI features that keep working when real users and real data arrive**. Here's what the job involves, and what I'd look for when hiring one.
+
+## What does the work involve?
+
+From my own work across identity verification, financial intelligence and developer tools:
+
+- **Computer vision and OCR in production:** detecting, reading and verifying identity documents at ShuftiPro. See [how KYC verification works](/blog/how-kyc-identity-verification-works/).
+- **Retrieval and RAG:** chunking, embeddings, search and evaluation. See [evaluating RAG](/blog/rag-retrieval-evaluation-metrics/).
+- **Agents and tools:** tool design, errors, permissions and protocols such as MCP. See [tool calling explained](/blog/llm-tool-calling-explained/) and [an OAuth 2.1 MCP server](/blog/oauth-mcp-server-crm/).
+- **Multi-agent systems:** at Kryptomind, pipelines for financial intelligence. See [single agent or multi-agent](/blog/single-agent-vs-multi-agent/).
+- **Reliability:** structured output, validation and fallbacks. See [reliable JSON from LLMs](/blog/llm-structured-output-validation/).
+- **Security:** prompt injection, authentication and audit trails. See [prompt injection from scraped data](/blog/prompt-injection-scraped-data-llm-outreach/) and [localhost is not authentication](/blog/localhost-is-not-authentication/).
+- **Cost and operations:** gateways, routing, caching and monitoring. See [what an LLM gateway is](/blog/what-is-an-llm-gateway-litellm/) and [cutting LLM costs](/blog/reduce-llm-api-costs/).
+- **Upstream fixes:** when a dependency breaks, fixing it at the source, as in my contributions to LiteLLM and Node.js.
+
+## How is it different from ML engineering and data science?
+
+| Role           | Main focus                                                        | Typical output                         |
+| -------------- | ----------------------------------------------------------------- | -------------------------------------- |
+| AI engineer    | Building products on models; reliability, evaluation, integration | Features, agents, RAG systems, APIs    |
+| ML engineer    | Training, fine-tuning, serving and scaling models                 | Models, training and serving pipelines |
+| Data scientist | Analysis, experiments, statistical modelling                      | Insights, forecasts, decisions         |
+
+In a small startup, one person often covers all three. The question is which one they're strongest at, and whether that matches your next six months.
+
+## What skills matter most?
+
+1. **Software engineering first.** AI features are mostly ordinary code: APIs, databases, queues, auth and tests. Weak engineering shows up as unreliable AI.
+2. **Evaluation habits.** They measure before and after changes and distrust demos. Ask how they knew a change helped.
+3. **Skepticism about model output.** They validate, check numbers against sources and design fallbacks.
+4. **Security awareness:** prompt injection, least-privilege tools, secrets and data handling.
+5. **Cost and latency sense:** they know where tokens go and how to cut them.
+6. **Ability to read and fix other people's code,** including open-source dependencies. Merged upstream PRs are good public evidence.
+
+## Interview questions for founders
+
+- "Tell me about an AI feature that worked in the demo and failed with real users. What broke, and how did you find out?"
+- "How would you know whether a prompt change made our assistant better or worse?" (Look for a test set and metrics.)
+- "Our agent sometimes makes up a number. How do you fix that?" (Look for verification in code, not "a better prompt".)
+- "What could go wrong if our agent reads customer emails and can send replies?" (Look for prompt injection, confirmation and permissions.)
+- "Walk me through code you wrote, and change it live." Works for spotting understanding, whoever or whatever wrote it; see [my AI code detector post-mortem](/blog/ai-code-detector-wrong-model/).
+
+## Red flags
+
+- Only notebooks and demos, nothing in production.
+- No way to measure quality besides "it looks good".
+- Every answer is a bigger model or a longer prompt.
+- No interest in what happens when the model is wrong.
+
+I'm an AI engineer in Lahore, Pakistan. My experience and open-source work are on the [home page](/) and the [projects page](/projects/), and all my writing is on [the blog](/blog/).

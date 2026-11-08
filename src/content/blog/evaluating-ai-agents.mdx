@@ -1,0 +1,70 @@
+---
+title: "How to evaluate AI agents: task success, tool-call accuracy, cost, and running each task more than once"
+description: "Agents are non-deterministic and take many steps, so one demo proves nothing. How to build an agent test set, score outcomes in code, check tool calls and trajectories, measure cost and steps, and run each task several times."
+publishedAt: 2026-11-08
+tags: [AI Agents, LLMs, AI Engineering, Testing]
+---
+
+Evaluate an AI agent on **outcomes first**: build a set of realistic tasks, run each one **several times**, and check in code whether the end state is correct (the record was created, the answer contains the right value, nothing else changed). Then measure **how** it got there: tool-call accuracy, number of steps, cost, latency, and whether it did anything it shouldn't. Agents are non-deterministic and take many steps, so a task that passes once may fail one time in three. A demo proves nothing; a pass rate over repeated runs does.
+
+## Step 1: build a task set
+
+Collect **30 to 100 tasks** that look like real use, each with a checkable success condition:
+
+- **Typical tasks:** "Create a follow-up task for the Acme deal next Tuesday."
+- **Ambiguous ones**, where the right move is to ask a question.
+- **Impossible ones**, where the right move is to say so instead of improvising.
+- **Risky ones**, where the agent must not act without confirmation, such as deleting data or sending email.
+- **Regression tasks** from every bug you've fixed.
+
+Run them against a **sandbox** with known starting data (a test database, mocked email and payments), reset before every run.
+
+## Step 2: score outcomes in code
+
+Wherever you can, check the **end state**, not the agent's description of it:
+
+- Does the database contain exactly the expected new record, with the right fields?
+- Does the answer contain the correct number, and does that number trace back to a source? (See [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/).)
+- Were **no other changes** made? Unwanted side effects are the most dangerous failures.
+
+Use an LLM judge only for what code can't check, such as tone or helpfulness, and spot-check its verdicts.
+
+## Step 3: run every task more than once
+
+Run each task **3 to 5 times** and report:
+
+- **Pass rate** per task and overall.
+- **Consistency:** the share of tasks that passed every run. For anything users rely on, this matters more than the average.
+
+A task at 60% isn't "mostly working"; it fails two times in five. Note which tasks are flaky. They usually point to a vague tool description or an ambiguous error.
+
+## Step 4: check the trajectory
+
+Look at **how** the agent worked, not just the result:
+
+| Metric                | What it catches                                      |
+| --------------------- | ---------------------------------------------------- |
+| Tool-call accuracy    | Wrong tool, or invalid or wrong arguments            |
+| Steps per task        | Loops, dithering, redundant calls                    |
+| Tokens and cost       | Bloated context and runaway loops                    |
+| Latency (p50 and p95) | Slow paths users will feel                           |
+| Policy violations     | Acting without confirmation, touching forbidden data |
+| Recovery              | Whether it handled a tool error sensibly             |
+
+Inject failures on purpose: make a tool return an error or time out, and check the agent recovers or stops cleanly. Good [tool errors](/blog/agent-tool-error-messages/) are what make recovery possible.
+
+## Step 5: track it over time
+
+Run the suite on every prompt change, model change, tool change and gateway update, and compare with the last run. Model updates in particular change behaviour without any code change, and a gateway can change what the model sees; I've seen one rewrite an agent's context into an infinite loop ([the LiteLLM case](/blog/litellm-context-compression-bug/)). Log the **model, prompt version and tool versions** with every result.
+
+For latency, aggregate correctly: [you can't average p95s](/blog/latency-percentiles-p95-averaging/). For cost, tag every call by feature: [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+
+## Summary
+
+1. Realistic tasks, including ambiguous, impossible and risky ones.
+2. Outcomes checked in code against a sandbox.
+3. Several runs per task; report pass rate and consistency.
+4. Tool accuracy, steps, cost, latency and policy violations.
+5. Re-run on every change.
+
+Related: [tool calling explained](/blog/llm-tool-calling-explained/), [single agent or multi-agent](/blog/single-agent-vs-multi-agent/), and [evaluating RAG systems](/blog/rag-retrieval-evaluation-metrics/). More of my AI agent work is on the [projects page](/projects/).

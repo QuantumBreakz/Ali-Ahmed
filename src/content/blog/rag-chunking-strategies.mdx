@@ -1,0 +1,75 @@
+---
+title: "RAG chunking strategies: fixed size, by heading, and what actually changes retrieval quality"
+description: "How you split documents decides what RAG can retrieve. Fixed-size chunks with overlap, structure-aware chunking by heading (with tested code), keeping titles in each chunk, and how to choose sizes by measuring recall."
+publishedAt: 2026-11-08
+tags: [RAG, LLMs, AI Engineering, Python]
+---
+
+**Chunking** is how you split documents into the pieces that get embedded and retrieved, and it decides what a RAG system **can** find: if the answer is cut in half, or buried in a chunk about something else, no model will recover it. Start with **structure-aware chunks** (split by headings, then by paragraphs up to a size limit), **keep the section heading in every chunk**, and use fixed-size chunks with overlap only for text without structure. Then choose the size by **measuring recall@k on your own questions**, not by copying a default.
+
+## Fixed-size chunks with overlap
+
+The simplest method: cut every N characters (or tokens), with some overlap so a sentence on a boundary appears in both chunks. It works on any text and needs no parsing. In my [offline RAG chatbot](/blog/offline-rag-chatbot-ollama/), 600 characters with 200 overlap worked well for a 7B local model.
+
+The weaknesses: chunks cut through the middle of a table, list or argument, and a chunk from the middle of a section loses its context ("The limit is 30 days" — the limit for what?).
+
+## Structure-aware chunking by heading
+
+Most real documents (policies, docs, contracts, wikis) have headings, and a section is usually about one thing. Split on headings first, then split long sections at paragraph breaks, and **repeat the heading** in each piece:
+
+```python title="chunk.py"
+def chunk_by_heading(markdown: str, max_chars: int = 1200) -> list[str]:
+    sections, current = [], []
+    for line in markdown.splitlines():
+        if line.startswith("#") and current:
+            sections.append("\n".join(current))
+            current = []
+        current.append(line)
+    if current:
+        sections.append("\n".join(current))
+
+    chunks = []
+    for section in sections:
+        heading = section.splitlines()[0] if section.startswith("#") else ""
+        while len(section) > max_chars:
+            cut = section.rfind("\n\n", 0, max_chars)
+            cut = cut if cut > 0 else max_chars
+            chunks.append(section[:cut].strip())
+            section = (heading + "\n" + section[cut:].strip()) if heading else section[cut:].strip()
+        chunks.append(section.strip())
+    return [c for c in chunks if c]
+```
+
+Long sections are cut at the last paragraph break before the limit, and every continuation starts with its heading, so "The limit is 30 days" arrives as "## Refund policy … The limit is 30 days". Convert PDFs and HTML to Markdown first so headings survive.
+
+## Add context to every chunk
+
+Beyond the heading, prepend what a reader would need: the **document title**, and for some corpora the date or product version. Some teams go further and have an LLM write a one-sentence summary of where each chunk sits in its document, embedded along with the chunk. It costs one LLM call per chunk at indexing time, so measure whether it helps.
+
+Store **metadata** with each chunk too (source, section, date, access level). It lets you filter before searching ("only 2026 policies"), cite sources in answers, and enforce permissions, so users only retrieve documents they're allowed to read.
+
+## Special cases
+
+- **Tables:** keep a table whole if it fits, and repeat the header row when splitting. A row without its header is a list of meaningless numbers.
+- **Code:** split by function or class, not by character count.
+- **Q&A and FAQs:** one question with its answer per chunk.
+- **Very short documents:** don't split them at all.
+
+## How do you choose the size?
+
+Small chunks are precise but lose context; large chunks keep context but dilute the embedding, so similarity search gets less precise, and they use more of the model's context. Don't guess:
+
+1. Build a [golden set of 50–100 real questions](/blog/rag-retrieval-evaluation-metrics/) with the passages that answer them.
+2. Index the corpus with two or three strategies and sizes.
+3. Compare **recall@k** and **MRR**, then check answer groundedness for the best two.
+
+Re-run it when the document mix changes. Chunking that suits policy documents may be wrong for support tickets.
+
+## Summary
+
+- Split by **structure** first, size second.
+- Keep the **heading and title** in every chunk.
+- Store **metadata** for filtering, citations and permissions.
+- Choose sizes by **measuring recall**, not by default.
+
+Related: [embeddings and vector search](/blog/embeddings-vector-search-explained/), [evaluating RAG](/blog/rag-retrieval-evaluation-metrics/), and [reliable structured output from LLMs](/blog/llm-structured-output-validation/). More on the [projects page](/projects/).

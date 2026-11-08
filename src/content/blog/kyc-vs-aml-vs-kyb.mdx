@@ -1,0 +1,63 @@
+---
+title: "KYC vs AML vs KYB vs CDD: what each means, and where AI fits in each"
+description: "KYC verifies who a customer is, AML is the wider programme against money laundering, KYB verifies businesses, and CDD/EDD set how deep checks go. A plain-English guide for founders and engineers, with where automation and AI help."
+publishedAt: 2026-11-08
+tags: [KYC, Compliance, AI Engineering, Fintech]
+---
+
+**KYC (Know Your Customer)** checks that a customer is who they say they are. **AML (Anti-Money Laundering)** is the wider legal programme a regulated business runs to stop its services being used for laundering money or financing terrorism; KYC is one part of it. **KYB (Know Your Business)** is KYC for companies: verifying the business and the people who own and control it. **CDD (Customer Due Diligence)** is the level of checking applied to a customer, and **EDD (Enhanced Due Diligence)** is the deeper version for higher-risk customers. Founders building fintech, marketplaces or crypto products meet all five terms in the first compliance conversation, so here's what each means and where software and AI help.
+
+## KYC: who is this person?
+
+The onboarding check most people have done: photograph an ID, take a selfie. Behind it:
+
+- **Document verification:** is the ID genuine and readable? See [how KYC verification works](/blog/how-kyc-identity-verification-works/), [MRZ check digits](/blog/passport-mrz-check-digits/) and [NFC chip reading](/blog/nfc-epassport-chip-verification/).
+- **Biometric verification:** does the selfie match the ID ([face match thresholds](/blog/face-match-threshold-far-frr/)), and is it a live person ([liveness detection](/blog/face-liveness-detection-explained/))?
+- **Data checks:** address, date of birth, sometimes a database lookup.
+
+This is where computer vision and OCR do most of the work, and where I spent my time at ShuftiPro.
+
+## AML: the whole programme
+
+AML covers everything a regulated business must do, including:
+
+- **Screening** customers against sanctions lists, politically exposed person (PEP) lists and adverse media.
+- **Transaction monitoring** for patterns such as structuring (splitting payments to stay under reporting limits) or money moving rapidly through an account.
+- **Reporting** suspicious activity to the financial intelligence unit.
+- **Record-keeping, training and audits.**
+
+KYC tells you who the customer is; AML asks whether what they do makes sense for who they are.
+
+## KYB: verifying a business
+
+For business customers you verify the company (registration, status, address) and its **ultimate beneficial owners (UBOs)**: the people who ultimately own or control it, typically above a 25% ownership threshold, although rules vary by country. Ownership chains through holding companies in several countries are what make KYB slow. Each UBO then goes through KYC.
+
+## CDD and EDD: how deep to go
+
+- **Simplified due diligence** for demonstrably low-risk cases, where the rules allow it.
+- **CDD:** the standard level: identify and verify the customer, understand the purpose of the relationship, and monitor it.
+- **EDD:** for higher risk, such as PEPs, high-risk countries or unusual structures: source of funds and wealth, more documents and senior approval.
+
+The level is set by a **risk assessment**, so a good onboarding system adapts the checks to the customer instead of applying the maximum to everyone.
+
+## Where does AI help?
+
+| Area                   | Useful AI                                    | Keep deterministic                       |
+| ---------------------- | -------------------------------------------- | ---------------------------------------- |
+| Document checks        | Computer vision, multilingual OCR            | MRZ check digits, chip signatures        |
+| Biometrics             | Face matching, liveness models               | Thresholds and the review band           |
+| Name screening         | Fuzzy and transliteration-aware matching     | The list data and the match decision log |
+| Adverse media          | LLMs to summarise and classify articles      | Sources cited for every finding          |
+| Transaction monitoring | Anomaly detection to find new patterns       | Rule-based scenarios regulators expect   |
+| KYB                    | Extracting ownership from registry documents | The UBO calculation itself               |
+
+Two rules carry across all of it. **Every decision needs a reason a person can read**, because a regulator or a rejected customer will ask. And **LLM output must be verified before it counts**: a summary that invents a fact about a customer is a compliance failure. That's the subject of [how I stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/) and [getting reliable structured output from LLMs](/blog/llm-structured-output-validation/), and audit trails are covered in [tamper-evident logs for AI agents](/blog/ai-agent-audit-log-hash-chain/).
+
+## Summary
+
+- **KYC:** verify the person.
+- **KYB:** verify the business and its owners.
+- **CDD / EDD:** how deeply to check, by risk.
+- **AML:** the full programme: screening, monitoring, reporting, and KYC inside it.
+
+I build AI for identity verification and financial intelligence; more on the [home page](/) and the [projects page](/projects/).

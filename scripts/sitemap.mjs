@@ -14,5 +14,7 @@ export async function serializeSitemapPage(item) {
   if (elements.some(({ tag, attrs }) => tag === "meta" && attrs.name === "robots" && /\bnoindex\b/i.test(attrs.content))) return undefined;
   const canonical = elements.find(({ tag, attrs }) => tag === "link" && attrs.rel === "canonical")?.attrs.href;
   if (!canonical) throw new Error(`Missing canonical URL for ${item.url}`);
-  return { ...item, url: canonical };
+  // Posts carry dateModified in their BlogPosting JSON-LD; reuse it so lastmod can never disagree with the page.
+  const modified = html.match(/"dateModified":"([^"]+)"/)?.[1];
+  return { ...item, url: canonical, ...(modified && { lastmod: modified }) };
 }

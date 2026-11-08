@@ -1,0 +1,62 @@
+---
+title: "How NFC passport chip verification works: BAC, PACE, passive and chip authentication"
+description: "E-passports carry a chip with a signed copy of the data page and photo. How a phone reads it (BAC or PACE using the MRZ), how passive authentication proves the data is genuine, and how chip authentication stops cloning."
+publishedAt: 2026-11-08
+tags: [KYC, Security, Identity Verification, Mobile]
+---
+
+An e-passport (look for the chip symbol on the cover) contains an **NFC chip** holding the data page and the holder's photo, **digitally signed by the issuing country**. A phone reads it in three steps: it **unlocks the chip** with a key derived from the passport's MRZ (**BAC** or the newer **PACE**), **reads the data groups**, and **checks the signatures** back to the country's certificate (**passive authentication**). A further check, **chip or active authentication**, proves the chip itself is genuine and not a copy. This is the strongest document check available in a KYC flow, far stronger than anything done from a photo of the page. The rules are in **ICAO Document 9303**.
+
+## Why read the chip at all?
+
+Photo-based checks ([OCR, MRZ check digits](/blog/passport-mrz-check-digits/) and visual authenticity) can be fooled by a good forgery, because they only look at pixels. The chip's contents are signed with the issuing state's private key. If the signature verifies, the name, dates and photo are exactly what the government issued. A forger can print a convincing page but can't produce a valid signature.
+
+## Step 1: unlock the chip with the MRZ
+
+The chip won't talk to just any reader. Access control prevents someone from skimming a passport inside a bag:
+
+- **BAC (Basic Access Control):** the reader derives session keys from three MRZ fields: **document number, date of birth and expiry date**, each with its check digit. So the app first reads the MRZ with the camera, which is one reason [MRZ accuracy](/blog/passport-mrz-check-digits/) matters.
+- **PACE (Password Authenticated Connection Establishment):** the modern replacement, using the same MRZ data (or a printed card access number) but a stronger key agreement. EU documents require it, and most new passports support it.
+
+## Step 2: read the data groups
+
+The chip stores data in **data groups (DGs)**. The two KYC needs most:
+
+| Data group | Contents                                |
+| ---------- | --------------------------------------- |
+| DG1        | The MRZ data                            |
+| DG2        | The facial image                        |
+| DG14       | Keys for chip authentication            |
+| DG15       | Public key for active authentication    |
+| SOD        | Hashes of every DG, signed by the state |
+
+## Step 3: passive authentication
+
+Passive authentication proves the data is **genuine and unaltered**:
+
+1. Hash each data group read, and compare with the hashes in the **Document Security Object (SOD)**.
+2. Verify the SOD's signature with the **Document Signer Certificate** stored alongside it.
+3. Verify that certificate against the issuing country's **CSCA** (Country Signing Certificate Authority) certificate, from a trusted list such as the **ICAO PKD** or national master lists.
+4. Check revocation lists.
+
+If all of that passes, DG1 and DG2 are authentic. The DG2 photo is then a high-quality reference for [face matching](/blog/face-match-threshold-far-frr/), much better than a phone photo of the printed portrait.
+
+## Step 4: chip or active authentication
+
+Passive authentication proves the **data** is genuine, but not that this **chip** is the original: signed data can be copied onto another chip. So:
+
+- **Active authentication (AA):** the chip signs a random challenge with a private key that can't be read out, matching the public key in DG15.
+- **Chip authentication (CA):** a key agreement using DG14 that also sets up stronger session encryption.
+
+Either one proves the chip holds a private key that never leaves it, so a clone fails.
+
+## What are the practical limits?
+
+- **Device support:** NFC is standard on iPhones and most Android phones, but some users' phones lack it.
+- **User experience:** users must hold the passport against the right spot on the phone for several seconds. Clear guidance matters as much as the cryptography.
+- **Certificate coverage:** you need trusted CSCA certificates for every country you accept, and not every country publishes to the ICAO PKD.
+- **It proves the document, not the person.** You still need a [face match](/blog/face-match-threshold-far-frr/) and [liveness](/blog/face-liveness-detection-explained/) to prove the holder is the person on the chip.
+
+## Where it fits
+
+In [the KYC pipeline](/blog/how-kyc-identity-verification-works/), NFC reading replaces most of the visual document checks when it's available, and photo-based checks with [OCR for many scripts](/blog/ocr-non-latin-scripts-arabic-urdu/) remain the fallback. More about my identity verification work at ShuftiPro is on the [home page](/).
