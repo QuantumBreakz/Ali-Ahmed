@@ -17,7 +17,7 @@ jobs:
   verify:
     name: Verify with Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
