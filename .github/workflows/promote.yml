@@ -61,6 +61,15 @@ jobs:
       - name: Submit the sitemap to IndexNow
         run: node scripts/promote/indexnow.mjs
 
+      - name: Submit the sitemap to Google Search Console
+        env:
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          GSC_SITE: ${{ vars.GSC_SITE }}
+        run: |
+          if [ -z "$GSC_SERVICE_ACCOUNT_JSON" ]; then echo "GSC_SERVICE_ACCOUNT_JSON secret not set; skipping Search Console."; exit 0; fi
+          [ -n "$GSC_SITE" ] || unset GSC_SITE
+          node scripts/promote/gsc-sitemap.mjs
+
       - name: Cross-post to DEV
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
@@ -68,11 +77,20 @@ jobs:
           if [ -z "$DEVTO_API_KEY" ]; then echo "DEVTO_API_KEY secret not set; skipping DEV."; exit 0; fi
           node scripts/promote/devto.mjs --publish
 
-      - name: Announce on Bluesky and Mastodon
+      - name: Announce on social networks
         env:
           SLUGS: ${{ steps.new.outputs.slugs }}
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
           MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
           MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_PERSON_URN: ${{ secrets.LINKEDIN_PERSON_URN }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node scripts/promote/announce.mjs $SLUGS
