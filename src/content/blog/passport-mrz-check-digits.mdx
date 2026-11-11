@@ -3,6 +3,12 @@ title: "How passport MRZ check digits work, with code to validate them"
 description: "The two lines of chevrons on a passport are the machine-readable zone. How ICAO 9303 check digits work (weights 7, 3, 1), how to validate the document number, dates and composite digit in Python, and why OCR pipelines rely on them."
 publishedAt: 2026-11-06
 tags: [KYC, OCR, Python, Computer Vision]
+video:
+  src: /videos/mrz-check-digit.mp4
+  poster: /videos/mrz-check-digit.jpg
+  title: "Computing a passport MRZ check digit, step by step"
+  duration: PT23S
+  transcript: "The second MRZ line of ICAO's specimen passport is shown with the document number L898902C3 highlighted. Each character is converted to a value (L becomes 21, C becomes 12, digits keep their value), multiplied by the repeating weights 7, 3, 1, giving products 147, 24, 9, 56, 27, 0, 14, 36 and 3. They sum to 316, and 316 mod 10 is 6, which matches the printed check digit, so the number was read correctly."
 ---
 
 The **machine-readable zone (MRZ)** is the block of uppercase letters, digits and `<` chevrons at the bottom of a passport data page. It repeats the key fields in a fixed format defined by **ICAO Document 9303**, and it carries **check digits**: each important field is followed by one digit computed from it with weights **7, 3, 1**. A KYC pipeline uses them to catch OCR mistakes and some tampering. If a single character in the document number is misread, its check digit almost always stops matching. Here's how the algorithm works, with tested Python.

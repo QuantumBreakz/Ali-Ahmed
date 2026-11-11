@@ -3,6 +3,12 @@ title: "How KYC identity verification works: document capture, OCR, face match a
 description: "What happens between 'take a photo of your ID' and 'verified': document detection, classification, OCR and MRZ checks, face matching, liveness, and the decision. An AI engineer's walkthrough of each stage and where it fails."
 publishedAt: 2026-11-06
 tags: [KYC, Computer Vision, OCR, AI Engineering]
+video:
+  src: /videos/kyc-pipeline.mp4
+  poster: /videos/kyc-pipeline.jpg
+  title: "How KYC identity verification works, in 21 seconds"
+  duration: PT21S
+  transcript: "Six checks appear one after another: capture (is the photo usable?), classify (which document is it?), OCR and MRZ (what does it say?), authenticity (is it genuine?), face match (same person?) and liveness (a live person?). A progress bar fills as each check completes, and the result is one of three decisions: approve, send to human review, or reject with a reason. The closing line says every rejection carries a reason someone can act on."
 ---
 
 Online **KYC (Know Your Customer) verification** answers two questions: **is this identity document genuine and readable**, and **is the person holding the phone the person on the document**? A typical pipeline runs six stages: capture, document detection and classification, data extraction (OCR and the MRZ), authenticity checks, face matching, and liveness detection, followed by a decision that combines them. I worked on the computer vision and multilingual OCR side of this at ShuftiPro, for documents from more than 100 countries. This post walks through each stage in order, and links to a deeper post on each one.

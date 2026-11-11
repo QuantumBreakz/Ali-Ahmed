@@ -13,7 +13,7 @@ export function getBlogExport(entry: PublishedWriting) {
     markdownContent: createBlogMarkdown({
       title: entry.data.title,
       description: entry.data.description,
-      body: entry.body ?? "",
+      body: `${entry.data.video ? `Video: [${entry.data.video.title}](${new URL(entry.data.video.src, site.url).href})\n\n` : ""}${entry.body ?? ""}`,
       canonicalUrl,
       author: site.fullName,
       date: entry.data.publishedAt.toISOString().slice(0, 10),

@@ -1,0 +1,51 @@
+---
+interface Props {
+  src: string;
+  poster: string;
+  title: string;
+  transcript: string;
+}
+const { src, poster, title, transcript } = Astro.props;
+---
+
+<figure class="blog-video">
+  <video controls preload="none" playsinline muted poster={poster} width="1280" height="720" aria-describedby="blog-video-transcript">
+    <source src={src} type="video/mp4" />
+  </video>
+  <figcaption>
+    <span>{title} (silent animation)</span>
+    <details>
+      <summary>What the video shows</summary>
+      <p id="blog-video-transcript">{transcript}</p>
+    </details>
+  </figcaption>
+</figure>
+
+<style>
+  .blog-video {
+    margin: 0 0 2rem;
+  }
+  .blog-video video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .blog-video figcaption {
+    margin-top: 0.6rem;
+    font: 0.875rem/1.5 var(--sans);
+    color: var(--muted);
+  }
+  .blog-video summary {
+    cursor: pointer;
+    color: var(--ink);
+    margin-top: 0.25rem;
+    min-height: 1.75rem;
+  }
+  .blog-video details p {
+    margin: 0.5rem 0 0;
+  }
+</style>

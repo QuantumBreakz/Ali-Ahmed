@@ -53,6 +53,15 @@ const blogSchema = z
     updatedAt: z.coerce.date().optional(),
     tags,
     draft: z.boolean().default(false),
+    video: z
+      .object({
+        src: z.string().regex(/^\/videos\/[a-z0-9-]+\.mp4$/),
+        poster: z.string().regex(/^\/videos\/[a-z0-9-]+\.jpg$/),
+        title: z.string().min(1),
+        duration: z.string().regex(/^PT\d+S$/),
+        transcript: z.string().min(1),
+      })
+      .optional(),
   })
   .refine((entry) => entry.draft || entry.publishedAt !== undefined, {
     message: "publishedAt is required for published writing",

@@ -3,6 +3,12 @@ title: "Error budgets and burn rates explained with code: what 14.4 means, and a
 description: "A 99.9% SLO over 30 days allows 43.2 minutes of failure. How to compute error budget spent and burn rate, why a burn rate of 14.4 over an hour pages someone, and the maintenance-window mismatch I found in my own monitoring console."
 publishedAt: 2026-11-06
 tags: [SRE, Monitoring, TypeScript, Reliability]
+video:
+  src: /videos/slo-burn-rate.mp4
+  poster: /videos/slo-burn-rate.jpg
+  title: "Error budget and burn rate, visualised"
+  duration: PT22S
+  transcript: "A 99.9% target over 30 days allows 0.1% failure, which is 43.2 minutes of error budget. Two bars, each representing the whole 30-day budget, fill for one bad hour: at burn rate 1 it uses 0.1% of the budget, and at burn rate 14.4 it uses 2.0%. The formula 14.4 × (1 hour ÷ 720 hours) = 2% explains why burn rate 14.4 is the usual threshold for paging someone, while slower burns raise a ticket."
 ---
 
 An **error budget** is the amount of failure your SLO allows: a 99.9% target over 30 days allows 0.1% of that time, which is **43.2 minutes**. **Burn rate** is how fast you're spending it: a burn rate of 1 uses the whole budget exactly by the end of the window, and a burn rate of **14.4 sustained for one hour spends 2% of a 30-day budget**, which is the usual threshold for paging someone. Below is how I compute both in **Kestrel**, a small synthetic-monitoring console I built ([source](https://github.com/QuantumBreakz/Kestrel)), and a mismatch I found where the two calculations treat planned maintenance differently.

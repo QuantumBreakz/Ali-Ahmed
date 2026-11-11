@@ -4,6 +4,7 @@ import { render } from "astro:content";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import BlogCode from "../../components/blog/BlogCode.astro";
 import BlogLayout from "../../layouts/BlogLayout.astro";
+import BlogVideo from "../../components/blog/BlogVideo.astro";
 import "../../styles/blog-article.css";
 import { personId, site } from "../../data/site";
 import { formatWritingDate, getPublishedBlog, getWritingPath, type PublishedWriting } from "../../lib/blog-source";
@@ -36,7 +37,24 @@ const jsonLd = [
     keywords: entry.data.tags.join(", "),
     wordCount: (entry.body ?? "").split(/\s+/).length,
     isPartOf: { "@id": `${site.url}/#website` },
+    ...(entry.data.video && { video: { "@id": `${blogExport.canonicalUrl}#video` } }),
   },
+  ...(entry.data.video
+    ? [
+        {
+          "@type": "VideoObject",
+          "@id": `${blogExport.canonicalUrl}#video`,
+          name: entry.data.video.title,
+          description: entry.data.video.transcript,
+          thumbnailUrl: new URL(entry.data.video.poster, site.url).href,
+          contentUrl: new URL(entry.data.video.src, site.url).href,
+          uploadDate: entry.data.publishedAt.toISOString(),
+          duration: entry.data.video.duration,
+          creator: { "@id": personId },
+          inLanguage: "en",
+        },
+      ]
+    : []),
 ];
 const readingMinutes = Math.max(1, Math.ceil((entry.body ?? "").split(/\s+/).length / 220));
 ---
@@ -54,5 +72,6 @@ const readingMinutes = Math.max(1, Math.ceil((entry.body ?? "").split(/\s+/).len
   readingMinutes={readingMinutes}
   tags={entry.data.tags}
 >
+  {entry.data.video && <BlogVideo {...entry.data.video} />}
   <Content components={{ pre: BlogCode, a: defaultMdxComponents.a, table: defaultMdxComponents.table }} />
 </BlogLayout>
