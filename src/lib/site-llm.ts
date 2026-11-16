@@ -22,6 +22,7 @@ const portfolioPages = [
   { label: "Education", path: "/education/", description: pageDescriptions.education },
   { label: "Blog", path: "/blog/", description: "Tutorials, experiments, personal updates, and observations." },
   { label: "Contact", path: "/contact/", description: pageDescriptions.contact },
+  { label: "Privacy", path: "/privacy/", description: "No cookies or analytics; how my publishing tools use my own Google account." },
 ] as const;
 
 function absoluteUrl(path: string): string {

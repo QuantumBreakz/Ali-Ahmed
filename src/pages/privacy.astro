@@ -1,0 +1,50 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import PageHero from "../components/PageHero.astro";
+import { site } from "../data/site";
+---
+
+<BaseLayout
+  title="Privacy"
+  description="What aliahmed.si collects (nothing beyond standard server logs), and how Ali Ahmed's publishing tools use Google account access."
+  pageClass="page--privacy"
+  footerVariant="compact"
+>
+  <PageHero title="Privacy" lead="Short version: this site doesn't track you." />
+
+  <section class="privacy">
+    <h2>This website</h2>
+    <p>
+      aliahmed.si is a static site. It sets no cookies and runs no analytics, advertising or tracking scripts. Cloudflare, which hosts it, keeps
+      standard request logs (such as IP address, page requested and browser) for security and reliability. I don't use them to identify visitors.
+    </p>
+    <p>
+      If you email me, through a link on this site or otherwise, I use your message only to reply. I don't sell or share it, and I'll delete it on
+      request.
+    </p>
+
+    <h2>My publishing tools</h2>
+    <p>
+      I use a small Google Cloud app, aliahmed-si, to publish summaries of my own articles to my own Blogger blog and to submit this site's sitemap to
+      Google Search Console. It accesses only my own Google account. It doesn't request, store or share anyone else's data.
+    </p>
+
+    <h2>Contact</h2>
+    <p>Questions about privacy: <a href={`mailto:${site.email}`}>{site.email}</a>.</p>
+    <p class="privacy__updated">Last updated 16 November 2026.</p>
+  </section>
+</BaseLayout>
+
+<style>
+  .privacy {
+    max-width: 42rem;
+  }
+
+  .privacy h2 {
+    margin-top: 2rem;
+  }
+
+  .privacy__updated {
+    color: var(--muted);
+  }
+</style>
