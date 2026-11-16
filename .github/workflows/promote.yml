@@ -91,8 +91,10 @@ jobs:
       - name: Publish summaries on Telegraph
         env:
           TELEGRAPH_TOKEN: ${{ secrets.TELEGRAPH_TOKEN }}
+          # Only used once, to save TELEGRAPH_TOKEN as a secret when it's missing.
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
-          if [ -z "$TELEGRAPH_TOKEN" ]; then echo "TELEGRAPH_TOKEN secret not set; skipping Telegraph."; exit 0; fi
+          if [ -z "$TELEGRAPH_TOKEN" ] && [ -z "$GH_TOKEN" ]; then echo "No TELEGRAPH_TOKEN or GIST_TOKEN; skipping Telegraph."; exit 0; fi
           node scripts/promote/telegraph.mjs --publish --limit 5
 
       - name: Publish summaries on Blogger

@@ -1,6 +1,7 @@
 // Publish a short summary page per post on Telegraph (telegra.ph), linking to the full article.
 //
 //   node scripts/promote/telegraph.mjs --setup                one-time: create the account, save TELEGRAPH_TOKEN
+//                                                            (CI does this itself on its first run if the secret is missing)
 //   node scripts/promote/telegraph.mjs [--limit 5]            dry run
 //   node scripts/promote/telegraph.mjs --publish [--limit 5]  publish up to 5 posts not yet on Telegraph
 //
@@ -17,17 +18,19 @@ const api = async (method, params) => {
 };
 const AUTHOR = { author_name: "Ali Ahmed", author_url: `${SITE}/` };
 
-if (process.argv.includes("--setup")) {
+// No token yet (or --setup): create the account and save its token as a secret. In CI this needs GH_TOKEN
+// with the repo scope; it lets GitHub's servers do the setup when telegra.ph is blocked on your network.
+const publish = process.argv.includes("--publish");
+let token = process.env.TELEGRAPH_TOKEN;
+if (!token && !publish && !process.argv.includes("--setup")) throw new Error("Set TELEGRAPH_TOKEN, or run with --setup or --publish.");
+if (!token || process.argv.includes("--setup")) {
   const account = await api("createAccount", { short_name: "aliahmed", ...AUTHOR });
   saveSecret("TELEGRAPH_TOKEN", account.access_token);
-  process.exit(0);
+  if (process.argv.includes("--setup")) process.exit(0);
+  token = account.access_token;
 }
-
-const token = process.env.TELEGRAPH_TOKEN;
-if (!token) throw new Error("Set TELEGRAPH_TOKEN (run with --setup once).");
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 5;
-const publish = process.argv.includes("--publish");
 
 const { pages = [] } = await api("getPageList", { access_token: token, limit: "200" });
 const done = new Set(pages.map((p) => p.title));
