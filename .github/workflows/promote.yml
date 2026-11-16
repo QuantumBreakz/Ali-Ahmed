@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths: ["src/content/blog/**"]
   workflow_dispatch:
+  # Daily drip: Telegraph and Blogger publish a few summaries per run until every post is covered.
+  schedule:
+    - cron: "17 6 * * *"
 
 permissions:
   contents: read
@@ -48,7 +51,7 @@ jobs:
         env:
           SLUGS: ${{ steps.new.outputs.slugs }}
         run: |
-          if [ -z "$SLUGS" ]; then sleep 300; exit 0; fi
+          if [ -z "$SLUGS" ]; then [ "$GITHUB_EVENT_NAME" = push ] && sleep 300; exit 0; fi
           for slug in $SLUGS; do
             for attempt in $(seq 1 80); do
               curl --silent --fail --output /dev/null "https://aliahmed.si/blog/$slug.md" && break
@@ -59,6 +62,7 @@ jobs:
           done
 
       - name: Submit the sitemap to IndexNow
+        if: github.event_name != 'schedule'
         run: node scripts/promote/indexnow.mjs
 
       - name: Submit the sitemap to Google Search Console
@@ -83,3 +87,30 @@ jobs:
         run: |
           if [ -z "$GIST_TOKEN" ]; then echo "GIST_TOKEN secret not set; skipping Gists."; exit 0; fi
           node scripts/promote/gists.mjs --publish
+
+      - name: Publish summaries on Telegraph
+        env:
+          TELEGRAPH_TOKEN: ${{ secrets.TELEGRAPH_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAPH_TOKEN" ]; then echo "TELEGRAPH_TOKEN secret not set; skipping Telegraph."; exit 0; fi
+          node scripts/promote/telegraph.mjs --publish --limit 5
+
+      - name: Publish summaries on Blogger
+        env:
+          BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
+          BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
+          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+        run: |
+          if [ -z "$BLOGGER_REFRESH_TOKEN" ]; then echo "Blogger secrets not set; skipping Blogger."; exit 0; fi
+          node scripts/promote/blogger.mjs --publish --limit 3
+
+      - name: Report Search Console index status
+        if: github.event_name != 'push'
+        env:
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          GSC_SITE: ${{ vars.GSC_SITE }}
+        run: |
+          if [ -z "$GSC_SERVICE_ACCOUNT_JSON" ]; then echo "GSC_SERVICE_ACCOUNT_JSON secret not set; skipping."; exit 0; fi
+          [ -n "$GSC_SITE" ] || unset GSC_SITE
+          node scripts/promote/gsc-inspect.mjs | tee -a "$GITHUB_STEP_SUMMARY"

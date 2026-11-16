@@ -7,8 +7,8 @@
 // a JSON key for it. In Search Console → Settings → Users and permissions, add the service account's email
 // with Full permission. GSC_SITE defaults to the domain property sc-domain:aliahmed.si; set it to
 // https://aliahmed.si/ if your property is a URL-prefix one.
-import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { serviceAccountToken } from "./google.mjs";
 import { saveSecret } from "./secrets.mjs";
 
 const keyArg = process.argv.indexOf("--key");
@@ -20,24 +20,7 @@ if (process.argv.includes("--save")) saveSecret("GSC_SERVICE_ACCOUNT_JSON", raw)
 const site = process.env.GSC_SITE ?? "sc-domain:aliahmed.si";
 const sitemap = "https://aliahmed.si/sitemap-index.xml";
 
-const b64 = (data) => Buffer.from(typeof data === "string" ? data : JSON.stringify(data)).toString("base64url");
-const now = Math.floor(Date.now() / 1000);
-const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
-  iss: key.client_email,
-  scope: "https://www.googleapis.com/auth/webmasters",
-  aud: "https://oauth2.googleapis.com/token",
-  iat: now,
-  exp: now + 3600,
-})}`;
-const jwt = `${unsigned}.${createSign("RSA-SHA256").update(unsigned).sign(key.private_key, "base64url")}`;
-
-const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-  method: "POST",
-  headers: { "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
-});
-if (!tokenRes.ok) throw new Error(`Google rejected the service account: ${tokenRes.status} ${await tokenRes.text()}`);
-const { access_token } = await tokenRes.json();
+const access_token = await serviceAccountToken(key, "https://www.googleapis.com/auth/webmasters");
 
 const api = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/sitemaps`;
 const auth = { authorization: `Bearer ${access_token}` };
