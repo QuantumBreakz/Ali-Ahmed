@@ -2,9 +2,9 @@ import { Composition } from "remotion";
 import { BURN_DURATION, BurnRate } from "./BurnRate";
 import { KYC_DURATION, KycPipeline } from "./KycPipeline";
 import { MRZ_DURATION, MrzCheckDigit } from "./MrzCheckDigit";
-import { FPS } from "./theme";
+import { FPS, H, W } from "./theme";
 
-const size = { width: 1280, height: 720, fps: FPS };
+const size = { width: W, height: H, fps: FPS };
 
 export function RemotionRoot() {
   return (

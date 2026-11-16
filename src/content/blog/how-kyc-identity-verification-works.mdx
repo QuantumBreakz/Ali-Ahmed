@@ -6,9 +6,9 @@ tags: [KYC, Computer Vision, OCR, AI Engineering]
 video:
   src: /videos/kyc-pipeline.mp4
   poster: /videos/kyc-pipeline.jpg
-  title: "How KYC identity verification works, in 21 seconds"
-  duration: PT21S
-  transcript: "Six checks appear one after another: capture (is the photo usable?), classify (which document is it?), OCR and MRZ (what does it say?), authenticity (is it genuine?), face match (same person?) and liveness (a live person?). A progress bar fills as each check completes, and the result is one of three decisions: approve, send to human review, or reject with a reason. The closing line says every rejection carries a reason someone can act on."
+  title: "How KYC identity verification works, in 30 seconds"
+  duration: PT30S
+  transcript: "A specimen passport is photographed at an angle and comes into focus inside a camera guide (capture: in focus, no glare, all corners). It is flattened and identified as a TD3 passport (classify). Boxes appear over the surname, given names, document number and dates, then over both MRZ lines, and all four check digits pass (read). A light sweeps across the page while three authenticity checks pass: fonts match the template, the portrait is untouched, it is not a screen. The passport moves aside next to a selfie and a similarity score rises to 0.91, past a 0.80 threshold (face match). The selfie pulses while liveness checks pass: no replay, no mask, no injected video. The result is one of three decisions, approve, human review or reject, and every rejection carries a reason someone can act on, such as document expired, face mismatch or photo too blurry."
 ---
 
 Online **KYC (Know Your Customer) verification** answers two questions: **is this identity document genuine and readable**, and **is the person holding the phone the person on the document**? A typical pipeline runs six stages: capture, document detection and classification, data extraction (OCR and the MRZ), authenticity checks, face matching, and liveness detection, followed by a decision that combines them. I worked on the computer vision and multilingual OCR side of this at ShuftiPro, for documents from more than 100 countries. This post walks through each stage in order, and links to a deeper post on each one.
