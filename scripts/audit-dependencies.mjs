@@ -26,7 +26,50 @@ export function evaluateAudit(report, exitCode) {
   return "clean";
 }
 
-function main() {
+const advisoryId = (via) => (typeof via === "object" ? via.url?.match(/GHSA-[\w-]+$/)?.[0] : undefined);
+
+/**
+ * Drop findings that exist only because of advisories GitHub has withdrawn (published in error), including
+ * packages flagged just for depending on such a finding. Anything else, even one real advisory, is kept.
+ * Returns the report with recomputed totals.
+ */
+export function withoutWithdrawn(report, withdrawn) {
+  const entries = { ...report.vulnerabilities };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, entry] of Object.entries(entries)) {
+      const onlyWithdrawn = entry.via.every((via) => (typeof via === "string" ? !(via in entries) : withdrawn.has(advisoryId(via))));
+      if (onlyWithdrawn) {
+        delete entries[name];
+        changed = true;
+      }
+    }
+  }
+  const counts = Object.fromEntries(severities.map((severity) => [severity, Object.values(entries).filter((e) => e.severity === severity).length]));
+  return {
+    ...report,
+    vulnerabilities: entries,
+    metadata: { ...report.metadata, vulnerabilities: { ...counts, total: Object.keys(entries).length } },
+  };
+}
+
+/** Advisory IDs in the report that GitHub marks as withdrawn. Any lookup failure counts as not withdrawn. */
+async function withdrawnAdvisories(report) {
+  const ids = new Set(Object.values(report.vulnerabilities ?? {}).flatMap((entry) => entry.via.map(advisoryId).filter(Boolean)));
+  const withdrawn = new Set();
+  for (const id of ids) {
+    try {
+      const res = await fetch(`https://api.github.com/advisories/${id}`, { headers: { accept: "application/vnd.github+json" } });
+      if (res.ok && (await res.json()).withdrawn_at) withdrawn.add(id);
+    } catch {
+      // fail closed: the finding stays
+    }
+  }
+  return withdrawn;
+}
+
+async function main() {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const result = spawnSync(
     "npm",
@@ -49,7 +92,12 @@ function main() {
   );
   assert.ok(!result.error && !result.signal && Number.isInteger(result.status), "The dependency audit could not complete.");
   console.log(result.stdout);
-  evaluateAudit(JSON.parse(result.stdout), result.status);
+  const report = JSON.parse(result.stdout);
+  const withdrawn = await withdrawnAdvisories(report);
+  const kept = withoutWithdrawn(report, withdrawn);
+  if (withdrawn.size) console.log(`Ignoring advisories GitHub has withdrawn: ${[...withdrawn].join(", ")}`);
+  // npm exits 1 for any finding; when only withdrawn ones remained, the audit is effectively clean.
+  evaluateAudit(kept, withdrawn.size && kept.metadata.vulnerabilities.total === 0 ? 0 : result.status);
   return hardenCache(root).then(() => console.log("Dependency audit passed without exceptions; cache security guard verified."));
 }
 

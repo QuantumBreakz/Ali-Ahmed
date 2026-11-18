@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { evaluateAudit } from "./audit-dependencies.mjs";
+import { evaluateAudit, withoutWithdrawn } from "./audit-dependencies.mjs";
 import { assertStaticOutput } from "./check-static-output.mjs";
 import { buildSecurity } from "./build-security.mjs";
 import { assertHardenedCache, cacheGuard, cacheVersion, hardenCache } from "./harden-cache.mjs";
@@ -23,6 +23,26 @@ function cleanAudit() {
     metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 } },
   };
 }
+
+test("ignores only findings caused solely by withdrawn advisories", () => {
+  const advisory = (id) => ({ url: `https://github.com/advisories/${id}` });
+  const report = cleanAudit();
+  report.vulnerabilities = {
+    picomatch: { severity: "high", via: [advisory("GHSA-gone")] },
+    fdir: { severity: "high", via: ["picomatch"] },
+    vite: { severity: "high", via: ["fdir", advisory("GHSA-real")] },
+  };
+  report.metadata.vulnerabilities = { info: 0, low: 0, moderate: 0, high: 3, critical: 0, total: 3 };
+
+  const kept = withoutWithdrawn(report, new Set(["GHSA-gone"]));
+  assert.deepEqual(Object.keys(kept.vulnerabilities), ["vite"]);
+  assert.throws(() => evaluateAudit(kept, 1), /no advisory exceptions/);
+
+  delete report.vulnerabilities.vite;
+  report.metadata.vulnerabilities = { info: 0, low: 0, moderate: 0, high: 2, critical: 0, total: 2 };
+  assert.equal(evaluateAudit(withoutWithdrawn(report, new Set(["GHSA-gone"])), 0), "clean");
+  assert.throws(() => evaluateAudit(withoutWithdrawn(report, new Set()), 1), /no advisory exceptions/);
+});
 
 test("requires a clean audit without advisory exceptions", () => {
   assert.equal(evaluateAudit(cleanAudit(), 0), "clean");
