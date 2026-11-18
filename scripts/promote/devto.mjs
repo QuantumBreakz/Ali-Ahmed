@@ -2,7 +2,7 @@
 //
 //   DEVTO_API_KEY=... node scripts/promote/devto.mjs            dry run: shows what would be posted
 //   DEVTO_API_KEY=... node scripts/promote/devto.mjs --draft    creates unpublished drafts to review on dev.to
-//   DEVTO_API_KEY=... node scripts/promote/devto.mjs --publish  publishes
+//   DEVTO_API_KEY=... node scripts/promote/devto.mjs --publish [--limit 8]  publishes (at most 8 new posts)
 //
 // Bodies come from the live site's Markdown export (https://aliahmed.si/blog/<slug>.md), so the post must be
 // deployed first and every internal link is already an absolute aliahmed.si URL. Posts whose title
@@ -11,6 +11,8 @@ import { posts } from "./posts.mjs";
 
 const mode = process.argv.includes("--publish") ? "publish" : process.argv.includes("--draft") ? "draft" : "dry-run";
 const key = process.env.DEVTO_API_KEY;
+const limitArg = process.argv.indexOf("--limit");
+const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : Infinity;
 if (mode !== "dry-run" && !key) throw new Error("Set DEVTO_API_KEY (https://dev.to/settings/extensions)");
 
 const devTags = (tags) => [...new Set(tags.map((t) => t.toLowerCase().replace(/[^a-z0-9]/g, "")))].filter(Boolean).slice(0, 4);
@@ -33,6 +35,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let created = 0;
 let failed = 0;
 for (const p of posts) {
+  if (created + failed >= limit) break;
   if (existing.has(p.title) || existing.has(p.url)) {
     console.log(`skip (already on DEV): ${p.title}`);
     continue;

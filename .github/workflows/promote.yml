@@ -79,7 +79,7 @@ jobs:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
         run: |
           if [ -z "$DEVTO_API_KEY" ]; then echo "DEVTO_API_KEY secret not set; skipping DEV."; exit 0; fi
-          node scripts/promote/devto.mjs --publish
+          node scripts/promote/devto.mjs --publish --limit 8
 
       - name: Publish code as GitHub Gists
         if: ${{ !cancelled() }}
