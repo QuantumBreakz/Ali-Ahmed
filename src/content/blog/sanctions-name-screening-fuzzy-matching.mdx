@@ -1,0 +1,120 @@
+---
+title: "Fuzzy name matching for sanctions screening: normalisation, transliteration and Jaro-Winkler"
+description: "Why exact matching fails for KYC and AML name screening, and how to build a matcher that handles accents, titles, word order and Arabic transliterations such as Muhammad and Mohamed. Tested Python, plus why secondary identifiers matter more than the threshold."
+publishedAt: 2026-11-18
+tags: [KYC, Python, AI Engineering, Security]
+---
+
+**Sanctions and PEP screening** compares every customer's name against watch lists, and exact string matching fails at it immediately: the same person can be written `Muhammad Hussein`, `HUSSAIN, Mohamed` or `Dr. Mohammed Al-Hussain`. A usable matcher has three layers. First **normalise** (case, accents, punctuation, titles, particles such as `al` and `bin`). Then **map transliteration variants** to one form. Then score the remaining tokens with a similarity measure such as **Jaro-Winkler**, ignoring word order. Even then, the threshold alone can't separate a real hit from a namesake: **date of birth and nationality** do that. Here's a tested implementation and the trade-offs.
+
+## Why doesn't exact matching work?
+
+Names reach you through different systems, alphabets and people:
+
+- **Transliteration.** Arabic, Urdu, Persian and Russian names have several common Latin spellings. محمد is written Muhammad, Mohammed, Mohamed, Mohammad and more.
+- **Order and format.** Lists often store `SURNAME, Given names`; customers type given names first.
+- **Decorations.** Titles (`Dr`, `Sheikh`, `Haji`), particles (`al-`, `bin`, `ibn`), hyphens and accents (`José Núñez`).
+- **Typos and OCR errors.** A name read from an ID card can be off by a letter, which is one reason OCR quality matters in [KYC verification](/blog/how-kyc-identity-verification-works/).
+
+Missing a sanctioned person is a regulatory failure. Flagging thousands of innocent namesakes is an operational one. Screening is the balance between the two.
+
+## Step 1: Normalise the name
+
+```python title="names.py: normalisation"
+import re
+import unicodedata
+
+TITLES = {"mr", "mrs", "ms", "dr", "sheikh", "haji", "hajji"}
+VARIANTS = {  # transliteration spellings mapped to one form
+    "mohammed": "muhammad", "mohammad": "muhammad", "mohamed": "muhammad", "muhammed": "muhammad", "mohd": "muhammad",
+    "ahmad": "ahmed", "hussain": "hussein", "husain": "hussein", "yusuf": "yousef", "youssef": "yousef",
+}
+
+def normalize(name: str) -> list[str]:
+    name = unicodedata.normalize("NFKD", name)
+    name = "".join(c for c in name if not unicodedata.combining(c)).casefold()
+    name = re.sub(r"\b(?:abd|abdul|abdel)[\s-]+(?:[ae]l[\s-]+)?", "abdul", name)  # Abd al-Rahman -> abdulrahman
+    tokens = [t for t in re.findall(r"[a-z]+", name) if t not in TITLES and t not in {"al", "el", "bin", "ibn", "binti"}]
+    return [VARIANTS.get(t, t) for t in tokens]
+
+normalize("Dr. Mohammed Al-Hussain")  # ['muhammad', 'hussein']
+normalize("José Núñez")               # ['jose', 'nunez']
+normalize("Abd al-Rahman")            # ['abdulrahman'], same as "Abdul Rahman" and "Abdel-Rahman"
+```
+
+`abd al-` and `abdul` are joined because "servant of" belongs to the name that follows it: `Abdul Rahman` is one name, and splitting it would let `Rahman` alone match thousands of people.
+
+The variant table is the part that takes real work. A dozen entries show the idea; production systems use maintained transliteration rules or lists, per language. One limitation is visible already: `Abdurrahman`, written as one word, still won't normalise to `abdulrahman`. That's left to the fuzzy score.
+
+## Step 2: Score with Jaro-Winkler
+
+Jaro-Winkler measures how many characters two strings share in roughly the same positions, and adds a bonus for a common prefix. That suits names, where typos tend to be transpositions and endings vary more than beginnings.
+
+```python title="names.py: Jaro-Winkler"
+def jaro_winkler(a: str, b: str) -> float:
+    if a == b:
+        return 1.0
+    window = max(len(a), len(b)) // 2 - 1
+    a_hit, b_hit = [False] * len(a), [False] * len(b)
+    matches = 0
+    for i, ch in enumerate(a):
+        for j in range(max(0, i - window), min(len(b), i + window + 1)):
+            if not b_hit[j] and b[j] == ch:
+                a_hit[i] = b_hit[j] = True
+                matches += 1
+                break
+    if not matches:
+        return 0.0
+    a_m = [c for c, hit in zip(a, a_hit) if hit]
+    b_m = [c for c, hit in zip(b, b_hit) if hit]
+    transpositions = sum(x != y for x, y in zip(a_m, b_m)) / 2
+    jaro = (matches / len(a) + matches / len(b) + (matches - transpositions) / matches) / 3
+    prefix = next((i for i, (x, y) in enumerate(zip(a[:4], b[:4])) if x != y), min(4, len(a), len(b)))
+    return jaro + prefix * 0.1 * (1 - jaro)
+
+def name_score(customer: str, listed: str) -> float:
+    """Best match for each listed token among the customer's tokens, averaged. Word order doesn't matter."""
+    c, l = normalize(customer), normalize(listed)
+    if not c or not l:
+        return 0.0
+    return sum(max(jaro_winkler(t, u) for u in c) for t in l) / len(l)
+```
+
+`jaro_winkler("martha", "marhta")` is 0.961, the textbook value. Some results:
+
+| Customer         | Listed           | Score |
+| ---------------- | ---------------- | ----- |
+| Muhammad Hussein | HUSSAIN, Mohamed | 1.000 |
+| Ahmed Khan       | Ahmad Khan       | 1.000 |
+| Ali Ahmed        | Ahmed Ali        | 1.000 |
+| John Smith       | Jon Smyth        | 0.913 |
+| Maria Garcia     | Mario Garza      | 0.898 |
+| John Smith       | Jane Smithers    | 0.812 |
+
+## Why isn't the threshold enough?
+
+Look at the last rows. `Maria Garcia` and `Mario Garza` score 0.898, close to the genuine typo `Jon Smyth` at 0.913. And `Ali Ahmed` scores a perfect 1.0 against `Ahmed Ali`, which could be the same person or two different people. Common names share tokens with many list entries, so any threshold low enough to catch transliterations and typos also produces alerts for namesakes.
+
+That's why screening uses the name score to **generate candidates**, then compares **secondary identifiers**:
+
+- **Date or year of birth.** The strongest discriminator: most namesakes differ.
+- **Nationality and place of birth.**
+- **Document numbers**, where the list includes them.
+
+A name match with a conflicting birth year is closed as a false positive, with the reason recorded. A name match with a matching birth year goes to a human reviewer. Recording **why** each alert was closed is what an auditor will ask for, the same principle as [giving every KYC rejection a reason](/blog/how-kyc-identity-verification-works/) and [keeping a tamper-evident audit log](/blog/ai-agent-audit-log-hash-chain/).
+
+## How do you tune it?
+
+- **Test against labelled pairs**: known variants that must match, and known different people who shouldn't. Measure misses and false alerts at several thresholds, like the trade-off in [face match thresholds](/blog/face-match-threshold-far-frr/).
+- **Screen in the original script too.** If you have the name in Arabic or Cyrillic from the ID's visual zone, compare in that script as well; transliteration loses information. See [why OCR struggles with non-Latin scripts](/blog/ocr-non-latin-scripts-arabic-urdu/).
+- **Re-screen when lists change**, not only at onboarding.
+- **Don't let an LLM make the decision.** It can summarise an alert for a reviewer, but the match decision should be deterministic and reproducible.
+
+## Summary
+
+- Normalise accents, case, titles and particles, and map transliteration variants to one form.
+- Score tokens with Jaro-Winkler, best match per listed token, so word order doesn't matter.
+- Use the name score to find candidates; use **date of birth and nationality** to decide.
+- Record the reason every alert was closed.
+
+For where screening sits in compliance, see [KYC vs AML vs KYB](/blog/kyc-vs-aml-vs-kyb/).

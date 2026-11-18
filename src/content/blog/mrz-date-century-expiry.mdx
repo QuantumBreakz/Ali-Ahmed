@@ -1,0 +1,89 @@
+---
+title: "Which century is 74? Parsing MRZ dates of birth and expiry correctly"
+description: "Passport MRZ dates have two-digit years, so 740812 could be 1974 or 2074. The rules that resolve the century for birth and expiry dates, how to compute age and expiry checks, and the cases where the visual zone has to decide. Tested Python."
+publishedAt: 2026-11-18
+tags: [KYC, OCR, Python, Computer Vision]
+---
+
+A passport's **machine-readable zone (MRZ)** stores dates as `YYMMDD`, with a **two-digit year** and no century. So `740812` could be 12 August 1974 or 2074, and the code that reads it has to decide. The working rules: a **date of birth** can't be in the future, so take the current century unless that gives a future date, then the previous one. An **expiry date** is within about ten years of today either way, so take the century that puts it **closest to today**. Both rules have edge cases, and for those the **visual zone**, which prints the full year, has to decide. Here's tested Python for both, plus age and expiry checks.
+
+## Where do the dates sit in the MRZ?
+
+On a passport (format TD3), the second line holds the date of birth at positions 14–19 and the expiry date at 22–27, each followed by a [check digit](/blog/passport-mrz-check-digits/). In ICAO's specimen:
+
+```text title="TD3 line 2 (ICAO specimen)"
+L898902C36UTO7408122F1204159ZE184226B<<<<<10
+             ^^^^^^  ^^^^^^
+             740812  120415
+             birth   expiry
+```
+
+Check digits confirm that the six digits were read correctly. They say nothing about which century is meant.
+
+## How do you resolve the century for a date of birth?
+
+```python title="mrz_dates.py"
+from datetime import date
+
+def birth_date(yymmdd: str, today: date) -> date:
+    """A birth date can't be in the future: take this century unless that would be, then the previous one."""
+    yy, mm, dd = int(yymmdd[:2]), int(yymmdd[2:4]), int(yymmdd[4:])
+    century = today.year // 100 * 100
+    born = date(century + yy, mm, dd)
+    return born if born <= today else date(century - 100 + yy, mm, dd)
+```
+
+On 18 November 2026: `740812` gives 1974, `080305` gives 2008, and `261231` gives **1926**, because 31 December 2026 hasn't happened yet. That last one shows the limit of the rule. Someone born in 1925 has `25` in their MRZ, which the rule reads as 2025, an 18-month-old. Very old customers are rare but real, and the fix isn't a cleverer rule: the visual zone prints a four-digit year, so **compare the MRZ date with the date read from the visual zone**, and use the four-digit year when they agree on day and month.
+
+## How do you resolve the century for an expiry date?
+
+Passports are typically valid for up to ten years, so the expiry is never decades away from today. Pick whichever century is nearest:
+
+```python title="mrz_dates.py"
+def expiry_date(yymmdd: str, today: date) -> date:
+    """Passports are valid for at most 10 years (some IDs a bit more): pick the century closest to today."""
+    yy, mm, dd = int(yymmdd[:2]), int(yymmdd[2:4]), int(yymmdd[4:])
+    century = today.year // 100 * 100
+    options = [date(c + yy, mm, dd) for c in (century - 100, century, century + 100)]
+    return min(options, key=lambda d: abs((d - today).days))
+```
+
+The specimen's `120415` becomes 15 April 2012: correctly in the past, so the specimen is expired. `340115` becomes 2034. And near a century boundary it still works: on 2 January 2000, `991231` resolves to 31 December 1999, not 2099. A naive "always add 2000" breaks exactly there.
+
+## How do you check age and expiry?
+
+Age is the difference in years, minus one if this year's birthday hasn't happened yet:
+
+```python title="mrz_dates.py"
+def age_on(born: date, day: date) -> int:
+    return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
+
+today = date(2026, 11, 18)
+age_on(date(2008, 11, 19), today)  # 17: the birthday is tomorrow
+age_on(date(2008, 11, 18), today)  # 18: today
+```
+
+For onboarding, check both:
+
+- **Expired document:** `expiry_date(...) < today`. Some regulators and businesses also reject documents that expire within a short window.
+- **Minimum age:** `age_on(birth_date(...), today) >= 18` (or your market's age).
+
+Return the specific reason ("document expired on 15 April 2012") rather than a bare rejection. A reason someone can act on saves a support ticket, as covered in [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).
+
+## What about impossible dates?
+
+OCR can turn a valid date into an impossible one, such as `740230` (30 February). Python's `date()` raises `ValueError: day is out of range for month`, which is what you want: catch it and treat the field as unread, not as a fact. A wrong digit usually breaks the check digit first, but if a check digit happens to pass on an impossible date, the date validation catches it.
+
+Also watch for:
+
+- **`<` filler in dates.** Some documents use `<<` when the day or month of birth is unknown. Treat it as unknown, not as zero.
+- **Time zones.** "Today" for an expiry check should be a defined date (UTC or the jurisdiction's), so a document doesn't pass in one region and fail in another.
+
+## Summary
+
+- MRZ years are two digits. **Birth:** current century unless that's in the future. **Expiry:** the century closest to today.
+- People over 100 break the birth rule; cross-check with the visual zone's four-digit year.
+- Validate with `date()` so impossible dates fail loudly.
+- Reject with a specific, dated reason.
+
+More on reading ID documents: [preparing ID photos for OCR with OpenCV](/blog/document-photo-preprocessing-ocr/) and [reading the NFC chip in e-passports](/blog/nfc-epassport-chip-verification/), where dates are signed by the issuing country.

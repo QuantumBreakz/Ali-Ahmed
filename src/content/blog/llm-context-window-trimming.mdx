@@ -1,0 +1,98 @@
+---
+title: "Trimming chat history to fit the context window without breaking tool calls"
+description: "Long conversations outgrow the model's context window. Why keeping the last N messages breaks agents by orphaning tool results, how to trim by whole turns within a token budget, and what to do when one turn is too big. Tested Python."
+publishedAt: 2026-11-18
+tags: [LLMs, AI Agents, Python, AI Engineering]
+---
+
+Every chat model has a **context window**, and a long conversation eventually doesn't fit. The common fix, **keep the last N messages**, quietly breaks agents: it can keep a **tool result** while dropping the assistant message that requested it, and most chat APIs reject a tool result whose tool call is missing. Trim by **whole turns** instead: a turn starts at a user message and includes every assistant message, tool call and tool result after it. Always keep the **system prompt** and the **newest turn**, then add older turns, newest first, until the **token budget** is spent. Here's a tested implementation and the cases it has to handle.
+
+## Why does "keep the last N messages" break?
+
+An agent turn looks like this in the OpenAI-style message format (other providers have the same structure with different names):
+
+```python title="One agent turn"
+{"role": "user", "content": "Where is order 1001?"},
+{"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "name": "get_order", "args": {"id": 1001}}]},
+{"role": "tool", "tool_call_id": "c1", "content": "shipped, arriving Friday"},
+{"role": "assistant", "content": "It ships Friday."},
+```
+
+Cut the history between the second and third messages and the result keeps the `tool` message with `tool_call_id: "c1"`, but not the call that created it. Depending on the provider, that's a validation error, or a model confused by an answer to a question nobody asked. The tool-call loop itself is explained in [how LLM tool calling works](/blog/llm-tool-calling-explained/).
+
+## How do you trim by turns?
+
+```python title="trim.py"
+def estimate_tokens(message: dict) -> int:
+    # ponytail: ~4 characters per token for English; use the provider's token counter when the budget is tight.
+    return len(str(message.get("content") or "")) // 4 + len(str(message.get("tool_calls") or "")) // 4 + 4
+
+def turns(messages: list[dict]) -> list[list[dict]]:
+    """Group the conversation into turns, each starting at a user message. A tool call and its results never split."""
+    grouped: list[list[dict]] = []
+    for message in messages:
+        if message["role"] == "user" or not grouped:
+            grouped.append([])
+        grouped[-1].append(message)
+    return grouped
+
+def trim_history(messages: list[dict], budget: int) -> list[dict]:
+    system = [m for m in messages if m["role"] == "system"]
+    rest = turns([m for m in messages if m["role"] != "system"])
+    used = sum(map(estimate_tokens, system))
+    kept: list[list[dict]] = []
+    for turn in reversed(rest):  # newest first
+        cost = sum(map(estimate_tokens, turn))
+        if used + cost > budget and kept:
+            break
+        kept.insert(0, turn)
+        used += cost
+    return system + [m for turn in kept for m in turn]
+```
+
+The rules it enforces:
+
+- **The system prompt always stays.** It carries the instructions, and dropping it changes behaviour silently.
+- **Whole turns or nothing.** A tool call and its results are in the same turn, so they're kept or dropped together.
+- **The newest turn always stays**, even if it alone exceeds the budget. Sending nothing is worse; the oversized turn is handled separately (below).
+- **Older turns are dropped first**, and only from the front, so the conversation stays in order.
+
+## Does it keep tool calls intact?
+
+On a three-turn support conversation of about 400 estimated tokens, with a budget of 120:
+
+```python title="Result"
+trim_history(history, budget=120)
+# roles: ['system', 'user', 'assistant', 'tool', 'assistant', 'user']
+# ~82 tokens: the system prompt and the two newest turns; the first turn and its large tool result are gone
+
+naive = history[:1] + history[-7:]   # system prompt + last 7 messages
+# orphaned tool results: ['c1']
+```
+
+The test asserts that the trimmed history has **no orphaned tool results**, that the system prompt and the newest message survive, and that the naive version does orphan one.
+
+## What if the newest turn alone is too big?
+
+Usually that's a single **huge tool result**, such as a whole web page or a database dump. Trimming history can't help. Fix it at the source:
+
+- **Cap tool output** in the tool itself: return the first N rows, or a summary with a way to fetch more.
+- **Store large results outside the context** and give the model a reference it can ask for, the approach LiteLLM's context compression takes. Get it wrong and agents loop: [why Claude Code looped behind LiteLLM](/blog/litellm-context-compression-bug/) is the bug I fixed there.
+- **Return errors the model can act on**, not stack traces: [how to write tool errors for LLM agents](/blog/agent-tool-error-messages/).
+
+## Should you summarise instead of dropping?
+
+Dropping old turns loses information. A common upgrade is to replace the dropped turns with a **short summary**, written by the model, as one message after the system prompt. It costs an extra call and can drift over many rounds, so keep the summary factual (names, IDs, decisions made) and regenerate it from the original turns rather than summarising a summary.
+
+## Count tokens properly when it matters
+
+`len(text) // 4` is a reasonable estimate for English and a poor one for code, Urdu or Arabic, which use more tokens per character. Leave headroom for the **model's reply** too: the window covers input and output. When you're close to the limit, use the provider's token-counting endpoint or tokenizer. Fewer tokens also means a smaller bill: see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+
+## Summary
+
+- "Last N messages" can orphan tool results and break agent requests.
+- Trim by **whole turns**, newest first, always keeping the system prompt and the newest turn.
+- Fix oversized tool results at the tool, not in the history.
+- Summarise dropped turns if the agent needs long memory; count real tokens near the limit.
+
+Related: [single agent vs multi-agent systems](/blog/single-agent-vs-multi-agent/) and [evaluating AI agents](/blog/evaluating-ai-agents/).

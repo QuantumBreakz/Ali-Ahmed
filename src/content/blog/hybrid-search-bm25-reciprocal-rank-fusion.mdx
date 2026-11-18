@@ -1,0 +1,105 @@
+---
+title: "Hybrid search for RAG: BM25 plus vectors, merged with reciprocal rank fusion"
+description: "Vector search misses invoice numbers, error codes and names. How hybrid search adds BM25 keyword retrieval and merges both rankings with reciprocal rank fusion (RRF), with tested Python and the trade-offs of k and weighting."
+publishedAt: 2026-11-18
+tags: [RAG, AI Engineering, Python, LLMs]
+---
+
+**Hybrid search** runs two retrievers on every query, **BM25** keyword search and **vector** (embedding) search, and merges their results. It fixes the best-known weakness of embeddings: they capture meaning but blur exact tokens, so a query for invoice `INV-20931`, error `ECONNRESET` or a person's name can return documents that are merely _about_ invoices, network errors or people. The usual way to merge the two rankings is **reciprocal rank fusion (RRF)**: each document scores `1 / (k + rank)` in each list, the scores are added, and `k = 60` is the common default. It needs no score normalisation and no training. Below is a complete, tested implementation in plain Python.
+
+## Why does vector search miss exact terms?
+
+An embedding model compresses a passage into a few hundred numbers that represent what it's about. Two passages about disputed invoices land close together whether the invoice number is `INV-20931` or `INV-55102`. That's what makes semantic search good at paraphrases, and bad at identifiers. I covered the mechanics in [embeddings and vector search, explained](/blog/embeddings-vector-search-explained/).
+
+Keyword search has the opposite profile: it matches exact tokens and knows nothing about meaning. Together they cover each other's gaps.
+
+| Query type                   | Vector search           | BM25                        |
+| ---------------------------- | ----------------------- | --------------------------- |
+| "how do I get my money back" | finds the refund policy | misses it (no shared words) |
+| "INV-20931"                  | returns any invoice     | finds that invoice          |
+| "ECONNRESET when proxying"   | finds network errors    | finds that error            |
+| A customer's name            | unreliable              | exact                       |
+
+## How does BM25 score a document?
+
+BM25 scores each query term by how **rare** it is across all documents (inverse document frequency) and how **often** it appears in this one, with diminishing returns for repetition (`k1`) and a penalty for long documents (`b`). The tokenizer matters as much as the formula: keep hyphenated identifiers like `inv-20931` as one token, or the code is split into two common pieces.
+
+```python title="hybrid.py: BM25"
+import math
+import re
+from collections import Counter
+
+def tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.lower())
+
+class BM25:
+    def __init__(self, docs: dict[str, str], k1: float = 1.5, b: float = 0.75):
+        self.docs = {doc_id: tokenize(text) for doc_id, text in docs.items()}
+        self.k1, self.b = k1, b
+        self.avg_len = sum(len(t) for t in self.docs.values()) / len(self.docs)
+        df = Counter(term for tokens in self.docs.values() for term in set(tokens))
+        n = len(self.docs)
+        self.idf = {term: math.log(1 + (n - f + 0.5) / (f + 0.5)) for term, f in df.items()}
+
+    def search(self, query: str, k: int = 10) -> list[str]:
+        scores = {}
+        for doc_id, tokens in self.docs.items():
+            tf = Counter(tokens)
+            norm = self.k1 * (1 - self.b + self.b * len(tokens) / self.avg_len)
+            score = sum(self.idf.get(t, 0) * tf[t] * (self.k1 + 1) / (tf[t] + norm) for t in tokenize(query) if t in tf)
+            if score > 0:
+                scores[doc_id] = score
+        return sorted(scores, key=scores.get, reverse=True)[:k]
+```
+
+In production you'd use the BM25 built into your database or search engine (Postgres full-text search, OpenSearch, Elasticsearch, or a vector database with sparse vectors) rather than scanning every document. The scoring is the same idea.
+
+## How does reciprocal rank fusion merge the results?
+
+BM25 scores and cosine similarities live on different scales, so adding them directly is meaningless without careful normalisation. RRF sidesteps that by using only **ranks**:
+
+```python title="hybrid.py: RRF"
+def rrf(rankings: list[list[str]], k: int = 60) -> list[str]:
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking, start=1):
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank)
+    return sorted(scores, key=scores.get, reverse=True)
+```
+
+A document near the top of **both** lists beats one at the top of only one. With four small documents and the query `INV-20931 dispute`:
+
+```python title="Example"
+docs = {
+    "refunds": "Refunds are issued within 14 days to the original payment method.",
+    "inv-20931": "Invoice INV-20931 was disputed by the customer in March.",
+    "disputes": "How to handle a customer dispute about a charge or an invoice.",
+    "shipping": "Orders ship within two business days.",
+}
+bm25 = BM25(docs)
+bm25.search("INV-20931 dispute")       # ['inv-20931', 'disputes']
+vector = ["disputes", "refunds", "shipping", "inv-20931"]  # embeddings ranked the exact invoice last
+rrf([bm25.search("INV-20931 dispute"), vector])
+# ['disputes', 'inv-20931', 'refunds', 'shipping']
+```
+
+The invoice moves from **rank 4** (vectors alone) to **rank 2**, inside any reasonable top-k. Notice it doesn't reach rank 1: the dispute-handling guide ranked well in both lists, and RRF rewards agreement. Whether that's right depends on the question, which is why you measure instead of guessing.
+
+## How do you choose k and weights?
+
+- **k = 60** is the value from the original RRF paper and a sensible default. A smaller `k` gives more weight to the very top of each list; a larger one flattens the ranks.
+- **Weighted RRF** multiplies each list's contribution, for example `1.5 / (k + rank)` for BM25 when users mostly search by ID. Only do this if your evaluation shows it helps.
+- **Retrieve more than you return.** Fetch the top 20–50 from each retriever, fuse, then keep the top 5–10 for the prompt. A reranker can sit after fusion when the order of the top results matters most.
+
+## How do you know hybrid search helped?
+
+Run the same labelled questions through vector-only, BM25-only and hybrid retrieval, and compare **recall@k** and **MRR**. Split the results by query type: hybrid should lift questions containing names, codes and exact phrases, and shouldn't hurt the paraphrased ones. The metrics and a small harness are in [how to evaluate a RAG system](/blog/rag-retrieval-evaluation-metrics/), and the chunk boundaries you're retrieving matter too: see [RAG chunking strategies](/blog/rag-chunking-strategies/).
+
+## Summary
+
+- Embeddings miss exact identifiers; BM25 misses paraphrases. Hybrid search runs both.
+- Merge with **reciprocal rank fusion**: `1 / (k + rank)` per list, summed, `k = 60`. No score normalisation needed.
+- Tokenize identifiers as single tokens, retrieve 20–50 per retriever, fuse, then trim.
+- Confirm the gain with recall@k and MRR, split by query type.
+
+Related: [building a fully offline RAG chatbot with Ollama](/blog/offline-rag-chatbot-ollama/) and [single agent vs multi-agent systems](/blog/single-agent-vs-multi-agent/).

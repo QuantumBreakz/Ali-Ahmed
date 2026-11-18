@@ -1,0 +1,142 @@
+---
+title: "Retrying LLM API calls: exponential backoff, jitter, Retry-After and model fallbacks"
+description: "LLM APIs return 429s, 5xx errors and overloaded responses under load. Which errors to retry, full-jitter exponential backoff, honouring Retry-After, a retry budget, and falling back to another model, with tested JavaScript."
+publishedAt: 2026-11-18
+tags: [LLMs, AI Engineering, Node.js, Reliability]
+---
+
+LLM APIs fail in predictable ways under load: **429** when you exceed a rate limit, **5xx** when the provider has a problem, an "overloaded" response when capacity is short (Anthropic uses **529** for that), and timeouts. A good client **retries only those**, waits with **exponential backoff and full jitter** so thousands of clients don't retry in lockstep, **honours `Retry-After`** when the provider sends it, gives up when a **retry budget** runs out, and only then **falls back to another model**. It **never retries a 400**: a malformed request fails the same way every time and on every model. Below is a small, tested implementation.
+
+## Which errors should you retry?
+
+| Response                    | Retry? | Why                                                     |
+| --------------------------- | ------ | ------------------------------------------------------- |
+| 429 Too Many Requests       | Yes    | Rate limit; wait, ideally as long as `Retry-After` says |
+| 500, 502, 503, 504          | Yes    | Provider or network trouble, usually brief              |
+| 529 (overloaded)            | Yes    | Capacity, often clears in seconds                       |
+| 408, timeouts, `ECONNRESET` | Yes    | The request may never have arrived                      |
+| 400, 422                    | No     | Your request is wrong: too long, bad schema             |
+| 401, 403                    | No     | Bad key or no permission; retrying won't fix it         |
+
+A 400 from an over-long prompt is a context-window problem, which is solved by [trimming the conversation](/blog/llm-context-window-trimming/), not by waiting.
+
+## Why jitter?
+
+Plain exponential backoff (wait 0.5 s, 1 s, 2 s, 4 s) has a flaw: when an outage hits every client at the same moment, they all retry at the same moments too, and the provider gets the traffic in synchronised waves. **Full jitter** picks a random wait between zero and the exponential cap, which spreads retries out. In AWS's published comparison of backoff strategies, full jitter was one of the two that performed best, and the simplest.
+
+## The retry function
+
+```js title="retry.mjs"
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504, 529]);
+
+export class HttpError extends Error {
+  constructor(status, retryAfter) {
+    super(`HTTP ${status}`);
+    this.status = status;
+    this.retryAfter = retryAfter; // seconds, from the Retry-After header
+  }
+}
+
+const isRetryable = (error) =>
+  error instanceof HttpError ? RETRYABLE.has(error.status) : error.name === "TimeoutError" || error.code === "ECONNRESET";
+
+/** Full-jitter exponential backoff that honours Retry-After, with a cap on total time spent waiting. */
+export async function withRetry(call, { attempts = 4, baseMs = 500, maxMs = 20_000, budgetMs = 30_000, sleep, random = Math.random } = {}) {
+  let waited = 0;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await call(attempt);
+    } catch (error) {
+      if (attempt >= attempts || !isRetryable(error)) throw error;
+      const backoff = random() * Math.min(maxMs, baseMs * 2 ** (attempt - 1));
+      const delay = error.retryAfter ? Math.max(error.retryAfter * 1000, backoff) : backoff;
+      if (waited + delay > budgetMs) throw error;
+      waited += delay;
+      await sleep(delay);
+    }
+  }
+}
+```
+
+`sleep` and `random` are parameters so the logic can be tested without real waiting; in production pass `(ms) => new Promise((r) => setTimeout(r, ms))`.
+
+Three details matter:
+
+- **`Retry-After` wins** over the computed backoff when it's longer. The provider is telling you when capacity returns; retrying sooner just earns another 429.
+- **The budget** stops a request from hanging for minutes. If `Retry-After` says 120 seconds and your user is waiting on a chat reply, failing fast (or falling back) is better than a two-minute spinner.
+- **`attempts` counts the first call**, so 4 means one call plus up to three retries.
+
+## How do fallbacks fit in?
+
+When a model is overloaded for longer than your budget, a different model or provider often isn't:
+
+```js title="retry.mjs"
+/** Try each model in order; move on only when a model's own retries are exhausted on a retryable error. */
+export async function withFallback(models, request, options) {
+  let last;
+  for (const model of models) {
+    try {
+      return await withRetry(() => request(model), options);
+    } catch (error) {
+      if (!isRetryable(error)) throw error; // a 400 will fail on every model too
+      last = error;
+    }
+  }
+  throw last;
+}
+```
+
+Fallbacks change behaviour, so treat them deliberately: the fallback model should be tested with your prompts, handle your tool schemas, and fit the same context window. Log which model answered each request, and include it in cost reporting. Comparing by model name alone can hide which deployment did the work: see [why LLM cost dashboards lie when deployments share a model name](/blog/llm-router-savings-deployment-id/).
+
+## Do these tests pass?
+
+```js title="retry.test.mjs"
+import assert from "node:assert/strict";
+
+const sleeps = [];
+const opts = { sleep: async (ms) => void sleeps.push(ms), random: () => 1 };
+
+// 503, 503, then success: waits of 500 and 1000 ms.
+let n = 0;
+assert.equal(await withRetry(async () => (++n < 3 ? Promise.reject(new HttpError(503)) : "ok"), opts), "ok");
+assert.deepEqual(sleeps.splice(0), [500, 1000]);
+
+// 429 with Retry-After: 7 waits 7 s, not 0.5 s.
+n = 0;
+await withRetry(async () => (++n < 2 ? Promise.reject(new HttpError(429, 7)) : "ok"), opts);
+assert.deepEqual(sleeps.splice(0), [7000]);
+
+// 400 is never retried.
+n = 0;
+await assert.rejects(
+  withRetry(async () => {
+    n++;
+    throw new HttpError(400);
+  }, opts),
+  /HTTP 400/
+);
+assert.equal(n, 1);
+
+// Retry-After beyond the budget: give up now instead of sleeping.
+await assert.rejects(
+  withRetry(async () => {
+    throw new HttpError(429, 120);
+  }, opts),
+  /HTTP 429/
+);
+```
+
+They pass on Node.js 24, as does a fallback test where the primary returns 529 four times and the secondary answers.
+
+## Should you write this yourself?
+
+Most provider SDKs already retry 429s and 5xx with backoff. Check their defaults before adding your own layer, or you'll multiply attempts: three SDK retries inside four of yours is up to sixteen calls. Own the retry logic in one place. If several services share providers, that place is often an **LLM gateway**, which handles retries, fallbacks and budgets centrally: see [what an LLM gateway is, and why teams put LiteLLM in front of providers](/blog/what-is-an-llm-gateway-litellm/).
+
+## Summary
+
+- Retry 429, 5xx, overloaded and timeouts. Never retry 400s or auth errors.
+- Use exponential backoff with **full jitter**, and let a longer `Retry-After` win.
+- Cap total waiting with a budget; fail fast or fall back when it runs out.
+- Fall back to a tested alternative model, and log which one answered.
+
+For keeping the bill down once requests succeed, see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
