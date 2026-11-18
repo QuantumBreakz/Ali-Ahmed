@@ -55,6 +55,17 @@ const blog = await fetch(`https://www.googleapis.com/blogger/v3/blogs/byurl?url=
 }).then((r) => r.json());
 if (!blog.id) throw new Error(`Blog not found at ${blogUrl}: ${JSON.stringify(blog.error ?? blog)}`);
 
+// Any account can look a blog up by URL; only its authors can post. Check the signed-in account is one of them.
+const mine = await fetch("https://www.googleapis.com/blogger/v3/users/self/blogs", {
+  headers: { authorization: `Bearer ${tokens.access_token}` },
+}).then((r) => r.json());
+if (!(mine.items ?? []).some((b) => b.id === blog.id)) {
+  const names = (mine.items ?? []).map((b) => `${b.name} (${b.url})`).join(", ") || "none";
+  throw new Error(
+    `The Google account you signed in with isn't an author of ${blogUrl}. Its blogs: ${names}. Run this again and pick the account that owns the blog.`
+  );
+}
+
 saveSecret("BLOGGER_CLIENT_ID", installed.client_id);
 saveSecret("BLOGGER_CLIENT_SECRET", installed.client_secret);
 saveSecret("BLOGGER_REFRESH_TOKEN", tokens.refresh_token);

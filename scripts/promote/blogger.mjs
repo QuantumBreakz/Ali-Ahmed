@@ -21,7 +21,11 @@ const headers = {
 const api = `https://www.googleapis.com/blogger/v3/blogs/${BLOGGER_BLOG_ID}/posts`;
 
 const existing = await fetch(`${api}?fetchBodies=false&maxResults=500&status=live&status=draft&status=scheduled`, { headers }).then((r) => r.json());
-if (existing.error) throw new Error(`Blogger list failed: ${existing.error.message}`);
+if (existing.error) {
+  const hint =
+    existing.error.code === 403 ? " The saved login isn't an author of this blog: run blogger-auth.mjs again with the account that owns it." : "";
+  throw new Error(`Blogger list failed: ${existing.error.message}.${hint}`);
+}
 const done = new Set((existing.items ?? []).map((p) => p.title));
 const todo = posts.filter((p) => !done.has(p.title)).slice(0, limit);
 console.log(`Blogger: ${done.size} already published, ${todo.length} to ${publish ? "publish" : "publish (dry run)"}.`);
