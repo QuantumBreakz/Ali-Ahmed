@@ -1,0 +1,22 @@
+# Posts whose canonical URL DEV already holds ("Canonical url has already been taken") but doesn't list on this account,
+# e.g. deleted articles. devto.mjs skips these slugs so it doesn't burn rate limit on them every run.
+agent-tool-error-messages
+airpods-battery-linux-librepods
+chip-process-nodes-explained
+first-litellm-contribution
+google-workspace-vs-zoho-mail
+gpu-architecture-explained
+llm-router-savings-deployment-id
+localhost-is-not-authentication
+mqtt-kyc-verification-pipeline
+nextjs-sse-proxy-streaming
+node-http-backpressure-bytes
+oauth-mcp-server-crm
+serverless-cold-starts-explained
+servers-you-deploy-to
+servicemonitor-labels-vs-annotations
+stop-llm-inventing-numbers
+uber-real-time-location-system
+voice-ai-webhook-security
+what-gets-deployed-to-production
+whatsapp-sender-identity-normalization

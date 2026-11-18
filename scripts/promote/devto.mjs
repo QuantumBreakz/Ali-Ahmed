@@ -7,7 +7,14 @@
 // Bodies come from the live site's Markdown export (https://aliahmed.si/blog/<slug>.md), so the post must be
 // deployed first and every internal link is already an absolute aliahmed.si URL. Posts whose title
 // or canonical URL already exists on the DEV account are skipped, so re-running is safe.
+import { readFileSync } from "node:fs";
 import { posts } from "./posts.mjs";
+
+const taken = new Set(
+  readFileSync(new URL("./devto-taken.txt", import.meta.url), "utf8")
+    .split("\n")
+    .filter((line) => line && !line.startsWith("#"))
+);
 
 const mode = process.argv.includes("--publish") ? "publish" : process.argv.includes("--draft") ? "draft" : "dry-run";
 const key = process.env.DEVTO_API_KEY;
@@ -36,7 +43,7 @@ let created = 0;
 let failed = 0;
 for (const p of posts) {
   if (created + failed >= limit) break;
-  if (existing.has(p.title) || existing.has(p.url)) {
+  if (existing.has(p.title) || existing.has(p.url) || taken.has(p.slug)) {
     console.log(`skip (already on DEV): ${p.title}`);
     continue;
   }
@@ -57,12 +64,12 @@ for (const p of posts) {
     console.log(`would post: ${p.title}\n  canonical ${p.url}\n  tags ${article.tags.join(", ")} · ${article.body_markdown.length} chars`);
     continue;
   }
-  // ponytail: fixed 35 s spacing, and DEV's own 300 s wait on a 429, is enough at this volume.
+  // ponytail: fixed 35 s spacing; on a 429 stop and let the next daily run continue, rather than wait 5 minutes.
   if (created) await sleep(35_000);
-  let res = await api("/articles", { method: "POST", body: JSON.stringify({ article }) });
+  const res = await api("/articles", { method: "POST", body: JSON.stringify({ article }) });
   if (res.status === 429) {
-    await sleep(305_000);
-    res = await api("/articles", { method: "POST", body: JSON.stringify({ article }) });
+    console.log(`DEV rate limit reached; stopping here. The next run continues from: ${p.title}`);
+    break;
   }
   if (res.status === 422) {
     const error = await res.text();
