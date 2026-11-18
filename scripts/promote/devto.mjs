@@ -5,8 +5,8 @@
 //   DEVTO_API_KEY=... node scripts/promote/devto.mjs --publish  publishes
 //
 // Bodies come from the live site's Markdown export (https://aliahmed.si/blog/<slug>.md), so the post must be
-// deployed first and every internal link is already an absolute aliahmed.si URL. Posts whose title already
-// exists on the DEV account are skipped, so re-running is safe.
+// deployed first and every internal link is already an absolute aliahmed.si URL. Posts whose title
+// or canonical URL already exists on the DEV account are skipped, so re-running is safe.
 import { posts } from "./posts.mjs";
 
 const mode = process.argv.includes("--publish") ? "publish" : process.argv.includes("--draft") ? "draft" : "dry-run";
@@ -26,14 +26,14 @@ const existing = new Set();
 if (key) {
   const res = await api("/articles/me/all?per_page=1000");
   if (!res.ok) throw new Error(`DEV rejected the key: ${res.status} ${await res.text()}`);
-  for (const a of await res.json()) existing.add(a.title);
+  for (const a of await res.json()) existing.add(a.title).add(a.canonical_url);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let created = 0;
 let failed = 0;
 for (const p of posts) {
-  if (existing.has(p.title)) {
+  if (existing.has(p.title) || existing.has(p.url)) {
     console.log(`skip (already on DEV): ${p.title}`);
     continue;
   }
@@ -54,12 +54,22 @@ for (const p of posts) {
     console.log(`would post: ${p.title}\n  canonical ${p.url}\n  tags ${article.tags.join(", ")} · ${article.body_markdown.length} chars`);
     continue;
   }
-  // ponytail: fixed 35 s spacing + one retry is enough for DEV's article rate limit at this volume.
+  // ponytail: fixed 35 s spacing, and DEV's own 300 s wait on a 429, is enough at this volume.
   if (created) await sleep(35_000);
   let res = await api("/articles", { method: "POST", body: JSON.stringify({ article }) });
   if (res.status === 429) {
-    await sleep(60_000);
+    await sleep(305_000);
     res = await api("/articles", { method: "POST", body: JSON.stringify({ article }) });
+  }
+  if (res.status === 422) {
+    const error = await res.text();
+    if (error.includes("Canonical url has already been taken")) {
+      console.log(`skip (already on DEV under another title): ${p.title}`);
+      continue;
+    }
+    failed++;
+    console.error(`FAILED ${p.title}: 422 ${error}`);
+    continue;
   }
   if (!res.ok) {
     failed++;

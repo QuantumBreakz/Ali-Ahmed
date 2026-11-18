@@ -82,6 +82,7 @@ jobs:
           node scripts/promote/devto.mjs --publish
 
       - name: Publish code as GitHub Gists
+        if: ${{ !cancelled() }}
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
@@ -89,6 +90,7 @@ jobs:
           node scripts/promote/gists.mjs --publish
 
       - name: Publish summaries on Telegraph
+        if: ${{ !cancelled() }}
         env:
           TELEGRAPH_TOKEN: ${{ secrets.TELEGRAPH_TOKEN }}
           # Only used once, to save TELEGRAPH_TOKEN as a secret when it's missing.
@@ -98,6 +100,7 @@ jobs:
           node scripts/promote/telegraph.mjs --publish --limit 5
 
       - name: Publish summaries on Blogger
+        if: ${{ !cancelled() }}
         env:
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
@@ -108,7 +111,7 @@ jobs:
           node scripts/promote/blogger.mjs --publish --limit 3
 
       - name: Report Search Console index status
-        if: github.event_name != 'push'
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         env:
           GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
           GSC_SITE: ${{ vars.GSC_SITE }}
