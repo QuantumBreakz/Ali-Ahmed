@@ -35,17 +35,22 @@ const done = new Set((existing.items ?? []).map((p) => p.title));
 const todo = posts.filter((p) => !done.has(p.title)).slice(0, limit);
 console.log(`Blogger: ${done.size} already published, ${todo.length} to ${publish ? "publish" : "publish (dry run)"}.`);
 
-for (const post of todo) {
+for (const [i, post] of todo.entries()) {
   if (!publish) {
     console.log(`  would publish: ${post.title}`);
     continue;
   }
+  if (i > 0) await new Promise((r) => setTimeout(r, 20_000)); // Blogger rejects quick bursts with 429
   const res = await fetch(api, {
     method: "POST",
     headers,
     body: JSON.stringify({ title: post.title, content: toHtml(summary(post)), labels: post.tags }),
   });
   const body = await res.json();
+  if (res.status === 429) {
+    console.log(`Blogger rate limit reached; stopping here. The next run continues from: ${post.title}`);
+    break;
+  }
   if (!res.ok) throw new Error(`Blogger insert failed: ${res.status} ${body.error?.message}`);
   console.log(`  ${body.url}`);
 }
