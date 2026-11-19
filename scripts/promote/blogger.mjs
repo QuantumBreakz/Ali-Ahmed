@@ -20,10 +20,9 @@ const headers = {
 };
 const api = `https://www.googleapis.com/blogger/v3/blogs/${BLOGGER_BLOG_ID}/posts`;
 
-const existing = await fetch(`${api}?fetchBodies=false&maxResults=500&status=live&status=draft&status=scheduled`, { headers }).then((r) => r.json());
+const existing = await fetch(`${api}?fetchBodies=false&maxResults=500&status=live&status=draft&status=scheduled&view=ADMIN`, { headers }).then((r) => r.json());
 if (existing.error) {
-  const hint =
-    existing.error.code === 403 ? " The saved login isn't an author of this blog: run blogger-auth.mjs again with the account that owns it." : "";
+  const hint = existing.error.code === 403 ? " Check the saved login is an admin of this blog (re-run blogger-auth.mjs)." : "";
   throw new Error(`Blogger list failed: ${existing.error.message}.${hint}`);
 }
 const done = new Set((existing.items ?? []).map((p) => p.title));
