@@ -139,3 +139,5 @@ They pass on Node.js 24, along with a test that four concurrent callers on a 2 R
 - Queue callers in order, reject requests bigger than the bucket, and keep retries behind the limiter.
 
 For the cost side of the same traffic, see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+
+To cap how many calls run at once in a batch, pair this with [a 15-line promise pool](/blog/limit-concurrent-promises-nodejs/).

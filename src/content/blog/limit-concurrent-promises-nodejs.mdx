@@ -1,0 +1,90 @@
+---
+title: "Limiting concurrent async calls in Node.js without a library: a 15-line promise pool"
+description: "Promise.all over 1,000 items starts 1,000 requests at once, which trips rate limits and exhausts sockets. A tested 15-line mapLimit for Node.js that caps how many run at once, keeps results in input order and doesn't let one failure stop the batch, with notes on choosing the limit for LLM and API calls."
+publishedAt: 2026-11-19
+tags: [Node.js, JavaScript, Performance, LLMs]
+---
+
+`Promise.all(items.map(callApi))` starts **every call at the same moment**. With 20 items that's fine. With 2,000 document pages to OCR, or 2,000 prompts to send to an LLM, it opens 2,000 connections, hits the provider's rate limit within a second, and can run the process out of sockets or memory. The fix is a **concurrency limit**: run at most N calls at a time and start the next as soon as one finishes. It takes about **15 lines and no dependency**: start N "lanes" that each pull the next item from a shared index until none are left. The version below also **keeps results in input order** and **records failures without stopping** the rest of the batch.
+
+## The pool
+
+```js title="pool.mjs"
+/** Run `worker` over `items` with at most `limit` in flight. Results keep input order; one failure doesn't stop the rest. */
+export async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function lane() {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = { ok: true, value: await worker(items[i], i) };
+      } catch (error) {
+        results[i] = { ok: false, error };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return results;
+}
+```
+
+Why it works:
+
+- **`next++` is safe without a lock.** JavaScript runs one piece of code at a time, and `const i = next++` runs to completion before any other lane resumes. Two lanes can never take the same index.
+- **Each lane waits for its own call**, then takes the next item, so there are never more than `limit` calls in flight, and a slow item doesn't hold up the other lanes.
+- **`results[i]`** writes by index, so output order matches input order even though calls finish in any order.
+- **Errors become values** (`{ ok: false, error }`). With `Promise.all`, the first rejection discards every other result, which is rarely what you want for a batch of independent jobs.
+
+Using it:
+
+```js title="Using mapLimit"
+const results = await mapLimit(pages, 8, (page) => ocr(page));
+const failed = results.flatMap((r, i) => (r.ok ? [] : [{ page: pages[i], error: r.error.message }]));
+```
+
+## Does it really cap concurrency?
+
+```js title="pool.test.mjs"
+import assert from "node:assert/strict";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let active = 0;
+let peak = 0;
+const items = Array.from({ length: 20 }, (_, i) => i);
+
+const results = await mapLimit(items, 4, async (n) => {
+  active++;
+  peak = Math.max(peak, active);
+  await sleep(5 + ((n * 7) % 11)); // uneven durations, so finishing order differs from input order
+  active--;
+  if (n === 13) throw new Error("boom");
+  return n * n;
+});
+
+assert.equal(peak, 4);
+assert.deepEqual(
+  results.filter((r) => r.ok).map((r) => r.value),
+  items.filter((n) => n !== 13).map((n) => n * n)
+);
+assert.equal(results[13].ok, false);
+```
+
+With `mapLimit(items, 4, …)` the peak is exactly 4; the same 20 items through `Promise.all` peak at 20. Results stay in order despite uneven durations, and item 13's failure doesn't affect the other 19. Tests for an empty list and a limit larger than the list pass too.
+
+## How do you choose the limit?
+
+- **For LLM APIs**, concurrency isn't the real limit; requests and tokens per minute are. A limit of 4–16 keeps bursts reasonable, and a [token-bucket rate limiter](/blog/llm-rate-limiter-token-bucket-nodejs/) inside the worker enforces the provider's actual limits. Use both: the pool bounds memory and connections, the bucket bounds the rate.
+- **For your own services**, start near the number of instances behind them, measure latency as you raise it, and stop when the [p95 latency](/blog/latency-percentiles-p95-averaging/) starts climbing: past that point you're queueing, not speeding up.
+- **For CPU-bound work** such as image processing in the same process, a pool doesn't help; JavaScript runs one thing at a time. Use worker threads.
+
+## What about retries and cancellation?
+
+Keep retries **inside the worker**, so a retried item keeps its lane and the limit still holds; [backoff with jitter](/blog/llm-api-retries-backoff-fallbacks/) is the usual choice. To stop early, pass an `AbortSignal` to the worker and check it in `lane()` before taking the next item. If you already depend on a library such as `p-limit`, it does the same job; the point is that you don't need one for this.
+
+## Summary
+
+- `Promise.all` starts everything at once; a pool caps how many run at a time.
+- N lanes pulling from a shared index is all a pool is; `next++` is safe in single-threaded JavaScript.
+- Write results by index to keep order, and turn errors into values so one failure doesn't sink the batch.
+- Pick the limit by measuring, and pair it with a rate limiter for LLM APIs.

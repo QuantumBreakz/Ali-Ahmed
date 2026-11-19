@@ -1,0 +1,110 @@
+---
+title: "Verifying JWTs in Node.js: alg none, algorithm confusion, audience checks and clock skew"
+description: "The JWT checks that get skipped and the attacks they allow: trusting the token's alg header, comparing signatures with ===, forgetting the audience, and missing exp. A small tested HS256 verifier with node:crypto that shows each check, and why production code should still use a maintained library."
+publishedAt: 2026-11-19
+tags: [Security, Node.js, OAuth, AI Engineering]
+---
+
+A JWT is three base64url parts, `header.payload.signature`, and **decoding it proves nothing**: anyone can write a payload. Verification means **checking the signature with an algorithm you chose, not the one the token names**, then checking the claims: **`exp`** (with a small clock skew allowance), **`iss`**, and above all **`aud`**, so a token issued for one service can't be replayed against another. Below is a deliberately small HS256 verifier using only `node:crypto`, with a test for each attack. It's here to show what the checks are. In production, use a maintained library such as `jose` and set the same options explicitly.
+
+## What goes wrong?
+
+| Mistake                           | What an attacker does                                                       |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| Reading claims without verifying  | Edits the payload, e.g. `"sub": "admin"`                                    |
+| Trusting the token's `alg` header | Sends `"alg": "none"` with no signature, or switches RS256 to HS256 (below) |
+| Comparing signatures with `===`   | In principle, learns the signature byte by byte from timing                 |
+| Skipping the audience check       | Replays a token issued for one of your services against another             |
+| No `exp`, or `exp` not required   | Uses a leaked token forever                                                 |
+
+**Algorithm confusion** deserves a sentence. If your service expects RS256 but lets the token pick the algorithm, an attacker can sign a token with HS256 using your **public** key as the HMAC secret. A verifier that passes "the key" to whatever algorithm the header names will accept it. The defence is the same as for `none`: the algorithm is configuration, never input.
+
+## The verifier
+
+```js title="jwt.mjs"
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const decodeJson = (part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+
+/** Verify an HS256 JWT. The algorithm, issuer and audience come from your config, never from the token. */
+export function verifyHS256(token, secret, { issuer, audience, now = Date.now(), skewSeconds = 30 }) {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("malformed token");
+  const [head, body, sig] = parts;
+
+  const header = decodeJson(head);
+  if (header.alg !== "HS256") throw new Error(`unexpected alg ${header.alg}`); // rejects "none" and confusion
+
+  const expected = createHmac("sha256", secret).update(`${head}.${body}`).digest();
+  const given = Buffer.from(sig, "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw new Error("bad signature");
+
+  const claims = decodeJson(body); // only trust the payload after the signature checks out
+  const t = Math.floor(now / 1000);
+  if (typeof claims.exp !== "number") throw new Error("missing exp");
+  if (t > claims.exp + skewSeconds) throw new Error("expired");
+  if (typeof claims.nbf === "number" && t + skewSeconds < claims.nbf) throw new Error("not yet valid");
+  if (claims.iss !== issuer) throw new Error("wrong issuer");
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(audience)) throw new Error("wrong audience");
+  return claims;
+}
+```
+
+Notes on the details:
+
+- **`timingSafeEqual` throws if the lengths differ**, so the length check comes first. A truncated signature should be "bad signature", not a crash.
+- **`aud` can be a string or an array**; both are allowed by the JWT standard (RFC 7519).
+- **Clock skew**: servers' clocks disagree by a few seconds, so allow a little, such as 30 seconds. Minutes of skew mean tokens live longer than you think.
+- **The secret** for HS256 should be at least 32 random bytes. A guessable secret can be brute-forced offline from any token you've issued.
+
+## The attacks, as tests
+
+```js title="jwt.test.mjs"
+import assert from "node:assert/strict";
+
+const secret = "test-secret-at-least-32-bytes-long!!";
+const now = Date.UTC(2026, 10, 19, 12);
+const t = now / 1000;
+const opts = { issuer: "https://auth.example", audience: "kyc-api", now };
+const good = { sub: "user-1", iss: "https://auth.example", aud: "kyc-api", exp: t + 300 };
+
+// alg "none": header swapped, signature dropped.
+const [, body] = signHS256(good, secret).split(".");
+const none = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")}.${body}.`;
+assert.throws(() => verifyHS256(none, secret, opts), /unexpected alg none/);
+
+// Payload edited after signing.
+const [h, , s] = signHS256(good, secret).split(".");
+const forged = `${h}.${Buffer.from(JSON.stringify({ ...good, sub: "admin" })).toString("base64url")}.${s}`;
+assert.throws(() => verifyHS256(forged, secret, opts), /bad signature/);
+
+// A valid token for another service, signed with the same key.
+assert.throws(() => verifyHS256(signHS256({ ...good, aud: "billing-api" }, secret), secret, opts), /wrong audience/);
+
+// Expired beyond the skew fails; inside the skew passes.
+assert.throws(() => verifyHS256(signHS256({ ...good, exp: t - 31 }, secret), secret, opts), /expired/);
+assert.ok(verifyHS256(signHS256({ ...good, exp: t - 29 }, secret), secret, opts));
+```
+
+`signHS256` is the mirror image of the verifier, used only by the tests. All of these pass on Node.js 24, along with tests for a missing `exp`, a truncated signature and an array `aud`.
+
+## What a library adds
+
+A small verifier is useful for understanding, and dangerous to maintain. `jose` and similar libraries handle RS256 and ES256 with key sets fetched from an issuer's JWKS endpoint, key rotation by `kid`, and the encoding edge cases. Using one doesn't remove the decisions, though. Always pass:
+
+- the **allowed algorithms** (`algorithms: ["RS256"]`),
+- the **issuer** and **audience**,
+- a **maximum clock tolerance**.
+
+The audience check is the one I see skipped most, usually when several internal services share one identity provider. It's the same class of problem as [an internal endpoint that trusts anything on localhost](/blog/localhost-is-not-authentication/): something you assumed only one caller could reach. For tokens issued to AI tools, scoping matters even more; see [adding OAuth to an MCP server](/blog/oauth-mcp-server-crm/).
+
+## Summary
+
+- Decoding isn't verifying. Verify the signature before reading any claim.
+- The **algorithm comes from your config**: reject `none` and anything unexpected.
+- Compare signatures in constant time, after checking the lengths.
+- Require `exp`, check `iss` and **`aud`**, and allow only seconds of skew.
+- Use a maintained library in production, with those options set explicitly.
+
+Related: [securing a voice AI agent's webhook](/blog/voice-ai-webhook-security/).

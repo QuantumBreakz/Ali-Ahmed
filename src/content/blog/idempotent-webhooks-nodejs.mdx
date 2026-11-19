@@ -105,3 +105,5 @@ You can't close that gap in your database alone, because the email provider is a
 - For true "once", make the side effect idempotent too, with idempotency keys or a shared transaction.
 
 The same idea applies to message queues: every consumer in a [pub-sub KYC pipeline](/blog/mqtt-kyc-verification-pipeline/) needs it, because brokers redeliver too.
+
+On the sending side, the [transactional outbox pattern](/blog/transactional-outbox-nodejs-sqlite/) makes sure an event is never lost when your database commits.

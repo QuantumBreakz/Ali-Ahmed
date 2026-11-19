@@ -69,3 +69,5 @@ The agent made the change fast. Verifying it like a reviewer would is what made 
 Anywhere you budget memory or I/O by `string.length`, you are counting characters, not bytes. For ASCII it doesn't matter. For the rest of the world's text it's off by up to 3×. Use `Buffer.byteLength()`, or pass the length you've already computed.
 
 More upstream fixes are on my [projects page](/projects/).
+
+For the other direction, reading an LLM's event stream correctly, see [parsing Server-Sent Events in Node.js](/blog/parse-sse-llm-stream-nodejs/).

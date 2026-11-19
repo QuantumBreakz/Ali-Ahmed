@@ -1,0 +1,113 @@
+---
+title: "The transactional outbox pattern in Node.js: never lose an event when the database commits"
+description: "Saving a change and publishing an event are two systems, and one can fail after the other succeeds. How the transactional outbox writes both in one database transaction, then relays events in order with retries. Tested Node.js with node:sqlite, including the ordering bug my first relay had."
+publishedAt: 2026-11-19
+tags: [Node.js, Reliability, Distributed Systems, Databases]
+---
+
+When a service **updates its database and then publishes an event** (to a queue, a webhook or another service), there's a gap between the two. If the process crashes after the commit, or the broker is down, the change is saved but **the event is lost**; publish first instead, and a failed commit leaves an event about something that never happened. The **transactional outbox** closes the gap: write the change **and** the event row into an `outbox` table **in the same database transaction**, so both are saved or neither is. A separate **relay** reads the outbox and publishes each event, retrying until it succeeds. Delivery becomes **at least once**, so consumers must be [idempotent](/blog/idempotent-webhooks-nodejs/). Here's a tested Node.js implementation with the built-in `node:sqlite`, and an ordering bug worth knowing about.
+
+## Why can't you just publish after committing?
+
+In a KYC pipeline, approving a verification has to tell other systems: unlock the account, email the customer, notify compliance. The naive version:
+
+```js title="The naive version"
+await db.query("UPDATE verifications SET status = 'approved' WHERE id = $1", [id]);
+await broker.publish("verification.approved", { id }); // crash or broker outage here = event lost forever
+```
+
+There's no ordering of these two lines that's safe, because they're two systems with no shared transaction. The outbox makes the event **data in your own database**, where the transaction already covers it.
+
+## Writing the change and the event together
+
+```js title="outbox.mjs: schema and write"
+import { DatabaseSync } from "node:sqlite";
+
+export function openDb(path = ":memory:") {
+  const db = new DatabaseSync(path);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verifications (id TEXT PRIMARY KEY, status TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      topic TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_at INTEGER NOT NULL DEFAULT 0,
+      sent_at INTEGER
+    );`);
+  return db;
+}
+
+/** Change state and record the event in ONE transaction: both happen or neither does. */
+export function approve(db, id) {
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE verifications SET status = 'approved' WHERE id = ?").run(id);
+    db.prepare("INSERT INTO outbox (topic, payload) VALUES (?, ?)").run("verification.approved", JSON.stringify({ id }));
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+```
+
+The test forces the outbox insert to fail with a trigger, and checks that the status change was rolled back with it: the verification is still `pending`, with no orphaned half.
+
+## The relay, and the ordering bug
+
+```js title="outbox.mjs: relay"
+/** Deliver pending events in order. Delivery is at least once: consumers must be idempotent. */
+export async function relay(db, publish, { now = Date.now(), batch = 50 } = {}) {
+  const pending = db.prepare("SELECT * FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT ?").all(batch);
+  for (const row of pending) {
+    if (row.next_at > now) break; // the oldest event is waiting to retry: later ones wait too, or order breaks
+    try {
+      await publish(row.topic, JSON.parse(row.payload), row.id);
+      db.prepare("UPDATE outbox SET sent_at = ? WHERE id = ?").run(now, row.id);
+    } catch {
+      const attempts = row.attempts + 1;
+      db.prepare("UPDATE outbox SET attempts = ?, next_at = ? WHERE id = ?").run(attempts, now + Math.min(2 ** attempts, 300) * 1000, row.id);
+      break; // keep order: don't send later events while an earlier one is failing
+    }
+  }
+}
+```
+
+Run it on an interval, or wake it after each write. Failed events back off exponentially (2 s, 4 s, 8 s, capped at 5 minutes), like the retries in [retrying LLM API calls](/blog/llm-api-retries-backoff-fallbacks/).
+
+My first version selected only events that were due: `WHERE sent_at IS NULL AND next_at <= ?`. The test caught what that does. Event 1 fails and is scheduled for a retry; on the next pass it isn't due yet, so the query skips it and **sends event 2 first**. For events such as "approved" followed by "revoked", that's a real bug: a consumer would end up with the wrong final state. The fixed relay reads pending events in order and **stops at the first one that isn't due**. The test:
+
+```js title="outbox.test.mjs"
+await relay(db, publish, { now: 1000 }); // v1 fails: broker down
+assert.deepEqual(sent, []); // v2 waits behind it
+
+fail = false;
+await relay(db, publish, { now: 2000 }); // v1's retry isn't due until 3000
+assert.deepEqual(sent, []); // the buggy version sent v2 here
+
+await relay(db, publish, { now: 3000 });
+assert.deepEqual(sent, ["1:v1", "2:v2"]);
+```
+
+Strict global order costs throughput: one stuck event blocks everything behind it. Usually you only need order **per entity** (per verification, per account). Then keep a key on each row and only block events with the same key.
+
+## Why must consumers be idempotent?
+
+The relay can publish an event and crash **before** marking it sent. On restart it publishes it again. That's unavoidable without a transaction spanning your database and the broker, so the outbox gives **at least once** delivery. Include the outbox `id` in what you publish (the relay passes it as the third argument), and let consumers skip IDs they've processed, as in [idempotent webhooks in Node.js](/blog/idempotent-webhooks-nodejs/).
+
+## Running it in production
+
+- **Several relay workers**: in Postgres, claim rows with `SELECT … FOR UPDATE SKIP LOCKED` so two workers don't send the same batch. Combined with per-key ordering, each key should be handled by one worker at a time.
+- **Clean up**: delete or archive sent rows after a few days, or the table grows forever.
+- **Alert on age**: the age of the oldest unsent event is the metric that matters. If it keeps growing, something downstream is broken. The same idea drives [error budget burn-rate alerts](/blog/slo-error-budget-burn-rate/).
+- **Change data capture** (reading the database's log with a tool such as Debezium) can replace the polling relay at higher volume; the outbox table stays the same.
+
+## Summary
+
+- Updating a database and publishing an event are two systems; doing both directly loses events.
+- Write the change **and** the event in **one transaction**; a relay publishes from the outbox table.
+- Stop at the first event that isn't due, or a retry lets later events overtake it.
+- Delivery is at least once: pass an event ID and make consumers idempotent.
+
+Related: [an MQTT-based KYC verification pipeline](/blog/mqtt-kyc-verification-pipeline/).

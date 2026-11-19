@@ -1,0 +1,132 @@
+---
+title: "Parsing a streamed LLM response in Node.js: Server-Sent Events, split chunks and the CRLF bug"
+description: "LLM APIs stream tokens as Server-Sent Events, and network chunks don't line up with events. A tested Node.js SSE parser that handles events split mid-JSON, multi-byte characters across chunks, comments, multi-line data and a CRLF split between two chunks."
+publishedAt: 2026-11-19
+tags: [LLMs, Node.js, Streaming, AI Engineering]
+---
+
+Streaming LLM APIs send their output as **Server-Sent Events (SSE)**: lines such as `data: {...}`, with a **blank line ending each event**. The trap is that the network delivers **chunks**, and chunks don't line up with events. One chunk can end in the middle of a JSON object, in the middle of a multi-byte character, or between the `\r` and `\n` of a line ending. A parser that runs `chunk.split("\n")` and `JSON.parse`s each piece works in local testing and fails in production. A correct parser **buffers text until a full line arrives**, decodes bytes with a **streaming `TextDecoder`**, and **dispatches an event only on a blank line**. Here's a tested one in about 30 lines, plus the CRLF bug my own first version had.
+
+## What does an SSE stream look like?
+
+```text title="An OpenAI-style chat completion stream"
+data: {"choices":[{"delta":{"content":"Hel"}}]}
+
+data: {"choices":[{"delta":{"content":"lo"}}]}
+
+data: [DONE]
+
+```
+
+The format, defined in the HTML standard, has a few more rules that real servers use:
+
+- Lines starting with `:` are **comments**, often sent as keep-alives.
+- `event: name` sets the event type; Anthropic's streaming API, for example, names each event (`message_start`, `content_block_delta` and so on).
+- Several `data:` lines in one event are **joined with newlines**.
+- Lines can end in `\n`, `\r\n` or `\r`.
+
+## The parser
+
+```js title="sse.mjs: parseSSE"
+export async function* parseSSE(stream) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let event = { event: "message", data: [] };
+  for await (const chunk of stream) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newline;
+    while ((newline = buffer.search(/\r\n|\r|\n/)) !== -1) {
+      if (newline === buffer.length - 1 && buffer.endsWith("\r")) break; // might be half of a CRLF: wait for more
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + (buffer.startsWith("\r\n", newline) ? 2 : 1));
+      if (line === "") {
+        if (event.data.length) yield { event: event.event, data: event.data.join("\n") };
+        event = { event: "message", data: [] };
+        continue;
+      }
+      if (line.startsWith(":")) continue;
+      const colon = line.indexOf(":");
+      const field = colon === -1 ? line : line.slice(0, colon);
+      let value = colon === -1 ? "" : line.slice(colon + 1);
+      if (value.startsWith(" ")) value = value.slice(1);
+      if (field === "data") event.data.push(value);
+      else if (field === "event") event.event = value;
+    }
+  }
+}
+```
+
+It takes any async iterable of bytes, which includes `response.body` from `fetch` in Node.js 18 and later. Three details carry most of the correctness:
+
+- **`decoder.decode(chunk, { stream: true })`**. A character such as `é` is two bytes in UTF-8, and a chunk can end between them. With `stream: true`, the decoder holds the first byte back until the next chunk completes it. Decoding each chunk separately produces `�` replacement characters.
+- **The buffer.** Only complete lines are processed; whatever follows the last line ending stays in `buffer` for the next chunk.
+- **Dispatch on the blank line**, not on each `data:` line, so multi-line data arrives as one event.
+
+## What was the CRLF bug?
+
+My first version treated a `\r` at the very end of the buffer as a complete line ending. When a chunk ended between `\r` and `\n`, the next chunk began with `\n`, which looked like an empty line, so the event was dispatched early and its remaining data lines became a separate event. The fix is the `break` on the first line of the loop: if the buffer ends in `\r`, wait for the next chunk to see whether `\n` follows. The test that catches it:
+
+```js title="sse.test.mjs"
+import assert from "node:assert/strict";
+
+const enc = new TextEncoder();
+const chunks = (...parts) =>
+  (async function* () {
+    for (const p of parts) yield typeof p === "string" ? enc.encode(p) : p;
+  })();
+const all = async (it) => {
+  const out = [];
+  for await (const e of it) out.push(e);
+  return out;
+};
+
+// Half a CRLF must not end a second, empty line: one event with two data lines.
+assert.deepEqual(await all(parseSSE(chunks("data: x\r", "\ndata: y\n\n"))), [{ event: "message", data: "x\ny" }]);
+
+// An event split mid-JSON.
+assert.deepEqual(await all(parseSSE(chunks('data: {"a"', ":1}\n", "\n"))), [{ event: "message", data: '{"a":1}' }]);
+
+// A two-byte character split between chunks.
+const bytes = enc.encode("data: café\n\n");
+assert.deepEqual(await all(parseSSE(chunks(bytes.slice(0, 10), bytes.slice(10)))), [{ event: "message", data: "café" }]);
+
+// CRLF, a keep-alive comment, a named event and multi-line data.
+assert.deepEqual(await all(parseSSE(chunks(": keep-alive\r\n\r\nevent: usage\r\ndata: line1\r\ndata: line2\r\n\r\n"))), [
+  { event: "usage", data: "line1\nline2" },
+]);
+```
+
+All of these pass on Node.js 24, along with a test that an unfinished event at the end of the stream is not dispatched, as the standard requires.
+
+## Reading the text out of the events
+
+```js title="sse.mjs: streamText"
+export async function streamText(stream, onDelta = () => {}) {
+  let text = "";
+  for await (const { data } of parseSSE(stream)) {
+    if (data === "[DONE]") break;
+    const delta = JSON.parse(data).choices?.[0]?.delta?.content ?? "";
+    text += delta;
+    onDelta(delta);
+  }
+  return text;
+}
+
+const response = await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...request, stream: true }) });
+const text = await streamText(response.body, (delta) => process.stdout.write(delta));
+```
+
+Every provider shapes its events slightly differently, so `streamText` is the part to adapt; `parseSSE` stays the same. If you're passing the stream on to a browser rather than reading it, don't parse it at all: forward the bytes and keep proxies from buffering them, as in [streaming SSE through a Next.js proxy](/blog/nextjs-sse-proxy-streaming/).
+
+## What this parser leaves out
+
+- **`id` and `retry` fields.** They matter for `EventSource` reconnection in browsers; LLM APIs don't resume streams, so they're ignored here.
+- **Mid-stream errors.** Some APIs send an error event after a `200` response has started. Check for an `error` event or field and throw, so a half-finished answer isn't treated as complete. Whether to retry it is the decision in [retrying LLM API calls](/blog/llm-api-retries-backoff-fallbacks/).
+- **Back-pressure.** If you write deltas somewhere slower than the stream arrives, respect the destination's buffer, as described in [Node.js HTTP back-pressure](/blog/node-http-backpressure-bytes/).
+
+## Summary
+
+- Network chunks don't align with SSE events, lines or even characters.
+- Buffer until a full line arrives, decode with `TextDecoder` in streaming mode, and dispatch on the **blank line**.
+- A chunk can end between `\r` and `\n`: wait before treating `\r` as a line ending.
+- Keep the generic parser separate from the provider-specific code that reads deltas.

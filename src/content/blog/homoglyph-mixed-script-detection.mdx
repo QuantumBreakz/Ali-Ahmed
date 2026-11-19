@@ -1,0 +1,113 @@
+---
+title: "Detecting homoglyph names in Python: Cyrillic look-alikes, fullwidth letters and zero-width spaces"
+description: "pаypal with a Cyrillic а looks identical to paypal. How to catch look-alike usernames, brand names and customer names in Python: NFKC normalisation, mixed-script detection from Unicode names, a confusables skeleton, and zero-width characters, with tests and the legitimate cases you must not block."
+publishedAt: 2026-11-19
+tags: [Security, Python, KYC, Identity Verification]
+---
+
+`pаypal` and `paypal` look identical, but the first contains a **Cyrillic `а` (U+0430)**. **Homoglyphs** like this let someone register a name that impersonates another account, a brand or a person on a watch list, and they slip past exact string comparisons. Three checks catch most of them: **NFKC normalisation** (folds fullwidth `Ｐａｙ` and ligatures into plain letters), **mixed-script detection** (a single word that mixes Latin and Cyrillic is almost never legitimate), and a **skeleton** comparison that maps look-alike characters to one form before checking for collisions. Add a check for **invisible characters** such as the zero-width space. Here's a tested Python version, and the legitimate names it has to leave alone.
+
+## Why doesn't normal comparison catch it?
+
+Each of these is a different string from `paypal` or `aliahmed`, so `==`, a unique index and `casefold()` all treat them as new names:
+
+| Input            | Trick                                   |
+| ---------------- | --------------------------------------- |
+| `pаypal`         | Cyrillic `а` instead of Latin `a`       |
+| `ρaypal`         | Greek `ρ` instead of `p`                |
+| `ＰａｙＰａｌ`   | Fullwidth letters                       |
+| `ali\u200bahmed` | A zero-width space hidden in the middle |
+
+## Step 1: Which script is each letter?
+
+Python's standard library has no direct "script of this character" function, but every Unicode character's name starts with its script for the common alphabets: `CYRILLIC SMALL LETTER A`, `LATIN SMALL LETTER A`, `GREEK SMALL LETTER RHO`.
+
+```python title="homoglyph.py: scripts"
+import unicodedata
+
+def script(ch: str) -> str:
+    """Rough script of a letter from its Unicode name: 'CYRILLIC SMALL LETTER A' -> 'CYRILLIC'."""
+    if not ch.isalpha():
+        return "COMMON"
+    name = unicodedata.name(ch, "")
+    return name.split(" ")[0] if name else "UNKNOWN"
+
+def scripts(word: str) -> set[str]:
+    return {script(c) for c in word} - {"COMMON"}
+```
+
+It's an approximation. The `regex` package, or ICU, gives the real Unicode Script property, which you should use when you need to handle every writing system precisely.
+
+## Step 2: A skeleton for look-alike collisions
+
+Unicode publishes a list of confusable characters (`confusables.txt`, part of Unicode Technical Standard #39) with thousands of entries. The idea fits in a few:
+
+```python title="homoglyph.py: skeleton"
+CONFUSABLES = str.maketrans({
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y", "і": "i", "ј": "j", "ѕ": "s",  # Cyrillic
+    "ο": "o", "α": "a", "ν": "v", "ι": "i", "ρ": "p",                                                  # Greek
+    "0": "o", "1": "l",
+})
+
+def skeleton(text: str) -> str:
+    """Fold a string so look-alikes compare equal: NFKC, casefold, drop format characters, map confusables."""
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf")  # zero-width and other invisible characters
+    return text.translate(CONFUSABLES)
+```
+
+The skeleton is only for **comparison**. Never store or display it: it maps `0` to `o`, which would mangle real data.
+
+## Step 3: The check
+
+```python title="homoglyph.py: check_username"
+def check_username(name: str, existing: set[str]) -> list[str]:
+    problems = []
+    normalized = unicodedata.normalize("NFKC", name)
+    for word in normalized.split():
+        found = scripts(word)
+        if len(found) > 1:
+            problems.append(f"mixed scripts in {word!r}: {sorted(found)}")
+    if any(unicodedata.category(c) == "Cf" for c in normalized):
+        problems.append("invisible formatting characters")
+    taken = {skeleton(e): e for e in existing}
+    if skeleton(name) in taken:
+        problems.append(f"looks like existing name {taken[skeleton(name)]!r}")
+    return problems
+```
+
+With `existing = {"paypal", "aliahmed"}`:
+
+```python title="Results"
+check_username("pаypal", existing)          # ["mixed scripts in 'pаypal': ['CYRILLIC', 'LATIN']", "looks like existing name 'paypal'"]
+check_username("ＰａｙＰａｌ", existing)     # ["looks like existing name 'paypal'"]
+check_username("ali\u200bahmed", existing)  # ['invisible formatting characters', "looks like existing name 'aliahmed'"]
+check_username("Александр", existing)       # []  all Cyrillic: a normal Russian name
+check_username("مُحَمَّد", existing)         # []  Arabic with diacritics
+```
+
+Each of these is an assertion in the test file, and they all pass.
+
+## What must you not block?
+
+- **Whole names in one non-Latin script.** `Александр` and `محمد` are ordinary names. The mixed-script check runs **per word**, so a customer with a Latin first name and an Arabic surname is fine too.
+- **Combining marks.** Arabic vowel marks, Hindi matras and accents are combining characters (`Mn`), and they're legitimate. My first version flagged them alongside zero-width characters; only **format characters (`Cf`)** are suspicious.
+- **Scripts that mix by design.** Japanese mixes Han, Hiragana and Katakana in one word. UTS #39 defines which combinations are allowed; if you serve Japanese users, follow it instead of "more than one script is suspicious".
+
+So use the result as **a reason to review or to refuse a username**, not as a verdict on a person. For customer names in KYC, a homoglyph is a strong fraud signal when the document itself is in Latin script: the name on the passport's MRZ is always plain `A–Z`, as described in [how passport MRZ check digits work](/blog/passport-mrz-check-digits/).
+
+## Where this fits
+
+- **Usernames and display names**: check at registration and on rename.
+- **Brand and domain monitoring**: compare skeletons of new registrations with your brand names.
+- **Name screening**: run the skeleton before the fuzzy match in [sanctions name screening](/blog/sanctions-name-screening-fuzzy-matching/), so a Cyrillic `а` can't break an otherwise exact hit.
+- **Text you feed to an LLM**: invisible characters are also a way to hide instructions in scraped content; see [prompt injection from scraped data](/blog/prompt-injection-scraped-data-llm-outreach/).
+
+## Summary
+
+- Normalise with **NFKC**, then check each word for **mixed scripts**.
+- Compare a **skeleton** (casefold, drop format characters, map confusables) against existing names.
+- Flag **zero-width and other `Cf` characters**; leave combining marks alone.
+- Use the full `confusables.txt` and UTS #39 rules for production coverage.
+
+For more on handling non-Latin text, see [why OCR struggles with Arabic and Urdu](/blog/ocr-non-latin-scripts-arabic-urdu/).

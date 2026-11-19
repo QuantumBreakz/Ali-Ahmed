@@ -69,3 +69,5 @@ Be lenient about input, too: strip a doubled `data: data: ` prefix, and accept r
 Open DevTools → Network → the streaming request → **EventStream**. If events show up one by one there but the UI updates all at once, the bug is in your client. If they all show up together, something upstream is buffering: check the headers, the runtime, and any proxy or CDN in front.
 
 Related: [what a serverless cold start really is](/blog/serverless-cold-starts-explained/) (long-lived streams and function timeouts run into the same platform limits).
+
+If you need to read the stream rather than forward it, see [parsing a streamed LLM response in Node.js](/blog/parse-sse-llm-stream-nodejs/).
