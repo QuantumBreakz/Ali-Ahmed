@@ -15,7 +15,16 @@ const remarkPlugins = /** @type {import("@astrojs/markdown-remark").RemarkPlugin
 );
 
 const rehypePlugins = /** @type {import("@astrojs/markdown-remark").RehypePlugins} */ (
-  /** @type {unknown} */ ([[rehypeCode, { themes: { light: "github-light-high-contrast", dark: "github-dark" } }]])
+  /** @type {unknown} */ ([
+    [
+      rehypeCode,
+      {
+        themes: { light: "github-light-high-contrast", dark: "github-dark" },
+        // The themes' comment greys fall below 4.5:1 on our code backgrounds; use darker/lighter greys that pass.
+        colorReplacements: { "github-light-high-contrast": { "#66707b": "#57606a" }, "github-dark": { "#6a737d": "#a0a8b2" } },
+      },
+    ],
+  ])
 );
 
 export default defineConfig({

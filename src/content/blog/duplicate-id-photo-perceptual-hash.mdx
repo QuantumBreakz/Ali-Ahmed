@@ -11,7 +11,7 @@ One of the cheapest KYC fraud patterns is **reusing one ID document across many 
 
 dHash records **gradients**, not brightness. Shrinking to 9×8 throws away detail, compression noise and size; comparing neighbours makes it insensitive to overall brightness. The idea was popularised by Neal Krawetz, and the Python `imagehash` library implements it along with similar hashes.
 
-```python title="phash.py"
+```python title="phash.py: dHash"
 from PIL import Image
 
 def dhash(image: Image.Image, size: int = 8) -> int:
@@ -56,7 +56,7 @@ Hashing only the portrait (its position is fixed for each document type) doubles
 
 ## The duplicate index
 
-```python title="phash.py"
+```python title="phash.py: duplicate index"
 class PhotoIndex:
     """Remembers each upload's hash; reports earlier uploads by other accounts within max_distance bits."""
     def __init__(self, max_distance: int = 10):

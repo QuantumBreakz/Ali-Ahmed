@@ -22,7 +22,7 @@ Check digits confirm that the six digits were read correctly. They say nothing a
 
 ## How do you resolve the century for a date of birth?
 
-```python title="mrz_dates.py"
+```python title="mrz_dates.py: date of birth"
 from datetime import date
 
 def birth_date(yymmdd: str, today: date) -> date:
@@ -39,7 +39,7 @@ On 18 November 2026: `740812` gives 1974, `080305` gives 2008, and `261231` give
 
 Passports are typically valid for up to ten years, so the expiry is never decades away from today. Pick whichever century is nearest:
 
-```python title="mrz_dates.py"
+```python title="mrz_dates.py: expiry date"
 def expiry_date(yymmdd: str, today: date) -> date:
     """Passports are valid for at most 10 years (some IDs a bit more): pick the century closest to today."""
     yy, mm, dd = int(yymmdd[:2]), int(yymmdd[2:4]), int(yymmdd[4:])
@@ -54,7 +54,7 @@ The specimen's `120415` becomes 15 April 2012: correctly in the past, so the spe
 
 Age is the difference in years, minus one if this year's birthday hasn't happened yet:
 
-```python title="mrz_dates.py"
+```python title="mrz_dates.py: age"
 def age_on(born: date, day: date) -> int:
     return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
 

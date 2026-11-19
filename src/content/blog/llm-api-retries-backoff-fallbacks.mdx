@@ -26,7 +26,7 @@ Plain exponential backoff (wait 0.5 s, 1 s, 2 s, 4 s) has a flaw: when an outage
 
 ## The retry function
 
-```js title="retry.mjs"
+```js title="retry.mjs: withRetry"
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504, 529]);
 
 export class HttpError extends Error {
@@ -70,7 +70,7 @@ Three details matter:
 
 When a model is overloaded for longer than your budget, a different model or provider often isn't:
 
-```js title="retry.mjs"
+```js title="retry.mjs: withFallback"
 /** Try each model in order; move on only when a model's own retries are exhausted on a retryable error. */
 export async function withFallback(models, request, options) {
   let last;
