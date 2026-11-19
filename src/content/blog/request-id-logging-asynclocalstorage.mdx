@@ -1,0 +1,111 @@
+---
+title: "Request IDs in Node.js logs with AsyncLocalStorage: trace one request through every await"
+description: "Concurrent requests interleave their log lines. How AsyncLocalStorage attaches a request ID to every log line without passing it through each function, forwards it to downstream services, and rejects unsafe incoming IDs. Tested with 20 concurrent requests on Node.js."
+publishedAt: 2026-11-19
+tags: [Node.js, Monitoring, Distributed Systems, AI Engineering]
+---
+
+A Node.js server handles many requests at once, so their log lines **interleave**: "charging card" from one request sits between "start" and "end" of three others, and you can't tell which belongs to which. The fix is a **request ID** on every log line. Passing it as an argument through every function is noisy and always forgotten somewhere. **`AsyncLocalStorage`**, built into Node.js, keeps a value **for the duration of one request, across every `await`**, so a logger deep in the call stack can read it. Generate or accept the ID at the edge, **validate incoming IDs**, return it in a response header, and **forward it** on outgoing calls so other services' logs join up with yours. Tested with 20 concurrent requests below.
+
+## What does AsyncLocalStorage do?
+
+`context.run(store, fn)` runs `fn`, and every asynchronous continuation it starts (promises, timers, I/O callbacks) sees the same `store` through `context.getStore()`. Two requests running concurrently each see their own store, even though they share one thread. It's the same idea as thread-local storage, for async code.
+
+## The implementation
+
+```js title="requestid.mjs"
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+
+const context = new AsyncLocalStorage();
+
+/** Log with the current request's ID attached, wherever in the call stack this runs. */
+export function log(message, fields = {}) {
+  const store = context.getStore();
+  console.log(JSON.stringify({ time: new Date().toISOString(), requestId: store?.requestId, message, ...fields }));
+}
+
+export const currentRequestId = () => context.getStore()?.requestId;
+
+/** Wrap a request handler: reuse the caller's ID if it looks safe, otherwise make one. */
+export function withRequestId(handler) {
+  return (req, res) => {
+    const incoming = req.headers["x-request-id"];
+    const requestId = typeof incoming === "string" && /^[\w-]{8,64}$/.test(incoming) ? incoming : randomUUID();
+    res.setHeader("x-request-id", requestId);
+    context.run({ requestId }, () => handler(req, res));
+  };
+}
+
+/** Pass the ID on to downstream calls so their logs join up with yours. */
+export function fetchWithId(url, init = {}) {
+  const headers = new Headers(init.headers);
+  const id = currentRequestId();
+  if (id) headers.set("x-request-id", id);
+  return fetch(url, { ...init, headers });
+}
+```
+
+Using it, the function deep in the stack takes no extra argument:
+
+```js title="Using it"
+async function chargeCard(amount) {
+  log("charging", { amount }); // carries the right requestId automatically
+  return fetchWithId("http://payments.internal/charge"); // and so does the downstream call
+}
+
+createServer(
+  withRequestId(async (req, res) => {
+    log("start");
+    await chargeCard(10);
+    log("end");
+    res.end();
+  })
+);
+```
+
+## Why validate incoming IDs?
+
+Accepting the caller's ID is useful: a frontend or gateway can generate it, and one ID then spans the whole system. But it's **user input written into your logs**. Without a check, a client can send a huge value, or one built to confuse log parsing or dashboards. Restricting it to 8–64 letters, digits, underscores and hyphens keeps it boring. Anything else is replaced with a fresh UUID, and the test confirms that `<script>` comes back as a UUID.
+
+## Do the IDs survive concurrency?
+
+The test fires **20 concurrent requests** at a server whose handler awaits a random delay and then calls a second local server, which echoes the `x-request-id` it received. Odd-numbered requests send their own ID; even ones don't.
+
+```js title="requestid.test.mjs"
+const ids = await Promise.all(
+  Array.from({ length: 20 }, (_, i) =>
+    fetch(`http://localhost:${port}/`, { headers: i % 2 ? { "x-request-id": `client-${String(i).padStart(4, "0")}` } : {} }).then((r) => r.text())
+  )
+);
+assert.equal(new Set(ids).size, 20);
+for (const id of ids) {
+  const mine = lines.filter((l) => l.requestId === id);
+  assert.deepEqual(
+    mine.map((l) => l.message),
+    ["start", "charging", "end"]
+  ); // exactly this request's lines
+  assert.equal(mine[2].echoed, id); // the downstream service saw the same ID
+}
+```
+
+Every request gets exactly its own three log lines despite the interleaving, the client-supplied IDs are kept, and the downstream service receives the same ID. Outside any request, `currentRequestId()` is `undefined`. It passes on Node.js 24.
+
+## Where does the context get lost?
+
+- **Callback APIs that queue work themselves**, such as some older connection pools, can run your callback in another request's context. Most modern libraries handle this; if IDs look wrong in one library's callbacks, that's the cause.
+- **Work that outlives the request**: a job queued now and run later needs the ID stored with the job, not read from context.
+- **Event emitters** created before the request: listeners run in the emitter's context, not the request's.
+
+## How does this relate to OpenTelemetry?
+
+OpenTelemetry uses the same mechanism to carry **trace context**, and forwards it with the standard `traceparent` header instead of `x-request-id`. If you adopt it, log the trace ID instead and drop this code. Until then, one ID per request, on every log line and every outgoing call, gets you most of the debugging value. It pairs well with an [error budget and burn-rate alerts](/blog/slo-error-budget-burn-rate/): the alert tells you something is wrong, and the request ID lets you follow one failing request end to end. For agents, attach the same ID to every tool call so an [AI agent's audit log](/blog/ai-agent-audit-log-hash-chain/) can be joined to the HTTP logs.
+
+## Summary
+
+- Concurrent requests interleave log lines; a request ID separates them.
+- `AsyncLocalStorage.run()` makes the ID available across every `await` without passing it around.
+- Validate incoming IDs, return the ID in a response header, and forward it downstream.
+- Store the ID explicitly on work that outlives the request.
+
+Related: [graceful shutdown in Node.js](/blog/nodejs-graceful-shutdown-kubernetes/).

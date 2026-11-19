@@ -1,0 +1,106 @@
+---
+title: "Correcting MRZ OCR errors with check digits: O vs 0, I vs 1, and when not to guess"
+description: "OCR misreads passport MRZ characters such as O and 0, I and 1, B and 8. How to repair the document number by trying confusable swaps until the check digit matches, why a single check digit lets wrong repairs pass one time in ten, and the rule that decides between fixing and asking for a new photo. Tested Python."
+publishedAt: 2026-11-19
+tags: [KYC, OCR, Python, Computer Vision]
+---
+
+OCR on a passport's **machine-readable zone (MRZ)** makes predictable mistakes: **`O` ↔ `0`**, **`I` ↔ `1`**, **`B` ↔ `8`**, **`S` ↔ `5`**, **`Z` ↔ `2`**. Two fixes follow from the MRZ's structure. **Fields that can only be digits** (dates, check digits) can be mapped back to digits directly. **Mixed fields** such as the document number can be **repaired by trying confusable swaps until the check digit matches**. The catch: a check digit is one digit, so a **wrong repair also passes one time in ten**. The safe rule is to keep a reading that already passes, accept a repair only when **exactly one** candidate needs the fewest changes, and otherwise **ask for a new photo**. Tested Python below.
+
+## Why are these errors so common?
+
+The MRZ is printed in **OCR-B**, a font designed to be machine-readable, but phone photos add blur, glare and perspective, and the remaining ambiguity falls on characters with similar shapes. A document number such as `L898902C3` mixes letters and digits, so the OCR engine can't use "this position is always a digit" to settle it. How the check digit itself is computed is in [how passport MRZ check digits work](/blog/passport-mrz-check-digits/); the code below reuses that `check_digit` function (weights 7, 3, 1, letters `A`=10 … `Z`=35, `<`=0).
+
+## Digit-only fields: map back directly
+
+```python title="mrz_fix.py: digit-only fields"
+TO_DIGIT = {"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "B": "8", "G": "6"}
+TO_LETTER = {v: k for k, v in TO_DIGIT.items() if k in "OISBZG"}
+
+def fix_numeric(field: str) -> str:
+    """Dates and check digits can only be digits: map letters the OCR misread back to digits."""
+    return "".join(TO_DIGIT.get(c, c) for c in field)
+
+fix_numeric("74O8I2")  # '740812'
+```
+
+This is safe because the format guarantees digits in these positions. Run it on dates of birth and expiry before [working out the century](/blog/mrz-date-century-expiry/), and on every check digit.
+
+## Mixed fields: search the confusable swaps
+
+```python title="mrz_fix.py: repair candidates"
+from itertools import product
+
+def repair_document_number(field: str, printed_check: str, max_changes: int = 2) -> list[str]:
+    """Try swapping confusable characters until the check digit matches. Returns every candidate that fits."""
+    printed_check = fix_numeric(printed_check)
+    options = []
+    for c in field:
+        alts = {c}
+        if c in TO_DIGIT:
+            alts.add(TO_DIGIT[c])
+        if c in TO_LETTER:
+            alts.add(TO_LETTER[c])
+        options.append(sorted(alts))
+    hits = []
+    for candidate in product(*options):
+        changes = sum(a != b for a, b in zip(candidate, field))
+        if changes <= max_changes and check_digit("".join(candidate)) == printed_check:
+            hits.append(("".join(candidate), changes))
+    return [c for c, _ in sorted(hits, key=lambda h: h[1])]
+```
+
+The search is small: a nine-character field with a few ambiguous characters has dozens of combinations, not millions.
+
+## Why can't you take the first match?
+
+Running the search on the **correct** ICAO specimen number, with nothing to fix, shows the problem:
+
+```python title="Every candidate that passes"
+repair_document_number("L898902C3", "6")
+# ['L898902C3', '1898902C3', 'LB9890ZC3', 'LB9B902C3']
+```
+
+Four readings satisfy the same check digit. The check digit is a sum modulo 10, so any reading has a one-in-ten chance of passing by accident, and the more swaps you try, the more accidental passes you find. "Swap until it matches" will happily turn a correct number into a wrong one, or pick one of several wrong ones.
+
+## The rule that decides
+
+```python title="mrz_fix.py: resolve"
+def resolve(field: str, printed_check: str) -> str | None:
+    """The reading to use, or None when the document should be captured again."""
+    if check_digit(field) == fix_numeric(printed_check):
+        return field  # passes as read: never "correct" a valid reading
+    fewest = {}
+    for candidate in repair_document_number(field, printed_check):
+        changes = sum(a != b for a, b in zip(candidate, field))
+        fewest.setdefault(changes, []).append(candidate)
+    if not fewest:
+        return None
+    best = fewest[min(fewest)]
+    return best[0] if len(best) == 1 else None  # two equally good repairs: don't guess
+```
+
+```python title="Results"
+resolve("L898902C3", "6")  # 'L898902C3': valid as read, left alone
+resolve("L8989O2C3", "6")  # 'L898902C3': O read for 0, exactly one single-change fix
+resolve("AB5O8I23S", "0")  # None: 'A85O8I23S' and 'AB5O8IZ3S' both fit with one change
+```
+
+All three are assertions in the test file, along with the candidate lists above. Preferring the fewest changes encodes "OCR usually gets most characters right"; refusing ties encodes "a coin flip is not a verification".
+
+## What else confirms a repair?
+
+- **The composite check digit.** The TD3 second line ends with a check digit over the document number, birth date and expiry date together. A repair that also makes the composite pass is much stronger evidence than one digit alone.
+- **The visual zone.** The document number is also printed in the human-readable part of the page; if your OCR reads both, they should agree.
+- **The chip.** On e-passports, the number from the MRZ is the key for [reading the NFC chip](/blog/nfc-epassport-chip-verification/). A wrong number fails to open the chip, which is the most decisive check of all.
+
+When none of these settle it, ask the user for a new photo, with a reason they can act on ("glare over the bottom lines"), as in [preparing ID card photos for OCR](/blog/document-photo-preprocessing-ocr/).
+
+## Summary
+
+- Digit-only MRZ fields can be mapped back to digits directly.
+- Mixed fields can be repaired by trying confusable swaps against the check digit.
+- One check digit lets about **one wrong reading in ten** pass, so several repairs can fit.
+- Keep valid readings, accept a repair only when it's the unique fewest-change candidate, and otherwise recapture.
+
+For the whole pipeline these checks sit in, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

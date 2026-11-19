@@ -1,0 +1,104 @@
+---
+title: "Graceful shutdown in Node.js: draining HTTP requests on SIGTERM without dropping traffic"
+description: "When Kubernetes or a deploy stops a Node.js server, server.close() alone can hang on keep-alive sockets or cut requests off mid-response. The order that works: fail readiness, wait, stop accepting, close idle connections, let in-flight requests finish, then force a deadline. Tested with node:http."
+publishedAt: 2026-11-19
+tags: [Node.js, Kubernetes, Reliability, Modern Deployments]
+---
+
+On every deploy, the platform sends your Node.js process **`SIGTERM`** and, after a grace period, **`SIGKILL`**. If the process exits immediately, requests in progress fail; if it calls `server.close()` and waits, **idle keep-alive connections** can hold it open until the kill. A graceful shutdown does four things in order: **fail the readiness check** and **wait a few seconds** so the load balancer stops sending traffic; **stop accepting connections** and **close idle keep-alive sockets**; let **in-flight requests finish**; and **force-close** whatever remains before the platform's deadline. Here's a tested implementation with `node:http` and nothing else.
+
+## Why isn't server.close() enough?
+
+`server.close()` stops new connections and waits for existing ones to end. Two problems:
+
+- **Keep-alive.** Clients reuse connections, and on Node.js 18 an idle keep-alive socket keeps `close()` waiting with nothing actually happening. Node.js 19 and later close idle connections as part of `close()`; calling `closeIdleConnections()` explicitly is harmless there and covers older versions.
+- **Requests that never end.** A hung upstream call or a long stream keeps its connection busy, so `close()` never completes on any version without a deadline.
+- **Traffic still arriving.** In Kubernetes, the pod is removed from the Service's endpoints **at roughly the same time** as `SIGTERM` is sent, not before. For a few seconds, load balancers and other nodes still route new requests to a pod that has stopped listening. Those requests fail.
+
+## The shutdown
+
+```js title="shutdown.mjs: app"
+import { createServer } from "node:http";
+
+export function createApp(handler) {
+  const state = { ready: true };
+  const server = createServer((req, res) => {
+    if (req.url === "/readyz") {
+      res.writeHead(state.ready ? 200 : 503).end(state.ready ? "ok" : "shutting down");
+      return;
+    }
+    if (!state.ready) res.setHeader("Connection", "close"); // tell keep-alive clients to reconnect elsewhere
+    handler(req, res);
+  });
+  return { server, state };
+}
+```
+
+```js title="shutdown.mjs: shutdown"
+export async function shutdown(
+  { server, state },
+  { drainDelayMs = 5_000, timeoutMs = 20_000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}
+) {
+  state.ready = false; // 1. readiness fails; keep serving while the load balancer notices
+  await sleep(drainDelayMs);
+  const closed = new Promise((resolve) => server.close(resolve)); // 2. stop accepting
+  server.closeIdleConnections(); //    and drop idle keep-alive sockets
+  const timer = setTimeout(() => server.closeAllConnections(), timeoutMs); // 4. hard deadline
+  await closed; // 3. in-flight requests finish
+  clearTimeout(timer);
+}
+
+process.on("SIGTERM", async () => {
+  await shutdown(app);
+  process.exit(0);
+});
+```
+
+`closeIdleConnections()` and `closeAllConnections()` are built into `http.Server` since Node.js 18.2. During the drain delay the server still answers, but adds `Connection: close`, so clients reconnect, and their next connection goes to a pod that's still ready.
+
+## The timing
+
+The numbers have to fit inside the platform's grace period (Kubernetes' `terminationGracePeriodSeconds` defaults to **30 seconds**):
+
+| Phase                     | Example | Must cover                                    |
+| ------------------------- | ------- | --------------------------------------------- |
+| Drain delay               | 5 s     | Endpoint removal reaching every load balancer |
+| In-flight requests, up to | 20 s    | Your slowest normal request                   |
+| Margin before `SIGKILL`   | 5 s     | Exit, flushing logs                           |
+
+An LLM endpoint streaming long answers may need a longer timeout, and so a longer grace period; set both together. A `preStop` hook that sleeps achieves the same drain delay without code, but it only helps if readiness isn't still reporting healthy, so the in-process version above covers both.
+
+## Do the tests pass?
+
+The tests start a real server on a random port:
+
+```js title="shutdown.test.mjs"
+// An idle keep-alive socket is open, and a 300 ms request is in flight when shutdown starts.
+const keepAlive = new Agent({ keepAlive: true });
+await get(port, "/fast", keepAlive);
+const inflight = get(port, "/slow");
+const done = shutdown(app, { drainDelayMs: 100, timeoutMs: 5_000 });
+
+assert.equal((await get(port, "/readyz")).status, 503); // readiness fails at once
+assert.equal((await get(port, "/fast")).connection, "close"); // still served during the drain, told to reconnect
+assert.equal((await inflight).body, "done"); // the in-flight request completes
+await done; // and the idle keep-alive socket didn't hold shutdown open
+await assert.rejects(get(port, "/fast"), { code: "ECONNREFUSED" }); // after close, nothing new gets in
+```
+
+A second test uses a handler that never responds: shutdown returns after the 200 ms timeout and the stuck client sees `ECONNRESET`, instead of the process waiting for `SIGKILL`. Both pass on Node.js 24, and the first shutdown completes in well under a second because the idle socket is closed immediately.
+
+## What else should shut down?
+
+- **Background work.** Stop pulling new jobs from queues and finish or release the current ones. An [outbox relay](/blog/transactional-outbox-nodejs-sqlite/) should finish its current event, not abandon it midway.
+- **Database pools and clients**, after the server has closed.
+- **Streaming responses.** SSE connections stay open by design, so they'll hit the hard timeout. Send a final event telling clients to reconnect; see [streaming SSE through a Next.js proxy](/blog/nextjs-sse-proxy-streaming/).
+
+For where these processes run in the first place, see [the servers you deploy to](/blog/servers-you-deploy-to/) and [what gets deployed to production](/blog/what-gets-deployed-to-production/).
+
+## Summary
+
+- `SIGTERM` arrives while traffic is still routed to you: fail readiness and wait a few seconds first.
+- `server.close()` plus `closeIdleConnections()`, so idle keep-alive sockets don't hold you open.
+- Let in-flight requests finish, but force `closeAllConnections()` before the grace period ends.
+- Fit the drain delay, request timeout and margin inside `terminationGracePeriodSeconds`.
