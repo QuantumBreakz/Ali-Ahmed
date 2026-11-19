@@ -20,11 +20,15 @@ const headers = {
 };
 const api = `https://www.googleapis.com/blogger/v3/blogs/${BLOGGER_BLOG_ID}/posts`;
 
-const existing = await fetch(`${api}?fetchBodies=false&maxResults=500&status=live&status=draft&status=scheduled&view=ADMIN`, { headers }).then((r) => r.json());
-if (existing.error) {
-  const hint = existing.error.code === 403 ? " Check the saved login is an admin of this blog (re-run blogger-auth.mjs)." : "";
-  throw new Error(`Blogger list failed: ${existing.error.message}.${hint}`);
+const get = (url) => fetch(url, { headers }).then((r) => r.json());
+let existing = await get(`${api}?fetchBodies=false&maxResults=500&status=live&status=draft&status=scheduled&view=ADMIN`);
+if (existing.error?.code === 403) {
+  // Diagnose: which blogs can this login see, and does the saved blog ID match one?
+  const mine = await get("https://www.googleapis.com/blogger/v3/users/self/blogs");
+  console.log(`Saved blog ID: ${BLOGGER_BLOG_ID.length} chars. Login's blogs: ${(mine.items ?? []).map((b) => `${b.id} ${b.url}`).join(", ") || JSON.stringify(mine.error)}`);
+  existing = await get(`${api}?fetchBodies=false&maxResults=500`);
 }
+if (existing.error) throw new Error(`Blogger list failed: ${existing.error.code} ${existing.error.message}`);
 const done = new Set((existing.items ?? []).map((p) => p.title));
 const todo = posts.filter((p) => !done.has(p.title)).slice(0, limit);
 console.log(`Blogger: ${done.size} already published, ${todo.length} to ${publish ? "publish" : "publish (dry run)"}.`);
