@@ -69,7 +69,9 @@ if (!(mine.items ?? []).some((b) => b.id === blog.id)) {
 
 // Repeat CI's exact path (refresh token -> access token -> list posts) before saving anything.
 const ciToken = await refreshToken(installed.client_id, installed.client_secret, tokens.refresh_token);
-const ciMine = await fetch("https://www.googleapis.com/blogger/v3/users/self/blogs", { headers: { authorization: `Bearer ${ciToken}` } }).then((r) => r.json());
+const ciMine = await fetch("https://www.googleapis.com/blogger/v3/users/self/blogs", { headers: { authorization: `Bearer ${ciToken}` } }).then((r) =>
+  r.json()
+);
 const ciList = await fetch(
   `https://www.googleapis.com/blogger/v3/blogs/${blog.id}/posts?fetchBodies=false&maxResults=1&status=live&status=draft&view=ADMIN`,
   { headers: { authorization: `Bearer ${ciToken}` } }

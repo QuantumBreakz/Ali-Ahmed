@@ -147,6 +147,8 @@ const server = createServer(async (request, response) => {
     response.end("Not found");
   }
 });
+// Node closes idle keep-alive sockets after 5 s; a client reusing one at that moment gets ECONNRESET. Keep them for the whole run.
+server.keepAliveTimeout = 10 * 60_000;
 
 function formatScenario(route, viewport, state) {
   return `${route} (${viewport.label}${state ? `, ${state}` : ""})`;

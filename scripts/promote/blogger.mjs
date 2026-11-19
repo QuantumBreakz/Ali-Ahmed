@@ -25,7 +25,9 @@ let existing = await get(`${api}?fetchBodies=false&maxResults=500&status=live&st
 if (existing.error?.code === 403) {
   // Diagnose: which blogs can this login see, and does the saved blog ID match one?
   const mine = await get("https://www.googleapis.com/blogger/v3/users/self/blogs");
-  console.log(`Saved blog ID: ${BLOGGER_BLOG_ID.length} chars. Login's blogs: ${(mine.items ?? []).map((b) => `${b.id} ${b.url}`).join(", ") || JSON.stringify(mine.error)}`);
+  console.log(
+    `Saved blog ID: ${BLOGGER_BLOG_ID.length} chars. Login's blogs: ${(mine.items ?? []).map((b) => `${b.id} ${b.url}`).join(", ") || JSON.stringify(mine.error)}`
+  );
   existing = await get(`${api}?fetchBodies=false&maxResults=500`);
 }
 if (existing.error) throw new Error(`Blogger list failed: ${existing.error.code} ${existing.error.message}`);
