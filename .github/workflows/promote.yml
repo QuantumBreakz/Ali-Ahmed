@@ -100,7 +100,7 @@ jobs:
           node scripts/promote/telegraph.mjs --publish --limit 5
 
       - name: Publish summaries on Blogger
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && vars.BLOGGER_PAUSED != 'true' }}
         env:
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
