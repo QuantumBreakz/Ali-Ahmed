@@ -1,0 +1,100 @@
+---
+title: "Luhn and IBAN check digits explained: validating card numbers and bank accounts in Python"
+description: "How the Luhn algorithm validates card numbers and how IBAN's mod-97 check works, with tested Python, the one transposition Luhn can't catch, and why a valid check digit doesn't mean the account exists."
+publishedAt: 2026-11-19
+tags: [Fintech, Python, KYC, Security]
+---
+
+A **check digit** is an extra digit computed from the others, so a typo makes the number invalid. Card numbers use the **Luhn algorithm**: double every second digit from the right, subtract 9 from any result above 9, add everything up, and the total must end in 0. **IBANs** use **mod 97**: move the first four characters to the end, turn letters into numbers (A = 10 … Z = 35), and the result divided by 97 must leave a remainder of 1. Both catch typos before you call a payment API. Neither tells you the card or account exists. Here's tested Python for both, and what each one misses.
+
+## How does the Luhn algorithm work?
+
+Take `7992739871` with check digit `3`. Working from the right, skip the check digit, double the next, skip one, double the next, and so on. Doubled digits above 9 lose 9 (`8 × 2 = 16 → 7`). The sum of all digits, including the check digit, is 70, a multiple of 10, so the number is valid.
+
+```python title="checkdigits.py: Luhn"
+import re
+
+def luhn_valid(number: str) -> bool:
+    digits = [int(c) for c in number if c.isdigit()]
+    if len(digits) < 2 or re.search(r"[^\d\s-]", number):
+        return False
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 1:  # every second digit from the right, starting left of the check digit
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+def luhn_check_digit(partial: str) -> int:
+    return next(d for d in range(10) if luhn_valid(partial + str(d)))
+
+luhn_valid("4111 1111 1111 1111")  # True, a well-known test card number
+luhn_valid("4111 1111 1111 1112")  # False
+luhn_check_digit("7992739871")     # 3
+```
+
+Spaces and hyphens are allowed because people type them; any other character fails the check rather than being silently dropped.
+
+## What does Luhn miss?
+
+Luhn catches **every single-digit typo** and **most swaps of two neighbouring digits**. The exception is swapping `09` and `90`, because both pairs contribute the same amount to the sum:
+
+```python
+luhn_valid("1099")  # True
+luhn_valid("1909")  # also True: the 09 -> 90 swap goes unnoticed
+```
+
+It also can't catch a completely wrong but valid-looking number. One in ten random numbers passes.
+
+## How does IBAN validation work?
+
+An IBAN is a two-letter country code, two check digits, then the national account number (the BBAN). The check is the mod 97-10 scheme from ISO 7064:
+
+```python title="checkdigits.py: IBAN"
+IBAN_LENGTHS = {"DE": 22, "GB": 22, "PK": 24, "AE": 23, "SA": 24, "FR": 27, "NL": 18}  # excerpt
+
+def iban_valid(iban: str) -> bool:
+    iban = re.sub(r"\s+", "", iban).upper()
+    if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]+", iban):
+        return False
+    if IBAN_LENGTHS.get(iban[:2], len(iban)) != len(iban):
+        return False
+    rearranged = iban[4:] + iban[:4]
+    as_digits = "".join(str(int(c, 36)) for c in rearranged)  # A=10 ... Z=35
+    return int(as_digits) % 97 == 1
+
+def iban_check_digits(country: str, bban: str) -> str:
+    as_digits = "".join(str(int(c, 36)) for c in bban + country + "00")
+    return f"{98 - int(as_digits) % 97:02d}"
+
+iban_valid("GB82 WEST 1234 5698 7654 32")    # True, the standard example
+iban_valid("GB82 WEST 1234 5698 7654 33")    # False
+iban_check_digits("DE", "370400440532013000")  # '89'
+```
+
+`int(c, 36)` converts both digits and letters in one step: `int("A", 36)` is 10. Python's integers have no size limit, so the 30-digit number is fine; in languages without big integers, compute the remainder piece by piece.
+
+Two digits of mod 97 make IBAN much stronger than Luhn: it catches every single-character error and the transpositions Luhn misses. The **length check matters too**: each country has a fixed IBAN length (Pakistan's is 24), and a production system should use the full list from the IBAN registry, not this excerpt.
+
+## Does a valid check digit mean the account is real?
+
+No. A check digit proves the number was **typed consistently**, nothing more:
+
+- A valid card number can be expired, blocked, or never issued.
+- A valid IBAN can belong to a closed account, or to someone other than your customer.
+
+So check digits belong at the form or OCR step, to reject typos before a payment call. Account ownership needs a separate check: a small test transfer, an open-banking confirmation, or a name-match service. It's the same layering as identity documents, where the [passport MRZ check digit](/blog/passport-mrz-check-digits/) catches misreads and the [NFC chip signature](/blog/nfc-epassport-chip-verification/) proves authenticity.
+
+## Where does this fit in onboarding?
+
+In [KYC and KYB onboarding](/blog/kyc-vs-aml-vs-kyb/), bank details often come from a photographed document or a form. Run the check digit first: a failed check is almost always an OCR misread or a typo, and asking the user to re-enter it is cheaper than a failed payout. Log failures separately from other validation errors, because a spike usually means the OCR stage has a problem, the same pattern as in [OCR for non-Latin scripts](/blog/ocr-non-latin-scripts-arabic-urdu/).
+
+## Summary
+
+- **Luhn**: double every second digit from the right, subtract 9 when over 9, total must be a multiple of 10. It misses the `09` ↔ `90` swap.
+- **IBAN**: move four characters to the end, letters to numbers, remainder mod 97 must be 1. Check the country's length too.
+- A valid check digit means **no typo**, not **a real account**.
+
+Related: [parsing MRZ dates correctly](/blog/mrz-date-century-expiry/) and [fuzzy name matching for sanctions screening](/blog/sanctions-name-screening-fuzzy-matching/).

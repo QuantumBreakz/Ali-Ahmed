@@ -140,3 +140,5 @@ Most provider SDKs already retry 429s and 5xx with backoff. Check their defaults
 - Fall back to a tested alternative model, and log which one answered.
 
 For keeping the bill down once requests succeed, see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+
+To avoid most 429s in the first place, put a [client-side token-bucket rate limiter](/blog/llm-rate-limiter-token-bucket-nodejs/) in front of the retries.

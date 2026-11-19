@@ -1,0 +1,141 @@
+---
+title: "Rate limiting LLM API calls in Node.js: a token bucket for requests and tokens per minute"
+description: "LLM APIs limit both requests per minute and tokens per minute. A client-side token-bucket limiter in Node.js that waits for both, keeps callers in order, and corrects its token estimate with real usage. Tested code with a fake clock."
+publishedAt: 2026-11-19
+tags: [LLMs, Node.js, AI Engineering, Reliability]
+---
+
+LLM providers usually enforce two limits at once: **requests per minute (RPM)** and **tokens per minute (TPM)**, and some split tokens into input and output. Send a burst of large prompts and you hit the token limit with only a few requests; send many tiny ones and you hit the request limit first. Retrying after a `429` works, but every rejected call is wasted latency. A **client-side token bucket** avoids most of them: one bucket for requests, one for tokens, both refilling continuously, and each call **waits until both have room**. Estimate tokens before sending, then **settle the difference** once the response reports real usage. Below is a tested Node.js implementation.
+
+## Why a token bucket?
+
+A fixed window ("60 requests per calendar minute") lets you send 60 requests at 12:00:59 and another 60 at 12:01:00. A **token bucket** refills a little every millisecond up to a cap, so it allows short bursts but holds the average to the limit. It's also how providers tend to describe their own limits; Anthropic's rate-limit documentation, for example, describes a token bucket that replenishes continuously rather than resetting each minute.
+
+```js title="limiter.mjs: the bucket"
+export class TokenBucket {
+  constructor(capacity, perMinute, now = Date.now) {
+    this.capacity = capacity;
+    this.ratePerMs = perMinute / 60_000;
+    this.level = capacity;
+    this.now = now;
+    this.updated = now();
+  }
+  refill() {
+    const t = this.now();
+    this.level = Math.min(this.capacity, this.level + (t - this.updated) * this.ratePerMs);
+    this.updated = t;
+  }
+  /** Milliseconds until `amount` is available (0 = now). */
+  waitFor(amount) {
+    this.refill();
+    return this.level >= amount ? 0 : Math.ceil((amount - this.level) / this.ratePerMs);
+  }
+  take(amount) {
+    this.refill();
+    this.level -= amount; // may go negative when settling real usage; the refill pays it back
+  }
+}
+```
+
+## The limiter: requests and tokens together
+
+```js title="limiter.mjs: the limiter"
+export class LlmLimiter {
+  constructor({ rpm, tpm, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+    this.requests = new TokenBucket(rpm, rpm, now);
+    this.tokens = new TokenBucket(tpm, tpm, now);
+    this.sleep = sleep;
+    this.queue = Promise.resolve();
+  }
+
+  /** Wait for capacity for one request of about `estimate` tokens. Calls run in arrival order. */
+  acquire(estimate) {
+    if (estimate > this.tokens.capacity) throw new Error(`Request of ~${estimate} tokens can never fit a ${this.tokens.capacity} TPM limit`);
+    const turn = this.queue.then(async () => {
+      for (let wait; (wait = Math.max(this.requests.waitFor(1), this.tokens.waitFor(estimate))) > 0;) await this.sleep(wait);
+      this.requests.take(1);
+      this.tokens.take(estimate);
+    });
+    this.queue = turn.catch(() => {});
+    return turn;
+  }
+
+  /** After the response, correct the estimate with the real usage the API reported. */
+  settle(estimate, actual) {
+    this.tokens.take(actual - estimate);
+  }
+}
+
+/** Rough estimate before sending: ~4 characters per token for English text, plus the output you allow. */
+export const estimateTokens = (prompt, maxOutputTokens) => Math.ceil(prompt.length / 4) + maxOutputTokens;
+```
+
+Three decisions in there:
+
+- **One queue.** Each caller waits behind the previous one. Without it, a big request can starve forever while small ones keep slipping past it.
+- **Reserve before, settle after.** You can't know the exact token count before the call, especially the output. Reserve an estimate that includes `max_tokens`, then call `settle` with the `usage` the response returns. Over-estimates are refunded, under-estimates are paid back by the refill.
+- **Reject the impossible.** A request bigger than the whole TPM bucket would wait forever, so it fails immediately. That's a [context window problem](/blog/llm-context-window-trimming/), not a rate problem.
+
+Using it:
+
+```js
+const limiter = new LlmLimiter({ rpm: 500, tpm: 200_000 });
+
+const estimate = estimateTokens(prompt, 1024);
+await limiter.acquire(estimate);
+const response = await callModel(prompt, { max_tokens: 1024 });
+limiter.settle(estimate, response.usage.input_tokens + response.usage.output_tokens);
+```
+
+## Do the tests pass?
+
+`now` and `sleep` are injected, so the tests run instantly on a fake clock:
+
+```js title="limiter.test.mjs"
+import assert from "node:assert/strict";
+
+let clock = 0;
+const now = () => clock;
+const sleeps = [];
+const sleep = async (ms) => {
+  sleeps.push(ms);
+  clock += ms;
+};
+
+// 3 RPM: the fourth request waits 20 s for a request slot.
+const lim = new LlmLimiter({ rpm: 3, tpm: 10_000, now, sleep });
+for (let i = 0; i < 4; i++) await lim.acquire(1000);
+assert.deepEqual(sleeps.splice(0), [20_000]);
+
+// 10k TPM: two 4k requests fit; the third waits 12 s for 2,000 more tokens.
+clock = 0;
+const lim2 = new LlmLimiter({ rpm: 1000, tpm: 10_000, now, sleep });
+for (let i = 0; i < 3; i++) await lim2.acquire(4000);
+assert.deepEqual(sleeps.splice(0), [12_000]);
+
+// Settling a 4,000 estimate that used 1,000 refunds 3,000: the next two fit without waiting.
+clock = 0;
+const lim3 = new LlmLimiter({ rpm: 1000, tpm: 10_000, now, sleep });
+await lim3.acquire(4000);
+lim3.settle(4000, 1000);
+await lim3.acquire(4000);
+await lim3.acquire(4000);
+assert.deepEqual(sleeps.splice(0), []);
+```
+
+They pass on Node.js 24, along with a test that four concurrent callers on a 2 RPM limit are served in the order they arrived.
+
+## What this doesn't cover
+
+- **Several processes.** This limiter lives in one process. With several workers, each needs a share of the limit, or the buckets move to a shared store such as Redis, or to an [LLM gateway](/blog/what-is-an-llm-gateway-litellm/) that every service calls through.
+- **Retries.** A limiter reduces 429s; it doesn't eliminate them, because the provider's view of your usage is what counts. Keep [backoff with jitter and Retry-After](/blog/llm-api-retries-backoff-fallbacks/) behind it.
+- **The provider's headers.** Many APIs return remaining-request and remaining-token headers. Reading them to resync the buckets is a worthwhile next step once the basic limiter works.
+
+## Summary
+
+- LLM APIs limit **requests and tokens**; a limiter needs a bucket for each.
+- Token buckets refill continuously, allowing bursts while holding the average.
+- Reserve an estimate (prompt plus `max_tokens`), then **settle with real usage**.
+- Queue callers in order, reject requests bigger than the bucket, and keep retries behind the limiter.
+
+For the cost side of the same traffic, see [how to cut LLM API costs](/blog/reduce-llm-api-costs/).

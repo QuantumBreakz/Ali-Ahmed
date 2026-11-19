@@ -1,0 +1,85 @@
+---
+title: "Validating a Pakistani CNIC number: the 13-digit format, what the digits mean, and what format checks can't tell you"
+description: "How to validate and normalise a Pakistani CNIC number (12345-1234567-1) in Python: hyphens, Urdu digits from OCR, the region and gender digits, and why there's no check digit, so a well-formed number still needs verification."
+publishedAt: 2026-11-19
+tags: [KYC, Python, OCR, Identity Verification]
+---
+
+A Pakistani **CNIC number** has **13 digits**, written `12345-1234567-1`: a five-digit **locality code**, a seven-digit **serial**, and a final digit. By widely documented convention the **first digit is the region** (3 is Punjab, 4 is Sindh, and so on) and the **last digit encodes gender**, odd for male and even for female. What it **doesn't** have is a check digit: unlike a [passport's MRZ](/blog/passport-mrz-check-digits/), a mistyped CNIC number can't be detected from the number alone. So format validation catches badly formed input, and **only a verification against NADRA's records** proves the number belongs to the person. Here's a tested Python validator and what it should and shouldn't decide.
+
+## What do the 13 digits mean?
+
+| Part          | Digits | Example   | Meaning                                            |
+| ------------- | ------ | --------- | -------------------------------------------------- |
+| Locality code | 1–5    | `35202`   | First digit is the region; the rest narrow it down |
+| Serial        | 6–12   | `1234567` | Sequence number                                    |
+| Last digit    | 13     | `1`       | Odd: male. Even: female                            |
+
+The first-digit regions as they're commonly documented:
+
+| First digit | Region                                |
+| ----------- | ------------------------------------- |
+| 1           | Khyber Pakhtunkhwa                    |
+| 2           | FATA (now part of Khyber Pakhtunkhwa) |
+| 3           | Punjab                                |
+| 4           | Sindh                                 |
+| 5           | Balochistan                           |
+| 6           | Islamabad                             |
+| 7           | Gilgit-Baltistan                      |
+
+The region code reflects where the card was registered, not where the person lives now. Treat both it and the gender digit as **hints for consistency checks**, never as the source of truth.
+
+## The validator
+
+```python title="cnic.py"
+import re
+
+PROVINCES = {
+    "1": "Khyber Pakhtunkhwa", "2": "FATA (now part of Khyber Pakhtunkhwa)", "3": "Punjab",
+    "4": "Sindh", "5": "Balochistan", "6": "Islamabad", "7": "Gilgit-Baltistan",
+}
+
+def parse_cnic(raw: str) -> dict:
+    """Validate the format of a Pakistani CNIC number and read what the digits encode. Raises ValueError."""
+    text = raw.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))  # Urdu/Arabic digits
+    if not re.fullmatch(r"\d{5}-?\d{7}-?\d", text) or (text.count("-") not in (0, 2)):
+        raise ValueError(f"not a CNIC number: {raw!r}")
+    digits = text.replace("-", "")
+    return {
+        "cnic": f"{digits[:5]}-{digits[5:12]}-{digits[12]}",
+        "region": PROVINCES.get(digits[0], "unknown"),
+        "locality_code": digits[:5],
+        "gender": "male" if int(digits[12]) % 2 else "female",
+    }
+
+parse_cnic("35202-1234567-1")
+# {'cnic': '35202-1234567-1', 'region': 'Punjab', 'locality_code': '35202', 'gender': 'male'}
+parse_cnic("3520212345671")["cnic"]      # '35202-1234567-1': store one canonical form
+parse_cnic("۳۵۲۰۲-۱۲۳۴۵۶۷-۸")["gender"]  # 'female': Extended Arabic-Indic digits from Urdu text
+```
+
+Details that matter in practice:
+
+- **Accept both forms, store one.** People type `3520212345671` and `35202-1234567-1`. Normalise to the hyphenated form so lookups and duplicate checks match.
+- **Hyphens all or nothing.** `35202-12345671` is rejected: a single hyphen in the wrong place usually means a digit is missing or misplaced.
+- **Urdu digits.** OCR on the Urdu side of the card, or a user's keyboard, can produce `۰۱۲۳…` (Extended Arabic-Indic) instead of `0123…`. In Python, `\d` matches those too, which is why the translation runs first: otherwise they'd pass the regex and reach your database. I covered more of these problems in [why OCR struggles with Arabic and Urdu](/blog/ocr-non-latin-scripts-arabic-urdu/).
+- **No `int()`.** Keep it a string. Leading zeros don't occur in the first digit today, but numbers are identifiers, not quantities.
+
+## What can't format validation tell you?
+
+Because there's **no check digit**, any 13 digits in the right shape pass. A single-digit typo produces another valid-looking number, possibly someone else's. So:
+
+1. **Format check** at the form or OCR stage, to catch obvious mistakes early.
+2. **Consistency checks** with the rest of the application: does the gender digit match the gender on the card and the selfie? Does the number OCR'd from the card match what the user typed?
+3. **Verification** of the number, name and photo against NADRA's records, through the verification services NADRA offers to regulated businesses. That's the step that proves identity.
+
+A mismatch in step 2 is a reason to ask the user to re-check, or to route the case to review, not an automatic rejection: the [same principle as every KYC decision](/blog/how-kyc-identity-verification-works/), where each rejection should carry a reason someone can act on.
+
+## Summary
+
+- CNIC: 13 digits, `12345-1234567-1`. First digit is the region, last digit odd for male, even for female.
+- Accept with or without hyphens, convert Urdu digits, store one canonical form, keep it a string.
+- There's **no check digit**: a well-formed number can still be wrong.
+- Use the digits for consistency checks; verify identity against NADRA's records.
+
+Related: [KYC vs AML vs KYB](/blog/kyc-vs-aml-vs-kyb/) and [fuzzy name matching for sanctions screening](/blog/sanctions-name-screening-fuzzy-matching/).

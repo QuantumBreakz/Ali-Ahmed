@@ -1,0 +1,84 @@
+---
+title: "Semantic caching for LLM apps: when reusing an answer is safe, and when it's a bug"
+description: "A semantic cache reuses an LLM answer for a similar question, matched by embedding similarity. How to build one in Python, why the cache key must include the model, system prompt and tenant, how near-misses like 'cancel my order' and 'don't cancel my order' break it, and when not to cache at all."
+publishedAt: 2026-11-19
+tags: [LLMs, AI Engineering, Python, RAG]
+---
+
+A **semantic cache** stores LLM answers with an **embedding** of the question, and when a new question's embedding is similar enough to a cached one, it returns the stored answer instead of calling the model. A hit costs a few milliseconds and no tokens. The danger is in "similar enough": embeddings capture topic, not meaning precisely, so **"cancel my order" and "don't cancel my order" can look almost identical**. A safe semantic cache uses a **high threshold**, **scopes every entry** to the model, system prompt and tenant, **expires** entries, and is only used for questions whose answer doesn't depend on who's asking. Here's a tested Python implementation and the failure cases.
+
+## How does a semantic cache work?
+
+1. Embed the incoming question.
+2. Compare it with the embeddings of cached questions in the same scope (cosine similarity).
+3. If the best match is above the threshold, return its answer. Otherwise call the model and store the result.
+
+An exact-match cache (hash of the prompt) is the safe baseline: it only hits on identical text. A semantic cache trades some of that safety for a higher hit rate on rephrasings.
+
+```python title="semcache.py"
+import hashlib
+import time
+import numpy as np
+
+class SemanticCache:
+    """Reuse an LLM answer when a new question is close enough to a cached one, within the same scope."""
+    def __init__(self, embed, threshold: float = 0.95, ttl_seconds: float = 3600, clock=time.time):
+        self.embed, self.threshold, self.ttl, self.clock = embed, threshold, ttl_seconds, clock
+        self.entries: dict[str, list[tuple[np.ndarray, str, str, float]]] = {}
+
+    @staticmethod
+    def scope(model: str, system_prompt: str, tenant: str) -> str:
+        # A different model, instructions or customer means a different answer: never share across scopes.
+        return hashlib.sha256(f"{model}\0{system_prompt}\0{tenant}".encode()).hexdigest()
+
+    def get(self, scope: str, question: str):
+        q = self.embed(question)
+        now = self.clock()
+        live = [e for e in self.entries.get(scope, []) if now - e[3] < self.ttl]
+        self.entries[scope] = live
+        if not live:
+            return None
+        sims = np.array([v @ q for v, *_ in live])
+        best = int(sims.argmax())
+        return (live[best][2], float(sims[best]), live[best][1]) if sims[best] >= self.threshold else None
+
+    def put(self, scope: str, question: str, answer: str):
+        self.entries.setdefault(scope, []).append((self.embed(question), question, answer, self.clock()))
+```
+
+`embed` must return unit-length vectors, so the dot product is the cosine similarity. A hit returns the answer, the similarity and the cached question: **log all three**, because they're what you'll need when a user reports a wrong answer. At scale, the linear scan becomes a vector index; see [embeddings and vector search, explained](/blog/embeddings-vector-search-explained/).
+
+## Where does it go wrong?
+
+To keep the tests self-contained I used a stand-in embedding (hashed bag of words). Real embedding models score these pairs differently, but the pattern is the same: wording that changes the meaning barely changes the vector.
+
+| Cached question             | New question                                     | Similarity |
+| --------------------------- | ------------------------------------------------ | ---------- |
+| What is your refund policy? | what is your refund policy                       | 1.000      |
+| Cancel my order             | Don't cancel my order                            | 0.866      |
+| What is your refund policy? | What is your refund policy for orders over $100? | 0.745      |
+| What is your refund policy? | How do I reset my password?                      | 0.000      |
+
+"Don't cancel my order" sits at 0.866, closer than many genuine rephrasings would be. With real models, negations and small qualifiers often score above 0.9. That's why:
+
+- **The threshold is high** (0.95 here), and you tune it on **labelled pairs**: rephrasings that must hit, and near-misses that must not. Measure false hits the way you'd measure [face match false accepts](/blog/face-match-threshold-far-frr/), because a wrong cached answer is a false accept.
+- **The scope is part of the key.** The tests confirm that the same question in `tenant-b` misses `tenant-a`'s entry. Changing the system prompt or model also starts a fresh scope, so a prompt fix takes effect immediately.
+- **Entries expire.** A refund policy changes; a 60-second TTL in the test makes the cached answer disappear after a minute.
+
+## When shouldn't you cache?
+
+- **Personal or account-specific answers.** "What's my balance?" must never be served from another user's cache entry. If the answer depends on who's asking or on live data, don't cache it, or include the user in the scope.
+- **Tool-calling turns.** If the model would call a tool, the answer depends on the tool result at that moment.
+- **Multi-turn context.** The same final question means different things in different conversations. Cache only standalone questions, or include the conversation's state in the key.
+- **Anything where a wrong answer is costly.** Compliance answers, prices, medical or legal questions: use an exact-match cache or none.
+
+A good first use is an FAQ-style assistant answering general questions, with exact-match caching everywhere else. Provider-side **prompt caching** is a different thing: it reuses the processed prompt prefix to make calls cheaper and faster, but the model still runs. It's covered in [how to cut LLM API costs](/blog/reduce-llm-api-costs/).
+
+## Summary
+
+- A semantic cache returns a stored answer when a new question's embedding is close to a cached one.
+- Near-misses such as negations score high: use a **high threshold tuned on labelled pairs**.
+- **Scope** entries by model, system prompt and tenant; **expire** them; **log** every hit.
+- Don't cache personal, tool-dependent, multi-turn or high-stakes answers.
+
+Related: [hybrid search with BM25 and reciprocal rank fusion](/blog/hybrid-search-bm25-reciprocal-rank-fusion/) and [stopping an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/).

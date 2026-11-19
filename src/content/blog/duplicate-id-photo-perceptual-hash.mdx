@@ -1,0 +1,91 @@
+---
+title: "Catching reused ID photos with perceptual hashing: dHash in Python for KYC fraud"
+description: "Fraudsters reuse the same ID card photo across many accounts, resized and recompressed. How a perceptual hash (dHash) finds near-duplicates, why you should hash the portrait instead of the whole card, and what cropping and rotation do to the distance. Tested Python with Pillow."
+publishedAt: 2026-11-19
+tags: [KYC, Computer Vision, Python, Security]
+---
+
+One of the cheapest KYC fraud patterns is **reusing one ID document across many accounts**: the same photo, resized, recompressed or brightened a little so the file is different each time. A file hash such as SHA-256 misses all of these, because one changed byte changes the whole hash. A **perceptual hash** describes what the image looks like, so near-identical images get near-identical hashes. **dHash** is one of the simplest: shrink the image to 9×8 greyscale and record, for each pixel, whether it's brighter than its right neighbour, giving 64 bits. Two images are near-duplicates when their hashes differ in only a few bits. The catch for ID documents: every card of the same type shares a layout, so **hash the portrait, not the whole card**. Tested Python below.
+
+## How does dHash work?
+
+dHash records **gradients**, not brightness. Shrinking to 9×8 throws away detail, compression noise and size; comparing neighbours makes it insensitive to overall brightness. The idea was popularised by Neal Krawetz, and the Python `imagehash` library implements it along with similar hashes.
+
+```python title="phash.py"
+from PIL import Image
+
+def dhash(image: Image.Image, size: int = 8) -> int:
+    """Shrink to (size+1) x size greyscale; one bit per pixel: is it brighter than its right neighbour?"""
+    small = image.convert("L").resize((size + 1, size), Image.Resampling.LANCZOS)
+    px = small.tobytes()  # one byte per pixel in mode L
+    bits = 0
+    for row in range(size):
+        for col in range(size):
+            left, right = px[row * (size + 1) + col], px[row * (size + 1) + col + 1]
+            bits = (bits << 1) | (left > right)
+    return bits
+
+def distance(a: int, b: int) -> int:
+    return (a ^ b).bit_count()  # Hamming distance: how many of the 64 bits differ
+```
+
+## How robust is it?
+
+I generated synthetic ID cards (a shared template, with a person-specific portrait and text) and compared one card with edited copies of itself:
+
+| Edit to the same card   | Bits different (of 64) |
+| ----------------------- | ---------------------- |
+| Resized to 50%          | 0                      |
+| JPEG quality 40         | 0                      |
+| Brightness +20%         | 2                      |
+| Cropped 5% on each side | 11                     |
+| Rotated 3 degrees       | 13                     |
+
+Resizing and recompression, the most common edits, don't change the hash at all. **Cropping and rotation do**, because they move the gradients. That's why you hash the document **after** it's been found, flattened and cropped to its edges, as described in [preparing ID card photos for OCR](/blog/document-photo-preprocessing-ocr/). Two photos of the same card, both normalised, end up much closer than two raw photos.
+
+## Why hash the portrait instead of the whole card?
+
+Every passport or national ID card of the same type has the same header, colours, field positions and background pattern. Those shared parts make **different people's cards look alike** to a hash that sees the whole card. Comparing my card with 50 other people's cards from the same template:
+
+| Hashed region | Closest different person | Median |
+| ------------- | ------------------------ | ------ |
+| Whole card    | 15 bits                  | 23     |
+| Portrait only | 23 bits                  | 33     |
+
+Hashing only the portrait (its position is fixed for each document type) doubles the gap between a reused photo (0 bits) and a different person. With whole cards, a threshold loose enough to survive a crop starts to approach legitimate customers.
+
+## The duplicate index
+
+```python title="phash.py"
+class PhotoIndex:
+    """Remembers each upload's hash; reports earlier uploads by other accounts within max_distance bits."""
+    def __init__(self, max_distance: int = 10):
+        self.max_distance = max_distance
+        self.seen: list[tuple[int, str]] = []
+
+    def check(self, account: str, image: Image.Image) -> list[tuple[str, int]]:
+        h = dhash(image)
+        hits = {}
+        for seen_hash, other in self.seen:
+            d = distance(h, seen_hash)
+            if other != account and d <= self.max_distance:
+                hits[other] = min(d, hits.get(other, d))
+        self.seen.append((h, account))
+        return sorted(hits.items(), key=lambda kv: kv[1])
+```
+
+The same account re-uploading its own document is normal (a blurry first attempt), so only **other** accounts count. The tests check exactly that: a recompressed re-upload by `acct-1` returns nothing, and a resized copy uploaded by `acct-2` returns `acct-1`.
+
+A linear scan is fine for thousands of documents. At millions, index the hashes: split each 64-bit hash into chunks and look up exact chunk matches (any two hashes within 10 bits share at least one of 11 chunks unchanged), or use a BK-tree.
+
+## What should happen on a match?
+
+A match is a **signal for review**, not an automatic rejection. The same face can appear legitimately (one person opening a business account and a personal one), and the hash can't tell a reused photo from a photo of a photo. Record the matched account and distance in the case, alongside the other checks such as [face matching](/blog/face-match-threshold-far-frr/) and [liveness detection](/blog/face-liveness-detection-explained/), so the reviewer sees everything at once. The flow around these checks is in [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).
+
+## Summary
+
+- File hashes miss resized and recompressed copies; **perceptual hashes** catch them.
+- dHash: 9×8 greyscale, one bit per neighbour comparison, compare with Hamming distance.
+- **Crop and flatten first**: cropping and rotation move the hash more than compression does.
+- **Hash the portrait**, because cards of the same type share their layout.
+- Treat a match as evidence for a reviewer, and record it.
