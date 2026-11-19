@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { saveSecret } from "./secrets.mjs";
+import { refreshToken } from "./google.mjs";
 
 const arg = (name) => process.argv[process.argv.indexOf(name) + 1];
 const { installed } = JSON.parse(readFileSync(arg("--client"), "utf8"));
@@ -65,6 +66,16 @@ if (!(mine.items ?? []).some((b) => b.id === blog.id)) {
     `The Google account you signed in with isn't an author of ${blogUrl}. Its blogs: ${names}. Run this again and pick the account that owns the blog.`
   );
 }
+
+// Repeat CI's exact path (refresh token -> access token -> list posts) before saving anything.
+const ciToken = await refreshToken(installed.client_id, installed.client_secret, tokens.refresh_token);
+const ciMine = await fetch("https://www.googleapis.com/blogger/v3/users/self/blogs", { headers: { authorization: `Bearer ${ciToken}` } }).then((r) => r.json());
+const ciList = await fetch(
+  `https://www.googleapis.com/blogger/v3/blogs/${blog.id}/posts?fetchBodies=false&maxResults=1&status=live&status=draft&view=ADMIN`,
+  { headers: { authorization: `Bearer ${ciToken}` } }
+);
+console.log(`Check via refresh token: login sees ${(ciMine.items ?? []).length} blog(s); admin post list -> HTTP ${ciList.status}.`);
+if (!ciList.ok) throw new Error(`Refreshed login can't list the blog's posts: ${await ciList.text()}`);
 
 saveSecret("BLOGGER_CLIENT_ID", installed.client_id);
 saveSecret("BLOGGER_CLIENT_SECRET", installed.client_secret);
