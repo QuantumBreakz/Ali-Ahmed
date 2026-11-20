@@ -22,7 +22,12 @@ for (const url of urls) {
     headers: { ...auth, "content-type": "application/json" },
     body: JSON.stringify({ inspectionUrl: url, siteUrl: site }),
   });
-  if (!res.ok) throw new Error(`Inspection failed for ${url}: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    // Google returns occasional 503s; report the URL and carry on rather than losing the whole report.
+    counts[`Inspection error ${res.status}`] = (counts[`Inspection error ${res.status}`] ?? 0) + 1;
+    console.log(`ERROR    ${url}  inspection failed: HTTP ${res.status}`);
+    continue;
+  }
   const r = (await res.json()).inspectionResult.indexStatusResult;
   counts[r.coverageState] = (counts[r.coverageState] ?? 0) + 1;
   const canonical = r.googleCanonical && r.googleCanonical !== url ? `  google canonical: ${r.googleCanonical}` : "";
