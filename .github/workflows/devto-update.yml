@@ -1,0 +1,44 @@
+name: Update DEV articles
+
+# Manual: refresh existing DEV cross-posts with the site's current text (for example after adding figures).
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated post slugs (empty = every post on DEV whose text changed)"
+        required: false
+        default: ""
+      apply:
+        description: "Apply the updates (unticked = dry run)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: devto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+      - name: Update DEV articles
+        env:
+          DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
+          ONLY: ${{ inputs.only }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          args=()
+          [ "$APPLY" = "true" ] && args+=(--apply)
+          [ -n "$ONLY" ] && args+=(--only "$ONLY")
+          node scripts/promote/devto-update.mjs "${args[@]}"
