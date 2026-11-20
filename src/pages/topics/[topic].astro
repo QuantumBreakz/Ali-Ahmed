@@ -1,0 +1,163 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PageHero from "../../components/PageHero.astro";
+import TopicPostList from "../../components/TopicPostList.astro";
+import { personId, site } from "../../data/site";
+import { topicPath, topics, type Topic } from "../../data/topics";
+import { getPublishedBlog, getWritingPath, type PublishedWriting } from "../../lib/blog-source";
+
+interface Props {
+  topic: Topic;
+}
+
+export function getStaticPaths() {
+  return topics.map((topic) => ({ params: { topic: topic.slug }, props: { topic } }));
+}
+
+const { topic } = Astro.props;
+const bySlug = new Map((await getPublishedBlog()).map((post) => [getWritingPath(post).slice("/blog/".length, -1), post] as const));
+const sections = topic.sections.map((section) => {
+  const posts = section.posts.map((slug) => {
+    const post = bySlug.get(slug);
+    if (!post) throw new Error(`Topic ${topic.slug} lists unknown post ${slug}`);
+    return post;
+  });
+  return { heading: section.heading, posts };
+});
+const allPosts: PublishedWriting[] = sections.flatMap((section) => section.posts);
+const url = new URL(topicPath(topic), site.url).href;
+const otherTopics = topics.filter((other) => other.slug !== topic.slug);
+
+const jsonLd = [
+  {
+    "@type": "CollectionPage",
+    "@id": `${url}#page`,
+    name: topic.title,
+    description: topic.description,
+    url,
+    author: { "@id": personId },
+    isPartOf: { "@id": `${site.url}/#website` },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: allPosts.length,
+      itemListElement: allPosts.map((post, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        url: new URL(getWritingPath(post), site.url).href,
+        name: post.data.title,
+      })),
+    },
+  },
+  {
+    "@type": "FAQPage",
+    "@id": `${url}#faq`,
+    mainEntity: topic.faq.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  },
+];
+---
+
+<BaseLayout title={topic.title} description={topic.description} pageClass="page--topics" jsonLd={jsonLd}>
+  <PageHero title={topic.title} lead={`${allPosts.length} articles, in reading order.`} />
+
+  <div class="topic">
+    <section class="prose topic__intro">
+      {topic.intro.map((paragraph) => <p>{paragraph}</p>)}
+    </section>
+
+    <nav class="topic__contents" aria-label="Sections">
+      <ol>
+        {
+          sections.map((section, index) => (
+            <li>
+              <a href={`#section-${index + 1}`}>{section.heading}</a>
+            </li>
+          ))
+        }
+      </ol>
+    </nav>
+
+    {
+      sections.map((section, index) => (
+        <section class="topic__section" aria-labelledby={`section-${index + 1}`}>
+          <h2 id={`section-${index + 1}`}>{section.heading}</h2>
+          <TopicPostList posts={section.posts} />
+        </section>
+      ))
+    }
+
+    <section class="topic__section" aria-labelledby="faq">
+      <h2 id="faq">Common questions</h2>
+      <div class="topic__faq">
+        {
+          topic.faq.map((item) => (
+            <>
+              <h3>{item.question}</h3>
+              <p>{item.answer}</p>
+            </>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="topic__section" aria-labelledby="more-topics">
+      <h2 id="more-topics">Other guides</h2>
+      <ul class="topic__others">
+        {
+          otherTopics.map((other) => (
+            <li>
+              <a href={topicPath(other)}>{other.title}</a>
+            </li>
+          ))
+        }
+        <li><a href="/topics/">All guides</a></li>
+        <li><a href="/blog/">Every article</a></li>
+      </ul>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  .topic {
+    max-width: 68ch;
+  }
+
+  .topic__intro {
+    margin-bottom: 2rem;
+  }
+
+  .topic__contents ol {
+    margin: 0 0 1rem;
+    padding-left: 1.4rem;
+    line-height: 1.9;
+  }
+
+  .topic__section {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  }
+
+  .topic__section h2 {
+    margin-bottom: 1.2rem;
+  }
+
+  .topic__faq h3 {
+    margin: 1.6rem 0 0.4rem;
+    font-size: 1.1rem;
+    line-height: 1.4;
+  }
+
+  .topic__faq p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .topic__others {
+    margin: 0;
+    padding-left: 1.4rem;
+    line-height: 1.9;
+  }
+</style>

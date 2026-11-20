@@ -3,10 +3,24 @@ import "../../styles/reading-foundation.css";
 import { BlogArchive } from "../../components/blog/BlogArchive";
 import BlogLayout from "../../layouts/BlogLayout.astro";
 import { formatWritingDate, getPublishedBlog, getWritingPath } from "../../lib/blog-source";
+import { topicPath, topics } from "../../data/topics";
 const entries = await getPublishedBlog();
 ---
 
 <BlogLayout title="The blog" description="Things I’m building, learning, and figuring out">
+  <nav class="blog-guides" aria-label="Guides by topic">
+    <p>
+      Start with a guide:{" "}
+      {
+        topics.map((topic, index) => (
+          <>
+            {index > 0 && " · "}
+            <a href={topicPath(topic)}>{topic.shortTitle}</a>
+          </>
+        ))
+      }
+    </p>
+  </nav>
   {
     entries.length ? (
       <BlogArchive

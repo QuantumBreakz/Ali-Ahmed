@@ -7,6 +7,7 @@ import BlogLayout from "../../layouts/BlogLayout.astro";
 import BlogVideo from "../../components/blog/BlogVideo.astro";
 import "../../styles/blog-article.css";
 import { personId, site } from "../../data/site";
+import { topicForPost, topicPath } from "../../data/topics";
 import { formatWritingDate, getPublishedBlog, getWritingPath, type PublishedWriting } from "../../lib/blog-source";
 interface Props {
   entry: PublishedWriting;
@@ -21,6 +22,7 @@ const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
 const toc = headings.map((heading) => ({ depth: heading.depth, title: heading.text, url: `#${heading.slug}` }));
 const blogExport = getBlogExport(entry);
+const topic = topicForPost(getWritingPath(entry).slice("/blog/".length, -1));
 const jsonLd = [
   {
     "@type": "BlogPosting",
@@ -36,7 +38,10 @@ const jsonLd = [
     image: new URL(site.socialImage.src, site.url).href,
     keywords: entry.data.tags.join(", "),
     wordCount: (entry.body ?? "").split(/\s+/).length,
-    isPartOf: { "@id": `${site.url}/#website` },
+    isPartOf: [
+      { "@id": `${site.url}/#website` },
+      ...(topic ? [{ "@type": "CollectionPage", "@id": `${new URL(topicPath(topic), site.url).href}#page`, name: topic.title }] : []),
+    ],
     ...(entry.data.video && { video: { "@id": `${blogExport.canonicalUrl}#video` } }),
   },
   ...(entry.data.video
@@ -74,4 +79,11 @@ const readingMinutes = Math.max(1, Math.ceil((entry.body ?? "").split(/\s+/).len
 >
   {entry.data.video && <BlogVideo {...entry.data.video} />}
   <Content components={{ pre: BlogCode, a: defaultMdxComponents.a, table: defaultMdxComponents.table }} />
+  {
+    topic && (
+      <p class="blog-topic-guide">
+        Part of the guide <a href={topicPath(topic)}>{topic.title}</a>, which puts related articles in reading order.
+      </p>
+    )
+  }
 </BlogLayout>

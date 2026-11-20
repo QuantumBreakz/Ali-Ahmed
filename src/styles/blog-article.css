@@ -742,3 +742,10 @@ html:has(.blog-image-dialog[open]) {
     visibility: visible;
   }
 }
+
+.blog-topic-guide {
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}

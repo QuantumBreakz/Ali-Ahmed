@@ -1,0 +1,42 @@
+---
+import type { PublishedWriting } from "../lib/blog-source";
+import { getWritingPath } from "../lib/blog-source";
+
+interface Props {
+  posts: PublishedWriting[];
+}
+
+const { posts } = Astro.props;
+---
+
+<ol class="topic-posts">
+  {
+    posts.map((post) => (
+      <li>
+        <a href={getWritingPath(post)}>{post.data.title}</a>
+        <p>{post.data.description}</p>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .topic-posts {
+    display: grid;
+    gap: 1.4rem;
+    max-width: 68ch;
+    margin: 0;
+    padding-left: 1.4rem;
+  }
+
+  .topic-posts a {
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .topic-posts p {
+    margin: 0.35rem 0 0;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+</style>

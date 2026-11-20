@@ -1,0 +1,61 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PageHero from "../../components/PageHero.astro";
+import { personId, site } from "../../data/site";
+import { topicPath, topics } from "../../data/topics";
+
+const url = new URL("/topics/", site.url).href;
+const jsonLd = [
+  {
+    "@type": "CollectionPage",
+    "@id": `${url}#page`,
+    name: "Guides by topic",
+    url,
+    author: { "@id": personId },
+    isPartOf: { "@id": `${site.url}/#website` },
+    hasPart: topics.map((topic) => ({ "@type": "CollectionPage", "@id": `${new URL(topicPath(topic), site.url).href}#page`, name: topic.title })),
+  },
+];
+---
+
+<BaseLayout
+  title="Guides by topic"
+  description="Reading paths through Ali Ahmed's articles: KYC and identity verification, production LLM engineering, AI agents, RAG and search, and reliable backends."
+  pageClass="page--topics"
+  jsonLd={jsonLd}
+>
+  <PageHero title="Guides by topic" lead="Each guide puts related articles in reading order, with answers to the common questions." />
+
+  <ul class="topics">
+    {
+      topics.map((topic) => (
+        <li>
+          <a href={topicPath(topic)}>{topic.title}</a>
+          <p>{topic.description}</p>
+        </li>
+      ))
+    }
+  </ul>
+</BaseLayout>
+
+<style>
+  .topics {
+    display: grid;
+    gap: 1.8rem;
+    max-width: 68ch;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .topics a {
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+
+  .topics p {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+</style>

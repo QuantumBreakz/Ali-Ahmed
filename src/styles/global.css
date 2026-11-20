@@ -216,12 +216,12 @@ h3 {
   font-weight: 400;
 }
 
-:is(.page--projects, .page--experience, .page--leadership, .page--education, .page--contact) .site-main a:not(.link-pill) {
+:is(.page--projects, .page--experience, .page--leadership, .page--education, .page--contact, .page--topics) .site-main a:not(.link-pill) {
   color: var(--link);
   text-decoration-color: color-mix(in srgb, var(--link) 64%, transparent);
 }
 
-:is(.page--projects, .page--experience, .page--leadership, .page--education, .page--contact) .site-main a:not(.link-pill):hover {
+:is(.page--projects, .page--experience, .page--leadership, .page--education, .page--contact, .page--topics) .site-main a:not(.link-pill):hover {
   color: var(--link-hover);
   text-decoration-color: currentcolor;
 }

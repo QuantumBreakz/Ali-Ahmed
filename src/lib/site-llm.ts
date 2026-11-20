@@ -11,6 +11,7 @@ import {
   site,
 } from "../data/site";
 import { getWritingPath, getPublishedBlog } from "./blog-source";
+import { topicPath, topics } from "../data/topics";
 import { getBlogExport } from "./blog-export";
 import { getNoteMarkdownPath, getNotesIndexPages, getNotesLLMsFullText, getPublishedNotes } from "./notes-llm";
 
@@ -21,6 +22,7 @@ const portfolioPages = [
   { label: "Leadership", path: "/leadership/", description: pageDescriptions.leadership },
   { label: "Education", path: "/education/", description: pageDescriptions.education },
   { label: "Blog", path: "/blog/", description: "Tutorials, experiments, personal updates, and observations." },
+  { label: "Guides by topic", path: "/topics/", description: "Reading paths through the blog, grouped by topic." },
   { label: "Contact", path: "/contact/", description: pageDescriptions.contact },
   { label: "Privacy", path: "/privacy/", description: "No cookies or analytics; how my publishing tools use my own Google account." },
 ] as const;
@@ -58,6 +60,8 @@ export async function getSiteLLMsIndex(): Promise<string> {
     "",
     ...featuredProjects.map((project) => link(project.title, project.href ?? absoluteUrl("/projects/"), `${project.stack}. ${project.summary}`)),
   ];
+
+  lines.push("", "## Topic guides", "", ...topics.map((topic) => link(topic.title, absoluteUrl(topicPath(topic)), topic.description)));
 
   lines.push("", posts.length ? "## Published blog posts" : "## Blog", "");
   if (posts.length === 0) lines.push("No blog posts are published yet.");

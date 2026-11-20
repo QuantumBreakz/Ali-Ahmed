@@ -243,3 +243,15 @@
   padding-top: 1.5rem;
   border-top: 1px solid var(--line);
 }
+
+.blog-guides p {
+  margin: 0 0 2rem;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.blog-guides a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
