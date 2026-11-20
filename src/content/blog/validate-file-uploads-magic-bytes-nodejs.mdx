@@ -1,0 +1,88 @@
+---
+title: "Validating file uploads in Node.js: check magic bytes, not the file name or Content-Type"
+description: "A file called passport.jpg with Content-Type image/jpeg can be HTML or SVG with a script inside. How to validate uploads in Node.js by their first bytes, cap the size while streaming, hash the content, and why images should still be re-encoded. Tested code for JPEG, PNG and PDF."
+publishedAt: 2026-11-20
+tags: [Security, Node.js, KYC, Web Development]
+---
+
+The **file name** and the **`Content-Type` header** of an upload are both chosen by the client, so neither proves what the file is. A file called `passport.jpg`, sent as `image/jpeg`, can be **HTML or SVG with a script inside**. If it's later served from your domain, that's stored cross-site scripting. Check the **content**: real JPEGs start with the bytes `FF D8 FF`, PNGs with `89 50 4E 47 0D 0A 1A 0A`, PDFs with `%PDF-`. Accept only an **allow-list** of types, **reject a mismatch** between the declared and detected type, **stop reading at a size cap** instead of buffering whatever arrives, and **hash** the content to spot duplicates. Magic bytes only check the start of the file, so **re-encode images** and serve uploads with safe headers too. Tested Node.js below.
+
+## Detecting the real type
+
+```js title="upload.mjs: sniff"
+const SIGNATURES = [
+  { type: "image/jpeg", bytes: [0xff, 0xd8, 0xff] },
+  { type: "image/png", bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+  { type: "application/pdf", bytes: [0x25, 0x50, 0x44, 0x46, 0x2d] }, // %PDF-
+];
+
+export const sniff = (head) => SIGNATURES.find((s) => s.bytes.every((b, i) => head[i] === b))?.type;
+```
+
+These "magic numbers" are fixed by each format's specification. Three types cover most KYC document uploads; add HEIC or WebP only if you actually need them, because every format you accept is one more parser handling untrusted input.
+
+## Reading the upload safely
+
+```js title="upload.mjs: inspectUpload"
+import { createHash } from "node:crypto";
+
+export async function inspectUpload(stream, { declaredType, maxBytes = 10 * 1024 * 1024, allowed = ["image/jpeg", "image/png", "application/pdf"] }) {
+  const hash = createHash("sha256");
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error(`too large: over ${maxBytes} bytes`);
+    hash.update(chunk);
+    chunks.push(chunk);
+  }
+  const body = Buffer.concat(chunks);
+  const type = sniff(body.subarray(0, 8));
+  if (!type || !allowed.includes(type)) throw new Error(`unsupported file type${type ? ` ${type}` : ""}`);
+  if (declaredType && declaredType !== type) throw new Error(`declared ${declaredType} but content is ${type}`);
+  return { type, size, sha256: hash.digest("hex"), body };
+}
+```
+
+It takes any readable stream, such as the request itself or a multipart file stream from a parser like `busboy`. The size is checked **per chunk**, so an oversized or endless upload is stopped after `maxBytes`, rather than read into memory first. Also set a limit at the proxy or load balancer, so huge bodies never reach Node.js.
+
+## The tests
+
+```js title="upload.test.mjs"
+// HTML renamed and labelled as a JPEG: rejected by content.
+await assert.rejects(inspectUpload(chunked(html), { declaredType: "image/jpeg" }), /unsupported file type/);
+// SVG can carry scripts: not on the allow-list.
+await assert.rejects(inspectUpload(chunked(svg), { declaredType: "image/svg+xml" }), /unsupported file type/);
+// A real PNG declared as JPEG: mismatch, so something upstream is wrong.
+await assert.rejects(inspectUpload(chunked(png), { declaredType: "image/jpeg" }), /declared image\/jpeg but content is image\/png/);
+
+// An endless stream is cut off at the cap: about 11 chunks of 1 KB read for a 10 KB limit.
+await assert.rejects(inspectUpload(endless, { maxBytes: 10 * 1024 }), /too large/);
+assert.ok(pulled <= 12);
+
+// Same bytes, different chunking: same hash.
+assert.equal((await inspectUpload(chunked(jpeg), {})).sha256, (await inspectUpload(chunked(jpeg, 50), {})).sha256);
+```
+
+All pass on Node.js 24, along with the accepted JPEG, PNG and PDF cases. The files are fed in 7-byte chunks, so the signature check is tested across chunk boundaries.
+
+## Why magic bytes aren't enough
+
+A **polyglot** file is valid in two formats at once: a real JPEG whose metadata contains HTML, for example. It passes the signature check because it **is** a JPEG. Three more layers handle what sniffing can't:
+
+1. **Re-encode images.** Decode the image and save a fresh JPEG or PNG. This also removes metadata such as GPS location, and fixes orientation if you apply it first; see [EXIF orientation before OCR](/blog/exif-orientation-before-ocr/).
+2. **Serve uploads safely.** Use `Content-Type` from **your** detection, `X-Content-Type-Options: nosniff`, and `Content-Disposition: attachment` for anything not meant to display inline. Better still, serve user files from a **separate domain**, so a script in one can't read your session cookies.
+3. **Treat PDFs as hostile.** Render them to images in a sandbox for review rather than opening them in an internal tool's browser tab.
+
+## What is the hash for?
+
+The SHA-256 identifies byte-identical uploads: the same document file submitted by two accounts is a fraud signal, and the same file submitted twice by one user can be deduplicated. It won't catch a resized or recompressed copy; that needs a perceptual hash, as in [catching reused ID photos](/blog/duplicate-id-photo-perceptual-hash/).
+
+## Summary
+
+- File names and `Content-Type` come from the client; check the first bytes instead.
+- Allow-list a few types, and reject a mismatch between declared and detected types.
+- Enforce the size limit while streaming, and at the proxy.
+- Re-encode images, serve uploads with `nosniff` from a separate domain, and sandbox PDFs.
+
+For where uploads enter a verification flow, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

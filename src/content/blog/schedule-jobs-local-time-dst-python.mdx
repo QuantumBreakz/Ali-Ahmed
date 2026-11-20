@@ -1,0 +1,80 @@
+---
+title: "Scheduling a job at 9am local time in Python: DST, skipped hours and repeated hours"
+description: "A job scheduled as '9am, then every 24 hours in UTC' runs at 10am after daylight saving starts. How to compute the next local run with zoneinfo, what happens to 02:30 when clocks jump forward and to 01:30 when they fall back, and why Pakistan's fixed offset hides the bug. Tested Python."
+publishedAt: 2026-11-20
+tags: [Python, Reliability, Distributed Systems, SRE]
+---
+
+"Send the report at **9am New York time**" is not "every 24 hours from the first run". Daylight saving moves the UTC offset twice a year, so a job that adds 24 hours in UTC runs at **10am local time** from the day clocks spring forward. The correct method is to compute **each run from the local wall-clock time**: take the next date, combine it with 09:00 in the user's time zone using **`zoneinfo`**, then convert to UTC. Two edge cases need a decision. On the spring-forward day, **02:30 doesn't exist**; on the fall-back day, **01:30 happens twice**. Below is a tested function that handles both: a skipped time **moves forward by the length of the gap**, and a repeated time **runs once**. It also explains why it's easy to miss if your servers and users are in **Pakistan**, which has no daylight saving.
+
+## The bug: adding 24 hours in UTC
+
+In 2026, US daylight saving starts on **Sunday 8 March**. A job first scheduled for 09:00 EST on Friday 6 March:
+
+| Day       | First run + n × 24 h in UTC | Next local 09:00, computed each time |
+| --------- | --------------------------- | ------------------------------------ |
+| Fri 6 Mar | 09:00 EST                   | 09:00 EST (14:00 UTC)                |
+| Sat 7 Mar | 09:00 EST                   | 09:00 EST (14:00 UTC)                |
+| Sun 8 Mar | **10:00 EDT**               | 09:00 EDT (13:00 UTC)                |
+| Mon 9 Mar | **10:00 EDT**               | 09:00 EDT (13:00 UTC)                |
+
+The left column stays an hour late until November. Cron on a UTC server has the same bug: `0 14 * * *` is 9am in winter and 10am in summer.
+
+## The function
+
+```python title="schedule.py"
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+def next_run(after_utc: datetime, at: time, tz: str) -> datetime:
+    """Next UTC instant when the local clock in `tz` shows `at`. A skipped time moves forward by the
+    length of the gap; a repeated time runs once, at its first occurrence (fold=0)."""
+    zone = ZoneInfo(tz)
+    day = after_utc.astimezone(zone).date()
+    while True:
+        local = datetime.combine(day, at, tzinfo=zone)  # fold=0: the first occurrence of a repeated time
+        # A skipped time with fold=0 converts using the offset from before the jump, landing just after the gap.
+        run = local.astimezone(timezone.utc)
+        if run > after_utc:
+            return run
+        day += timedelta(days=1)
+```
+
+Store the user's **time zone name** (`America/New_York`), not an offset (`-05:00`): the offset changes, the name doesn't. `zoneinfo` is in the standard library from Python 3.9 and uses the system's time zone database (on Windows, install the `tzdata` package).
+
+## The skipped hour
+
+On 8 March 2026, New York clocks jump from 01:59 EST to 03:00 EDT, so 02:30 never happens. Python's rule (PEP 495) is that a non-existent time with `fold=0` is interpreted with the offset from **before** the transition. Converted to UTC and back, that lands at **03:30 EDT**: the time moved forward by the length of the gap.
+
+```python title="Skipped time"
+next_run(datetime(2026, 3, 8, 5, 0, tzinfo=timezone.utc), time(2, 30), "America/New_York")
+# 03:30 EDT
+```
+
+My first version tried to "fix" this by switching to `fold=1`, and the test caught it scheduling the job at **01:30 EST**, an hour **early** and before the requested time. For a "send at 2:30" job, running at 3:30 once a year is the sensible choice; running early is not.
+
+## The repeated hour
+
+On 1 November 2026, clocks fall back from 01:59 EDT to 01:00 EST, so 01:30 happens twice, an hour apart. With `fold=0`, the job runs at the **first** 01:30 (05:30 UTC). The next call starts from that run, so it schedules **2 November**, not the second 01:30 that same night:
+
+```python title="Repeated time"
+first = next_run(datetime(2026, 11, 1, 4, 0, tzinfo=timezone.utc), time(1, 30), "America/New_York")
+# 01:30 EDT = 05:30 UTC
+next_run(first, time(1, 30), "America/New_York").date()
+# 2026-11-02: it doesn't run twice that night
+```
+
+Both cases are assertions in the test file, along with the table above.
+
+## Why it hides in Pakistan
+
+`Asia/Karachi` is UTC+5 all year; Pakistan last used daylight saving in 2009. A team in Lahore can run every schedule in UTC with fixed offsets and never see a problem, until the product has a customer in London, New York or Sydney. The function above is correct for both, and the test confirms 09:00 in Karachi is always 04:00 UTC.
+
+## Practical rules
+
+- Store **when** in UTC and **where** as an IANA zone name; compute local times at the edges.
+- Compute **each** run from local time; never add fixed durations for "daily at 9".
+- Decide and document the gap and overlap behaviour, and test the transition dates.
+- For CI and server cron, schedule in UTC knowingly. My own daily publishing job runs on a UTC cron, which is fine because it doesn't promise anyone a local time. GitHub can also start scheduled runs hours late under load, so don't use it for anything time-critical.
+
+Related: [error budgets and burn-rate alerts](/blog/slo-error-budget-burn-rate/). If you schedule planned maintenance windows in local time, compute them the same way, or a window can shift by an hour across a DST change.

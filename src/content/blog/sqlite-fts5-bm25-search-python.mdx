@@ -1,0 +1,83 @@
+---
+title: "Full-text search with SQLite FTS5 in Python: BM25 ranking, stemming and safe queries"
+description: "SQLite's FTS5 gives you BM25 keyword search with no server. How to set it up from Python's built-in sqlite3, why the default tokenizer doesn't match 'refund' to 'Refunds', why tiny indexes score everything 0, how to weight titles, and how to stop user input from breaking the query syntax. Tested code."
+publishedAt: 2026-11-20
+tags: [Python, RAG, Databases, AI Engineering]
+---
+
+**SQLite FTS5** is a full-text index built into SQLite, and Python's standard `sqlite3` module can use it with no server and no dependency. Create a `fts5` virtual table, insert text, query with `MATCH`, and rank with the built-in **`bm25()`** function, where **lower scores are better**. Three things catch people out. The default tokenizer **doesn't stem**, so `refund` won't match `Refunds` until you add the **`porter`** tokenizer. In a **tiny index**, words that appear in half the documents get an **inverse document frequency of zero**, so every score is 0 and the ranking means nothing. And user input passed straight to `MATCH` is **query syntax**: `NEAR("x"` is an error, not a search. Below is a tested setup that handles all three, plus title weighting and highlighted snippets.
+
+## Setting up the index
+
+```python title="fts.py: index"
+import sqlite3
+
+def open_index(path: str = ":memory:") -> sqlite3.Connection:
+    db = sqlite3.connect(path)
+    db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(title, body, tokenize = 'porter unicode61 remove_diacritics 2')")
+    return db
+
+def add(db, title: str, body: str) -> None:
+    db.execute("INSERT INTO docs (title, body) VALUES (?, ?)", (title, body))
+```
+
+The tokenizer line does most of the work:
+
+- **`unicode61`** splits on Unicode word boundaries and lowercases.
+- **`remove_diacritics 2`** makes `cafe` match `café`.
+- **`porter`** wraps it with English stemming, so `refund`, `refunds` and `refunded` index as the same term.
+
+FTS5 ships in the SQLite library that Python bundles on most platforms. This was tested with SQLite 3.50.
+
+## Searching, ranking and snippets
+
+```python title="fts.py: search"
+def quote(query: str) -> str:
+    """Treat user input as plain words: quote each term so FTS5 syntax (AND, -, :, *) can't break the query."""
+    return " ".join('"' + t.replace('"', '""') + '"' for t in query.split())
+
+def search(db, query: str, k: int = 5):
+    # bm25() returns lower = better; weight title matches 5x body matches.
+    return db.execute(
+        """SELECT title, round(bm25(docs, 5.0, 1.0), 3) AS score,
+                  snippet(docs, 1, '[', ']', '…', 8) AS snip
+           FROM docs WHERE docs MATCH ? ORDER BY score LIMIT ?""",
+        (quote(query), k),
+    ).fetchall()
+```
+
+`bm25(docs, 5.0, 1.0)` gives one weight per column, so a word in the title counts five times as much as one in the body. `snippet()` returns the matching passage with the terms bracketed, which is useful for showing results, and for checking what a RAG system actually matched.
+
+## What did testing show?
+
+With ten short help-centre documents:
+
+```python title="Results"
+search(db, "refund")
+# [('Refund policy', -2.156, '[Refunds] are issued within 14 days to the…'),
+#  ('Café opening hours', -1.041, "…Café staff can't process [refunds].")]
+search(db, "cafe")       # [('Café opening hours', -3.311, 'The [café] opens at 8am. …')]
+search(db, "invoice")    # 'Invoices' first: the title weight beats a body-only match
+search(db, 'NEAR("x"')   # []: a harmless search, not a syntax error
+```
+
+Each is an assertion in the test file. Two of them failed in my first version:
+
+- **Without `porter`**, `refund` matched only the document **titled** "Refund policy". The body text says "Refunds", which is a different token, so the café page was missed, and `invoice` couldn't find the page titled "Invoices".
+- **With only four documents**, every score came back as **`-0.0`**. BM25's IDF term drops to zero (FTS5 floors it at a tiny value) for a word that appears in half or more of the documents, and in a four-document index that's most words. The order of results was then arbitrary. It's not a bug in FTS5, but it means **you can't judge ranking quality on a toy index**: test with a realistic number of documents.
+
+## Why quote user input?
+
+`MATCH` takes FTS5's query language, where `-`, `:`, `*`, `NEAR`, `AND`, `OR` and quotes all mean something. Passing raw input gives syntax errors on ordinary text (an unbalanced quote), and lets users run queries you didn't intend. `quote()` wraps each word in double quotes, which FTS5 treats as a literal phrase. A hyphenated ID such as `INV-20931` becomes the phrase `inv 20931`, so it still matches. If you want to offer prefix search, append `*` yourself to the last quoted term, not from user input.
+
+## Where does FTS5 fit?
+
+For small and medium collections (tens of thousands of documents up to a few million rows), FTS5 is the BM25 half of [hybrid search with reciprocal rank fusion](/blog/hybrid-search-bm25-reciprocal-rank-fusion/), next to a vector index. It's a natural fit for the [fully offline RAG chatbot with Ollama](/blog/offline-rag-chatbot-ollama/), where adding a search server defeats the point. Index the same chunks you embed, as in [RAG chunking strategies](/blog/rag-chunking-strategies/), and keep the chunk ID in the FTS table so results from both retrievers can be fused.
+
+## Summary
+
+- `CREATE VIRTUAL TABLE … USING fts5(...)`, then `MATCH` and `ORDER BY bm25(...)`. Lower is better.
+- Use **`porter unicode61 remove_diacritics 2`** for English stemming and accent folding.
+- Weight columns in `bm25()`, and use `snippet()` to see what matched.
+- **Quote user input** before `MATCH`.
+- Don't evaluate ranking on a handful of documents: IDF needs a realistic corpus.

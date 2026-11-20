@@ -1,0 +1,79 @@
+---
+title: "Why your OCR sees ID photos sideways: EXIF orientation, and fixing it with Pillow"
+description: "Phones store photos in the sensor's orientation and add an EXIF tag saying how to rotate them for display. OCR and face detection read raw pixels, so they see the document sideways. How to apply the orientation with Pillow's exif_transpose, and why re-encoding first loses it for good. Tested Python."
+publishedAt: 2026-11-20
+tags: [Computer Vision, OCR, Python, KYC]
+---
+
+A phone held upright doesn't rotate the pixels it saves. It stores the image in the **camera sensor's orientation**, often landscape, and adds an **EXIF `Orientation` tag** (value 6, for example, means "rotate 90° clockwise to display"). Photo viewers and browsers apply the tag, so the user sees an upright document. **OCR and face detection read the raw pixels**, so they get the document **sideways**: text lines run vertically and recognition quality collapses. The fix is one line with Pillow, **`ImageOps.exif_transpose(img)`**, applied **before anything else** touches the image. It has to come first, because **re-encoding or stripping metadata before applying it loses the orientation permanently**. Tested Python below.
+
+## What the pipeline actually receives
+
+I simulated a phone photo: an upright, portrait ID card with a dark header at the top-left, stored as landscape pixels plus `Orientation = 6`.
+
+```python title="orient.py: what the code sees"
+from io import BytesIO
+from PIL import Image
+
+naive = Image.open(BytesIO(data))
+naive.size                      # (480, 300): landscape, though the user photographed a portrait card
+naive.getexif().get(0x0112)     # 6: "rotate 90° clockwise to display"
+dark_corner(naive)              # 'bottom-left': the header the user saw at the top-left
+```
+
+A browser shows this image upright, so a developer checking uploads by eye sees nothing wrong. The model sees the card rotated by a quarter turn.
+
+## The fix
+
+```python title="orient.py: load_upright"
+from io import BytesIO
+from PIL import Image, ImageOps
+
+def load_upright(data: bytes) -> Image.Image:
+    """Open an uploaded photo and apply its EXIF orientation, so pixels match what the user saw."""
+    img = Image.open(BytesIO(data))
+    img = ImageOps.exif_transpose(img)  # rotates/flips per the tag, then removes the tag
+    return img.convert("RGB")
+
+fixed = load_upright(data)
+fixed.size                   # (300, 480): portrait
+fixed.getexif().get(0x0112)  # None: the tag is removed, so nothing downstream rotates it twice
+dark_corner(fixed)           # 'top-left': as the user saw it
+```
+
+`exif_transpose` handles all eight orientation values, including the mirrored ones that front cameras can produce, and removes the tag afterwards. That second part matters: if you rotated the pixels but kept the tag, a viewer would apply it again, and the image would be wrong in every viewer instead.
+
+## Why order matters
+
+Pipelines often "clean" uploads first: re-encoding to strip metadata for privacy, or resizing. Do that before applying the orientation, and the tag is gone:
+
+```python title="orient.py: re-encoding first"
+buf = BytesIO()
+naive.convert("RGB").save(buf, "JPEG")  # re-encoded without EXIF
+dark_corner(load_upright(buf.getvalue()))  # 'bottom-left': sideways forever, nothing left to fix it
+```
+
+The test asserts exactly this. So the order is: **apply orientation → then strip metadata, resize, re-encode**. The same applies to the upload validation in [checking magic bytes in Node.js](/blog/validate-file-uploads-magic-bytes-nodejs/): re-encode images, but only after orienting them.
+
+## What about photos with no tag?
+
+Screenshots, scans and images that have already been through a "strip EXIF" tool have no tag, and they can still be sideways if the user held the document rotated. EXIF can't help there. Detect it from the content instead: an OCR engine's orientation detection (Tesseract's OSD, for example), a text-line direction check, or, for ID documents, the position of the face or the MRZ. Rotate by the detected amount, and treat low confidence as a reason to ask for a new photo.
+
+## Where this sits in the pipeline
+
+1. Validate the upload's type and size.
+2. **Apply the EXIF orientation.**
+3. Find and flatten the document, and reject blur and glare: [preparing ID card photos for OCR](/blog/document-photo-preprocessing-ocr/).
+4. Hash it for duplicate detection: [perceptual hashing for reused ID photos](/blog/duplicate-id-photo-perceptual-hash/).
+5. OCR, MRZ parsing and face matching.
+
+Skipping step 2 shows up as mysteriously poor OCR on mobile uploads only, which is a confusing bug to chase from accuracy metrics alone.
+
+## Summary
+
+- Phones store sensor-oriented pixels plus an EXIF `Orientation` tag; viewers apply it, models don't.
+- Call `ImageOps.exif_transpose()` first. It rotates the pixels and removes the tag.
+- Stripping metadata or re-encoding before that loses the orientation permanently.
+- For images without a tag, detect rotation from the content.
+
+Related: [why OCR struggles with non-Latin scripts](/blog/ocr-non-latin-scripts-arabic-urdu/) and [face match thresholds](/blog/face-match-threshold-far-frr/).

@@ -88,3 +88,5 @@ Keep retries **inside the worker**, so a retried item keeps its lane and the lim
 - N lanes pulling from a shared index is all a pool is; `next++` is safe in single-threaded JavaScript.
 - Write results by index to keep order, and turn errors into values so one failure doesn't sink the batch.
 - Pick the limit by measuring, and pair it with a rate limiter for LLM APIs.
+
+The same pattern in Python, including where the timeout must go: [asyncio semaphores and per-task timeouts](/blog/asyncio-semaphore-timeout-concurrency/).

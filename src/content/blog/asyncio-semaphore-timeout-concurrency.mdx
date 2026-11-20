@@ -1,0 +1,75 @@
+---
+title: "Limiting concurrency in Python asyncio with a semaphore and per-task timeouts, in the right order"
+description: "asyncio.gather over 1,000 LLM or API calls starts them all at once. How to cap concurrency with asyncio.Semaphore, give each call its own timeout, keep failures from cancelling the batch, and why putting the timeout outside the semaphore makes tasks time out without ever running. Tested Python 3.11+."
+publishedAt: 2026-11-20
+tags: [Python, LLMs, AI Engineering, Performance]
+---
+
+`asyncio.gather(*(call(x) for x in items))` starts **every call at once**: with a thousand prompts, that's a thousand simultaneous requests to an LLM API, and an immediate wall of 429s. Cap it with **`asyncio.Semaphore(n)`**: each task waits for a slot before it starts. Give each call a **timeout with `asyncio.timeout()`**, and pass **`return_exceptions=True`** so one failure doesn't cancel the rest. The order matters: the timeout must go **inside** the semaphore. Put it outside, and the clock starts while the task is still queueing, so tasks **time out without ever running**; in my test, 8 of 10 did. Here's the correct version in a dozen lines, tested on Python 3.11 and later.
+
+## The function
+
+```python title="bounded.py"
+import asyncio
+
+async def map_limit(items, limit: int, worker, timeout: float | None = None):
+    """Run worker(item) for every item, at most `limit` at once, each with its own timeout.
+    Returns results in input order; failures come back as exceptions instead of cancelling the rest."""
+    sem = asyncio.Semaphore(limit)
+
+    async def run(item):
+        async with sem:  # wait for a free slot BEFORE starting the timer
+            async with asyncio.timeout(timeout):
+                return await worker(item)
+
+    return await asyncio.gather(*(run(i) for i in items), return_exceptions=True)
+```
+
+- **`asyncio.Semaphore(limit)`** lets `limit` tasks hold it at once; the rest wait in line.
+- **`asyncio.timeout()`** (Python 3.11+) cancels the work inside it when time runs out and raises `TimeoutError`. On older versions, `asyncio.wait_for(worker(item), timeout)` does the same job.
+- **`return_exceptions=True`** returns each failure in its place in the results list. Without it, the first exception propagates from `gather`, and you lose every result that did succeed.
+
+All the coroutines are still **created** up front; only their execution is limited. For hundreds of thousands of items, feed a fixed number of worker tasks from an `asyncio.Queue` instead, so you don't hold that many coroutine objects in memory.
+
+## Does it work?
+
+The test runs 20 fake LLM calls with a limit of 4 and a 0.2-second timeout. Call 7 takes 0.5 seconds, and call 13 raises `ValueError`:
+
+```python title="Results"
+results = await map_limit(range(20), 4, fake_llm, timeout=0.2)
+# peak concurrency: 4
+# [0, 1, 4, 9, 16, 25, 36, TimeoutError, 64, 81, 100, 121, 144, ValueError, 196, 225, 256, 289, 324, 361]
+```
+
+Concurrency never exceeds 4, results stay in input order, the slow call becomes a `TimeoutError` and the bad one a `ValueError`, and the other 18 succeed. The whole batch takes about 0.23 seconds.
+
+## The wrong order
+
+This version looks almost identical:
+
+```python title="Timeout outside the semaphore (wrong)"
+async def wrong(n):
+    async with asyncio.timeout(0.05):
+        async with sem:  # Semaphore(2)
+            await asyncio.sleep(0.03)  # the actual work: 30 ms
+            return n
+```
+
+Each task does 30 ms of work and has a 50 ms timeout, which should be plenty. But with 10 tasks and 2 slots, most tasks spend longer than 50 ms **waiting for a slot**, and the timeout counts that wait. In the test, **8 of 10 timed out**, and 6 of those 8 never started their work at all. The same work through `map_limit` with the same limit and timeout completes all 10.
+
+This matters most when the timeout is your signal that a provider is slow. With the timeout outside, a long queue on your side looks like a slow provider, which can trigger retries and fallbacks that make the queue longer.
+
+## Choosing the numbers
+
+- **The limit** bounds concurrent requests, not their rate. LLM APIs limit requests and tokens per minute, so pair the semaphore with a rate limiter; the token-bucket design in [rate limiting LLM API calls](/blog/llm-rate-limiter-token-bucket-nodejs/) translates directly to Python.
+- **The timeout** should cover your slowest normal call. For streaming LLM responses, a time-to-first-token timeout is more useful than a total one.
+- **Retries** go inside `worker`, so a retried call keeps its slot. Use [backoff with jitter](/blog/llm-api-retries-backoff-fallbacks/), and don't retry timeouts on requests that change state unless they're idempotent.
+
+The same pattern in JavaScript is [a 15-line promise pool](/blog/limit-concurrent-promises-nodejs/).
+
+## Summary
+
+- `gather` alone starts everything at once; a `Semaphore` caps how many run.
+- Put `asyncio.timeout()` **inside** `async with sem`, so queueing time doesn't count.
+- Use `return_exceptions=True` to keep every result and see every failure.
+- Pair the concurrency limit with a rate limiter for APIs with per-minute limits.
