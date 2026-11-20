@@ -40,7 +40,7 @@ for (const [i, post] of todo.entries()) {
     console.log(`  would publish: ${post.title}`);
     continue;
   }
-  if (i > 0) await new Promise((r) => setTimeout(r, 20_000)); // Blogger rejects quick bursts with 429
+  if (i > 0) await new Promise((r) => setTimeout(r, 60_000)); // Blogger rejects quick bursts with 429
   const res = await fetch(api, {
     method: "POST",
     headers,

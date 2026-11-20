@@ -100,7 +100,7 @@ jobs:
           node scripts/promote/telegraph.mjs --publish --limit 5
 
       - name: Publish summaries on Blogger
-        if: ${{ !cancelled() && vars.BLOGGER_PAUSED != 'true' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && vars.BLOGGER_PAUSED != 'true' }}
         env:
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
@@ -108,7 +108,7 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
         run: |
           if [ -z "$BLOGGER_REFRESH_TOKEN" ]; then echo "Blogger secrets not set; skipping Blogger."; exit 0; fi
-          node scripts/promote/blogger.mjs --publish --limit 10
+          node scripts/promote/blogger.mjs --publish --limit 3
 
       - name: Report Search Console index status
         if: ${{ !cancelled() && github.event_name != 'push' }}
