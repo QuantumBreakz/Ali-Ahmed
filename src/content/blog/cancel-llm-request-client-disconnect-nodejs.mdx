@@ -7,6 +7,10 @@ tags: [LLMs, Node.js, Streaming, Cost]
 
 When a user closes the tab or presses "stop" while an LLM answer is streaming, the browser drops the connection to **your** server, but your server's request to the **LLM provider** keeps going. The model generates the rest of the answer, and you **pay for every token nobody reads**. Fix it by passing an **`AbortController`'s signal to `fetch`** and **aborting when the client's response closes early**. Combine it with a timeout using **`AbortSignal.any()`**. In my test, a fake LLM streaming 100 tokens stopped after **5** when the client disconnected; without the abort, it generated **all 100**, for 5 seconds, into a closed socket.
 
+![Token bars: without an abort, the user leaves after 5 tokens and 95 more are generated and billed; with res.on('close') calling controller.abort(), generation stops after 5 of 100 tokens.](/figures/cancel-on-disconnect.webp)
+
+_The result of the test below: 5 tokens instead of 100._
+
 ## The proxy
 
 ```js title="abort.mjs"

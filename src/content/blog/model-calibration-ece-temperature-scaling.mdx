@@ -7,6 +7,10 @@ tags: [Machine Learning, Python, KYC, Evaluation]
 
 A model is **calibrated** when its probabilities mean what they say: of all the cases it scores 0.9, about 90% really are positive. Many models **rank** cases well but are **overconfident**: in my test, cases scored 0.95 were positive only 81% of the time. That matters whenever a probability drives a decision, such as an auto-approve threshold in KYC, a fraud score shown to a reviewer, or an expected-loss calculation. Measure it with a **reliability table** and **expected calibration error (ECE)**, the size-weighted average gap between predicted and observed rates. Fix overconfidence with **temperature scaling**: divide the model's logits by one number **T**, fitted on held-out data. In the test, ECE dropped from **0.126 to 0.011**, and the **ranking didn't change at all**, which is why accuracy and AUC never showed the problem.
 
+![Two reliability diagrams. Before calibration, predictions near 0.95 were right 81% of the time and ECE is 0.126. After temperature scaling with T = 2.44, the points sit on the diagonal and ECE is 0.011.](/figures/calibration.webp)
+
+_The same model before and after temperature scaling. The ranking doesn't change, only what the scores mean._
+
 ## Measuring calibration
 
 ```python title="calibration.py: ECE"

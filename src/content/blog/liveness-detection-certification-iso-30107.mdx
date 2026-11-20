@@ -7,6 +7,10 @@ tags: [KYC, Security, Computer Vision, Evaluation]
 
 **Liveness detection certification** usually means an independent lab has tested a product's **presentation attack detection (PAD)**, its ability to tell a real face from a photo, screen replay or mask, using the method in **ISO/IEC 30107-3**. The standard defines two error rates: **APCER**, the share of **attacks accepted** as live, computed **separately for each attack type** with the **worst type reported**; and **BPCER**, the share of **genuine people rejected**. Labs such as iBeta run conformance tests at levels that differ in the attackers' time, skill and materials. A useful certificate states the level, the attack types tested, and APCER and BPCER **at the same threshold**. Below is how the metrics are computed, and why pooling all attacks together hides a weak spot.
 
+![Bar chart of attack acceptance per attack type: printed photo 0%, screen replay 2%, paper mask 0%. Pooling all attacks gives 0.67%, which hides the screen replay weakness. The headline APCER is 2%, with BPCER 5% at the same threshold.](/figures/liveness-apcer.webp)
+
+_APCER per attack type from the tested example, with the pooled figure that hides the weak spot._
+
 ## What is tested
 
 A lab collects **bona fide** presentations (real people) and **attack** presentations, grouped into **species**: printed photos, photos shown on screens, video replays, paper or 3D masks. Higher test levels allow more effort and better materials. Each attempt is recorded as accepted as live or rejected.

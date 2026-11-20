@@ -7,6 +7,10 @@ tags: [Monitoring, SRE, Performance, Python]
 
 **p50** (the median) is the latency that **half of requests beat**: the typical experience. **p90** is beaten by 90% of requests, and **p99** by 99%: they describe the **slow tail**. The **mean** is the wrong summary for latency, because a few very slow requests pull it far from anything a user experiences. In my test data, p50 was **121 ms**, p90 **193 ms**, and p99 **2,485 ms**, while the mean was **179 ms**, a latency almost no request actually had. The tail matters more than its size suggests: when one user action waits for **20 backend calls**, **18% of actions hit at least one call slower than p99**, and the **median page** ended up slower than the per-call p90.
 
+![Latency distribution with p50 at 121 ms, mean 179 ms, p90 193 ms and p99 2,485 ms, beside the share of user actions that hit a call slower than p99: 1% with 1 call, 4.9% with 5, 18.2% with 20 and 63.4% with 100.](/figures/latency-percentiles.webp)
+
+_The test data below: a fast majority and a 2% slow tail._
+
 ## The example
 
 ```python title="percentiles.py"

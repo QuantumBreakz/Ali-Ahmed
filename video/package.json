@@ -4,7 +4,8 @@
   "description": "Explainer videos for aliahmed.si posts, made with Remotion. Rendered files are committed to ../public/videos.",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "node render.mjs"
+    "render": "node render.mjs",
+    "figures": "node render-figures.mjs"
   },
   "dependencies": {
     "@remotion/cli": "4.0.538",

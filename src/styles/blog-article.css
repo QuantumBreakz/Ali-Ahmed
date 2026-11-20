@@ -749,3 +749,22 @@ html:has(.blog-image-dialog[open]) {
   border-top: 1px solid var(--line);
   color: var(--muted);
 }
+
+/* Figures written as Markdown images: ![alt](/figures/x.webp) followed by an italic caption line. */
+.blog-body p:has(> img:only-child) {
+  margin-block: 2.25rem 0.5rem;
+}
+.blog-body p > img:only-child {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.blog-body p:has(> img:only-child) + p > em:only-child {
+  display: block;
+  margin-bottom: 2rem;
+  color: var(--muted);
+  font: italic 0.8125rem/1.65 var(--sans);
+}

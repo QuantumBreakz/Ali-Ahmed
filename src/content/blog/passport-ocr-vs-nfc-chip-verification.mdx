@@ -7,6 +7,10 @@ tags: [KYC, Identity Verification, Security, Python]
 
 **OCR-based verification** reads a photo of the passport's data page: the printed fields and the machine-readable zone (MRZ). It proves the data is **internally consistent** (check digits match, fields agree), but anyone who can edit an image or print a convincing page can make consistent data. **NFC chip reading** gets the same data from the passport's chip, **digitally signed by the issuing country**. Checking that signature (**passive authentication**) proves the data is **exactly what the country issued**, and a further check (**active or chip authentication**) proves the chip is **not a copy**. In short: OCR checks that the document is well-formed, and the chip proves it's genuine. Most KYC flows use OCR for every document, and NFC where the document has a chip and the user has a phone that can read it.
 
+![Comparison table: OCR of the passport page catches typos and works on every document, but only partly detects an edited page or swapped photo and cannot prove the issuer signed the data or detect a cloned chip. An NFC chip read does all of those, but needs a chip and an NFC phone.](/figures/passport-ocr-vs-nfc.webp)
+
+_What each method proves. A tilde means only through image forensics, imperfectly._
+
 ## The differences side by side
 
 | Check                               | OCR of the data page                      | NFC chip reading                                         |

@@ -7,6 +7,10 @@ tags: [RAG, AI Engineering, Python, Databases]
 
 **"HNSW vs cosine similarity" compares two different kinds of thing.** **Cosine similarity** is a **metric**: it scores how close two vectors are (on normalised vectors, it's just their dot product). **HNSW** (hierarchical navigable small world) is an **index**: a data structure that finds the vectors with the highest similarity **without scoring every vector in the collection**. You use them together: an HNSW index **built for** the cosine metric. The real choice is **exact search vs approximate search**: exact search scores everything and is always right; an approximate index scans a fraction and occasionally **misses** a true top result. That miss rate is measured as **recall@k**. Below, tested NumPy code shows the trade-off: in my test, scanning **6% of the vectors gave 89% recall@10**, and scanning **25% gave 97%**.
 
+![Line chart of recall@10 against the share of vectors scored per query: 0.69 at 0.5%, 0.81 at 1.6%, 0.89 at 6.3%, 0.97 at 25% and 1.00 for exact search.](/figures/ann-recall.webp)
+
+_Recall against the work an approximate index does, from the test below._
+
 ## Exact search with cosine similarity
 
 ```python title="ann.py: exact"

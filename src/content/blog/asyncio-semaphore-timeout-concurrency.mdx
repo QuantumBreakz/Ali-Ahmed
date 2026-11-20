@@ -7,6 +7,10 @@ tags: [Python, LLMs, AI Engineering, Performance]
 
 `asyncio.gather(*(call(x) for x in items))` starts **every call at once**: with a thousand prompts, that's a thousand simultaneous requests to an LLM API, and an immediate wall of 429s. Cap it with **`asyncio.Semaphore(n)`**: each task waits for a slot before it starts. Give each call a **timeout with `asyncio.timeout()`**, and pass **`return_exceptions=True`** so one failure doesn't cancel the rest. The order matters: the timeout must go **inside** the semaphore. Put it outside, and the clock starts while the task is still queueing, so tasks **time out without ever running**; in my test, 8 of 10 did. Here's the correct version in a dozen lines, tested on Python 3.11 and later.
 
+![Timeline of three tasks with Semaphore(2), 30 ms of work and a 50 ms timeout. With the timeout outside the semaphore, task 2 times out mid-work and task 3 before it starts. With the timeout inside, every task finishes.](/figures/asyncio-timeout.webp)
+
+_Where the timeout starts decides whether queueing time counts against it._
+
 ## The function
 
 ```python title="bounded.py"

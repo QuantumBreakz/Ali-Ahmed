@@ -9,6 +9,10 @@ A client sends `POST /charges`, the network drops the response, and the client *
 
 This is the **sending** side of the problem; for receiving the same event twice from someone else, see [idempotent webhooks in Node.js](/blog/idempotent-webhooks-nodejs/).
 
+![Table of outcomes: the first request runs the charge (201); a retry with the same key replays the stored response (201); the same key with a different amount is rejected (422); two concurrent requests with one key get 201 and 409; a provider error releases the key (503).](/figures/idempotency-keys.webp)
+
+_Every case the tests below cover._
+
 ## The implementation
 
 ```js title="idempotency.mjs"

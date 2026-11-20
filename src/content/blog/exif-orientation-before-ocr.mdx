@@ -7,6 +7,10 @@ tags: [Computer Vision, OCR, Python, KYC]
 
 A phone held upright doesn't rotate the pixels it saves. It stores the image in the **camera sensor's orientation**, often landscape, and adds an **EXIF `Orientation` tag** (value 6, for example, means "rotate 90° clockwise to display"). Photo viewers and browsers apply the tag, so the user sees an upright document. **OCR and face detection read the raw pixels**, so they get the document **sideways**: text lines run vertically and recognition quality collapses. The fix is one line with Pillow, **`ImageOps.exif_transpose(img)`**, applied **before anything else** touches the image. It has to come first, because **re-encoding or stripping metadata before applying it loses the orientation permanently**. Tested Python below.
 
+![Three panels: the phone stores sideways pixels with EXIF Orientation 6; a photo viewer applies the tag and shows the card upright; OCR ignores the tag and reads the card sideways. The fix is ImageOps.exif_transpose(img) before anything else.](/figures/exif-orientation.webp)
+
+_Why mobile uploads look fine to people and sideways to OCR._
+
 ## What the pipeline actually receives
 
 I simulated a phone photo: an upright, portrait ID card with a dark header at the top-left, stored as landscape pixels plus `Orientation = 6`.

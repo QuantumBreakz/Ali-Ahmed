@@ -7,6 +7,10 @@ tags: [KYC, Privacy, Compliance, Python]
 
 **Not immediately, and not always.** When you verify your identity with a bank or app, the company typically keeps two different kinds of data for different lengths of time. **Records of who you are and how you were verified** usually have to be kept for years: anti-money-laundering rules based on the **FATF Recommendations** require customer due diligence records to be kept for **at least five years after the business relationship ends**, and many countries set their own period. **Raw images and video** (the selfie, the document photos, the liveness recording) are a different question: privacy laws such as the GDPR require personal data to be kept no longer than necessary, so a well-run system deletes them once they're no longer needed, unless a regulator requires them. Below is how a retention policy separates the two, as tested Python. The specific periods vary by country and regulator, so treat the numbers as examples, not legal advice.
 
+![Timeline: selfie, ID photos and video are deleted about 30 days after the decision; the identity record and decision log are kept while the person is a customer and for 5 years after the account closes; abandoned applications are deleted after about 30 days.](/figures/kyc-data-retention.webp)
+
+_An example retention policy. The real periods depend on the country and regulator._
+
 ## What a KYC provider stores
 
 | Data                                          | Why it's kept                             | Typical retention driver                                         |
