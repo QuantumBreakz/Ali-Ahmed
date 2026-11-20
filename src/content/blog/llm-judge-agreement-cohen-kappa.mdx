@@ -7,6 +7,10 @@ tags: [LLMs, Evaluation, AI Engineering, Python]
 
 Before you trust an **LLM-as-judge** to grade your system's answers, measure how often it agrees with **human graders** on the same answers. Raw agreement is misleading when one label dominates: if 90% of answers are good, a judge that **says "pass" to everything agrees 90% of the time** and is useless. **Cohen's kappa** corrects for the agreement you'd get by chance: 1 is perfect, **0 is no better than chance**, and that lazy judge scores exactly 0. Look at the **confusion matrix** too, because missing real failures and flagging good answers cost different things. For pairwise judges ("is A or B better?"), also check **position bias** by swapping the order. Tested Python below, standard library only.
 
+![A judge that passes all 100 answers has 0.90 raw agreement but a kappa of 0.00; a judge that gets 94 right has 0.94 agreement and kappa 0.69. Its confusion matrix: 86 correct passes, 4 good answers flagged, 2 real failures missed, 8 correct fails.](/figures/judge-kappa.webp)
+
+_Raw agreement against Cohen's kappa for the two judges in the article._
+
 ## Why raw agreement lies
 
 Take 100 answers that humans graded: 90 pass, 10 fail.

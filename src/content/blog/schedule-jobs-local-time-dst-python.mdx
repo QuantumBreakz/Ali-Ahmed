@@ -7,6 +7,10 @@ tags: [Python, Reliability, Distributed Systems, SRE]
 
 "Send the report at **9am New York time**" is not "every 24 hours from the first run". Daylight saving moves the UTC offset twice a year, so a job that adds 24 hours in UTC runs at **10am local time** from the day clocks spring forward. The correct method is to compute **each run from the local wall-clock time**: take the next date, combine it with 09:00 in the user's time zone using **`zoneinfo`**, then convert to UTC. Two edge cases need a decision. On the spring-forward day, **02:30 doesn't exist**; on the fall-back day, **01:30 happens twice**. Below is a tested function that handles both: a skipped time **moves forward by the length of the gap**, and a repeated time **runs once**. It also explains why it's easy to miss if your servers and users are in **Pakistan**, which has no daylight saving.
 
+![Chart of a daily 09:00 New York job around the start of daylight saving on Sunday 8 March 2026: adding 24 hours in UTC runs at 09:00 on Friday and Saturday, then 10:00 from Sunday; computing the next local 09:00 each time stays at 09:00.](/figures/dst-schedule.webp)
+
+_The table below, as a chart: the UTC-only schedule drifts an hour when the clocks change._
+
 ## The bug: adding 24 hours in UTC
 
 In 2026, US daylight saving starts on **Sunday 8 March**. A job first scheduled for 09:00 EST on Friday 6 March:

@@ -602,6 +602,272 @@ export function FigCancelOnDisconnect() {
   );
 }
 
+/* 11. SQLite FTS5 --------------------------------------------------------------------------------------- */
+export function FigFts5Stemming() {
+  const col = (x: number, head: string, sub: string, tone: string, rows: [string, string][]) => (
+    <g>
+      <text x={x} y={30} fill={tone} fontSize={30} fontFamily={mono}>
+        {head}
+      </text>
+      <text x={x} y={66} fill={color.muted} fontSize={21} fontFamily={sans}>
+        {sub}
+      </text>
+      {rows.map(([title, score], i) => (
+        <g key={title + i}>
+          <rect
+            x={x}
+            y={100 + i * 76}
+            width={560}
+            height={60}
+            rx={10}
+            fill={title.startsWith("(") ? "transparent" : color.surface}
+            stroke={color.line}
+            strokeDasharray={title.startsWith("(") ? "6 8" : undefined}
+          />
+          <text x={x + 22} y={139 + i * 76} fill={title.startsWith("(") ? color.faint : color.ink} fontSize={25} fontFamily={sans}>
+            {title}
+          </text>
+          <text x={x + 538} y={139 + i * 76} fill={tone} fontSize={23} fontFamily={mono} textAnchor="end">
+            {score}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+  return (
+    <Frame kicker='SQLite FTS5 · query "refund"' title="Without stemming, refund doesn't find Refunds">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {col(0, "unicode61", "default tokenizer, 4 documents", color.warm, [
+          ["Refund policy (title only)", "-0.0"],
+          ["(missed: “…can’t process refunds”)", ""],
+        ])}
+        {col(720, "porter unicode61", "with stemming, 10 documents", color.accent, [
+          ["Refund policy", "-2.156"],
+          ["Café opening hours", "-1.041"],
+        ])}
+        <text x={0} y={330} fill={color.ink} fontSize={26} fontFamily={sans}>
+          Two fixes the tests showed:
+        </text>
+        <text x={0} y={380} fill={color.muted} fontSize={24} fontFamily={sans}>
+          1. Add the porter tokenizer, so refund, refunds and refunded match.
+        </text>
+        <text x={0} y={424} fill={color.muted} fontSize={24} fontFamily={sans}>
+          2. Judge ranking on a realistic index: in 4 documents, common words score 0 and the order is arbitrary.
+        </text>
+        <text x={0} y={490} fill={color.faint} fontSize={21} fontFamily={sans}>
+          bm25() scores: lower is better
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 12. Upload magic bytes --------------------------------------------------------------------------------- */
+export function FigMagicBytes() {
+  const rows: [string, string, string, string, boolean][] = [
+    ["passport.jpg", "image/jpeg", "FF D8 FF E0", "JPEG: accepted", true],
+    ["selfie.png", "image/png", "89 50 4E 47 0D 0A 1A 0A", "PNG: accepted", true],
+    ["statement.pdf", "application/pdf", "25 50 44 46 2D", "%PDF-: accepted", true],
+    ["passport.jpg", "image/jpeg", "3C 68 74 6D 6C 3E", "<html>: rejected", false],
+    ["photo.png", "image/jpeg", "89 50 4E 47 0D 0A 1A 0A", "PNG declared as JPEG: rejected", false],
+  ];
+  return (
+    <Frame kicker="Validating uploads" title="Trust the first bytes, not the name or Content-Type">
+      <div style={{ display: "grid", gridTemplateColumns: "240px 290px 400px 1fr", fontFamily: sans }}>
+        {["File name", "Content-Type sent", "First bytes", "Verdict"].map((h) => (
+          <div key={h} style={{ fontSize: 21, color: color.muted, paddingBottom: 14, fontFamily: mono, letterSpacing: 1 }}>
+            {h}
+          </div>
+        ))}
+        {rows.map(([name, type, bytes, verdict, ok], i) => (
+          <div key={i} style={{ display: "contents" }}>
+            <div style={{ fontSize: 26, color: color.ink, padding: "20px 0", borderTop: `1px solid ${color.line}` }}>{name}</div>
+            <div style={{ fontSize: 22, color: color.muted, fontFamily: mono, padding: "23px 0", borderTop: `1px solid ${color.line}` }}>{type}</div>
+            <div
+              style={{
+                fontSize: 22,
+                color: ok ? color.accent : color.warm,
+                fontFamily: mono,
+                padding: "23px 0",
+                borderTop: `1px solid ${color.line}`,
+              }}
+            >
+              {bytes}
+            </div>
+            <div style={{ fontSize: 25, color: ok ? color.ink : color.warm, padding: "20px 0", borderTop: `1px solid ${color.line}` }}>{verdict}</div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
+/* 13. DST scheduling --------------------------------------------------------------------------------------- */
+export function FigDstSchedule() {
+  const days = ["Fri 6 Mar", "Sat 7 Mar", "Sun 8 Mar", "Mon 9 Mar"];
+  const naive = [9, 9, 10, 10];
+  const X = (i: number) => 330 + i * 260;
+  const Y = (h: number) => 120 + (h - 8.5) * 150;
+  return (
+    <Frame kicker="Daily job at 09:00 New York time · DST starts Sun 8 Mar 2026" title="Adding 24 hours in UTC drifts an hour with daylight saving">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {[9, 10].map((h) => (
+          <g key={h}>
+            <line x1={300} x2={1180} y1={Y(h)} y2={Y(h)} stroke={color.line} />
+            <text
+              x={280}
+              y={Y(h) + 8}
+              fill={color.muted}
+              fontSize={24}
+              fontFamily={mono}
+              textAnchor="end"
+            >{`${String(h).padStart(2, "0")}:00 local`}</text>
+          </g>
+        ))}
+        <line x1={X(1.5)} x2={X(1.5)} y1={40} y2={360} stroke={color.faint} strokeDasharray="6 8" />
+        <text x={X(1.5) + 10} y={52} fill={color.faint} fontSize={20} fontFamily={sans}>
+          clocks spring forward
+        </text>
+        {days.map((d, i) => (
+          <g key={d}>
+            <text x={X(i)} y={400} fill={color.ink} fontSize={23} fontFamily={sans} textAnchor="middle">
+              {d}
+            </text>
+            <circle cx={X(i)} cy={Y(naive[i])} r={14} fill={color.warm} />
+            <circle cx={X(i)} cy={Y(9)} r={9} fill={color.accent} />
+          </g>
+        ))}
+        <polyline points={days.map((_, i) => `${X(i)},${Y(naive[i])}`).join(" ")} fill="none" stroke={color.warm} strokeWidth={3} />
+        <polyline points={days.map((_, i) => `${X(i)},${Y(9)}`).join(" ")} fill="none" stroke={color.accent} strokeWidth={3} />
+        <circle cx={1230} cy={90} r={12} fill={color.warm} />
+        <text x={1252} y={98} fill={color.ink} fontSize={22} fontFamily={sans}>
+          first run + 24 h
+        </text>
+        <circle cx={1230} cy={140} r={9} fill={color.accent} />
+        <text x={1252} y={148} fill={color.ink} fontSize={22} fontFamily={sans}>
+          next local 09:00
+        </text>
+        <text x={0} y={470} fill={color.muted} fontSize={22} fontFamily={sans}>
+          Edge cases: 02:30 doesn't exist on 8 Mar, so it runs at 03:30. 01:30 happens twice on 1 Nov; it runs once.
+        </text>
+        <text x={0} y={510} fill={color.faint} fontSize={20} fontFamily={sans}>
+          Asia/Karachi has no DST, so a team in Lahore rarely sees this until it has customers abroad.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 14. PII redaction ------------------------------------------------------------------------------------- */
+export function FigPiiRedaction() {
+  const rows: [string, string, "hit" | "kept"][] = [
+    ["Customer ali@example.com uploaded CNIC 35202-1234567-1", "Customer [EMAIL] uploaded CNIC [CNIC]", "hit"],
+    ["Card 4111 1111 1111 1111 declined", "Card [CARD] declined", "hit"],
+    ["Payout to GB82 WEST 1234 5698 7654 32 failed", "Payout to [IBAN] failed", "hit"],
+    ["Call +92 300 1234567 after 5pm", "Call [PHONE] after 5pm", "hit"],
+    ["Order 1234567812345678 shipped", "kept: fails Luhn, so not a card", "kept"],
+    ["Request 7f9c2a10-55e1-4c3b-9d1a… ok", "kept: request IDs stay usable", "kept"],
+  ];
+  const mark = (text: string) =>
+    text.split(/(\[[A-Z]+\])/).map((part, i) =>
+      /^\[[A-Z]+\]$/.test(part) ? (
+        <span key={i} style={{ color: color.accent, background: color.accentDim, borderRadius: 6, padding: "1px 6px" }}>
+          {part}
+        </span>
+      ) : (
+        <span key={i}>{part}</span>
+      )
+    );
+  return (
+    <Frame kicker="Before logs and LLM prompts" title="Typed placeholders keep the text readable">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 1fr", fontFamily: mono, alignItems: "center" }}>
+        {rows.map(([input, output, kind], i) => (
+          <div key={i} style={{ display: "contents" }}>
+            <div style={{ fontSize: 21, color: color.muted, padding: "17px 0", borderTop: `1px solid ${color.line}` }}>{input}</div>
+            <div style={{ fontSize: 24, color: color.faint, borderTop: `1px solid ${color.line}`, padding: "15px 0", textAlign: "center" }}>→</div>
+            <div
+              style={{
+                fontSize: kind === "kept" ? 20 : 21,
+                color: kind === "kept" ? color.faint : color.ink,
+                fontFamily: kind === "kept" ? sans : mono,
+                padding: "17px 0",
+                borderTop: `1px solid ${color.line}`,
+              }}
+            >
+              {kind === "kept" ? output : mark(output)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
+/* 15. LLM judge agreement ---------------------------------------------------------------------------------- */
+export function FigJudgeKappa() {
+  const bar = (y: number, label: string, raw: number, kappa: number) => (
+    <g>
+      <text x={0} y={y - 16} fill={color.ink} fontSize={25} fontFamily={sans}>
+        {label}
+      </text>
+      <rect x={0} y={y} width={raw * 500} height={30} rx={4} fill={color.faint} />
+      <text x={raw * 500 + 12} y={y + 24} fill={color.muted} fontSize={22} fontFamily={mono}>{`agreement ${raw.toFixed(2)}`}</text>
+      <rect x={0} y={y + 40} width={Math.max(kappa * 500, 4)} height={30} rx={4} fill={kappa ? color.accent : color.warm} />
+      <text
+        x={Math.max(kappa * 500, 4) + 12}
+        y={y + 64}
+        fill={kappa ? color.accent : color.warm}
+        fontSize={22}
+        fontFamily={mono}
+      >{`kappa ${kappa.toFixed(2)}`}</text>
+    </g>
+  );
+  const cell = (x: number, y: number, n: number, good: boolean) => (
+    <g>
+      <rect x={x} y={y} width={150} height={110} rx={10} fill={good ? color.accentDim : color.warmDim} />
+      <text x={x + 75} y={y + 70} fill={good ? color.accent : color.warm} fontSize={44} fontFamily={mono} textAnchor="middle">
+        {n}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="LLM-as-judge vs human grades · 100 answers, 90 pass" title="90% agreement can mean the judge is useless">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {bar(60, "Judge that passes everything", 0.9, 0)}
+        {bar(230, "Judge with 94 of 100 right", 0.94, 0.69)}
+        <text x={0} y={410} fill={color.muted} fontSize={22} fontFamily={sans}>
+          Cohen's kappa removes the agreement you'd get by chance.
+        </text>
+        <text x={0} y={446} fill={color.muted} fontSize={22} fontFamily={sans}>
+          0 = chance level, 1 = perfect.
+        </text>
+        <text x={1110} y={30} fill={color.ink} fontSize={24} fontFamily={sans} textAnchor="middle">
+          The 0.69 judge's mistakes
+        </text>
+        <text x={1110} y={70} fill={color.muted} fontSize={20} fontFamily={mono} textAnchor="middle">
+          judge: pass · fail
+        </text>
+        <text x={940} y={155} fill={color.muted} fontSize={20} fontFamily={mono} textAnchor="end">
+          human pass
+        </text>
+        <text x={940} y={275} fill={color.muted} fontSize={20} fontFamily={mono} textAnchor="end">
+          human fail
+        </text>
+        {cell(960, 90, 86, true)}
+        {cell(1120, 90, 4, false)}
+        {cell(960, 210, 2, false)}
+        {cell(1120, 210, 8, true)}
+        <text x={960} y={370} fill={color.warm} fontSize={21} fontFamily={sans}>
+          2 of 10 real failures missed
+        </text>
+        <text x={960} y={402} fill={color.muted} fontSize={21} fontFamily={sans}>
+          4 good answers flagged for review
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -613,4 +879,9 @@ export const figures = [
   { id: "fig-idempotency-keys", component: FigIdempotencyKeys },
   { id: "fig-calibration", component: FigCalibration },
   { id: "fig-cancel-on-disconnect", component: FigCancelOnDisconnect },
+  { id: "fig-fts5-stemming", component: FigFts5Stemming },
+  { id: "fig-upload-magic-bytes", component: FigMagicBytes },
+  { id: "fig-dst-schedule", component: FigDstSchedule },
+  { id: "fig-pii-redaction", component: FigPiiRedaction },
+  { id: "fig-judge-kappa", component: FigJudgeKappa },
 ] as const;

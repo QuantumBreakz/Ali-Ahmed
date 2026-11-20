@@ -7,6 +7,10 @@ tags: [Privacy, Security, Python, KYC]
 
 Personal data spreads through **logs and LLM prompts** without anyone deciding to put it there: an error message includes the request body, a support summary pastes the customer's email, a debugging line prints a document number. Redact it **before** it's written or sent: match each kind of identifier and replace it with a **typed placeholder** such as `[EMAIL]` or `[CNIC]`, so the text stays readable and you can still see what kind of data was there. Two lessons from testing my own redactor: a **broad pattern produces false positives** (my phone-number pattern redacted an **order number**), and **card numbers need a Luhn check** to tell them apart from other long numbers. Here's the tested version and its limits.
 
+![Before and after redaction: an email and CNIC become [EMAIL] and [CNIC]; a card number becomes [CARD]; an IBAN becomes [IBAN]; a phone number becomes [PHONE]; an order number that fails the Luhn check and a request ID are left unchanged.](/figures/pii-redaction.webp)
+
+_Typed placeholders show what was removed while keeping the line useful for debugging._
+
 ## The redactor
 
 ```python title="redact.py"

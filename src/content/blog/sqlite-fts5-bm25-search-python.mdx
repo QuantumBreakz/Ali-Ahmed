@@ -7,6 +7,10 @@ tags: [Python, RAG, Databases, AI Engineering]
 
 **SQLite FTS5** is a full-text index built into SQLite, and Python's standard `sqlite3` module can use it with no server and no dependency. Create a `fts5` virtual table, insert text, query with `MATCH`, and rank with the built-in **`bm25()`** function, where **lower scores are better**. Three things catch people out. The default tokenizer **doesn't stem**, so `refund` won't match `Refunds` until you add the **`porter`** tokenizer. In a **tiny index**, words that appear in half the documents get an **inverse document frequency of zero**, so every score is 0 and the ranking means nothing. And user input passed straight to `MATCH` is **query syntax**: `NEAR("x"` is an error, not a search. Below is a tested setup that handles all three, plus title weighting and highlighted snippets.
 
+![Search results for refund. With the default unicode61 tokenizer on four documents, only the page titled Refund policy matches, scoring -0.0, and the page that says refunds is missed. With porter stemming on ten documents, Refund policy scores -2.156 and Café opening hours -1.041.](/figures/fts5-stemming.webp)
+
+_What the tests showed before and after adding stemming. bm25() scores are lower-is-better._
+
 ## Setting up the index
 
 ```python title="fts.py: index"

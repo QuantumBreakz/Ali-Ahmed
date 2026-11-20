@@ -7,6 +7,10 @@ tags: [Security, Node.js, KYC, Web Development]
 
 The **file name** and the **`Content-Type` header** of an upload are both chosen by the client, so neither proves what the file is. A file called `passport.jpg`, sent as `image/jpeg`, can be **HTML or SVG with a script inside**. If it's later served from your domain, that's stored cross-site scripting. Check the **content**: real JPEGs start with the bytes `FF D8 FF`, PNGs with `89 50 4E 47 0D 0A 1A 0A`, PDFs with `%PDF-`. Accept only an **allow-list** of types, **reject a mismatch** between the declared and detected type, **stop reading at a size cap** instead of buffering whatever arrives, and **hash** the content to spot duplicates. Magic bytes only check the start of the file, so **re-encode images** and serve uploads with safe headers too. Tested Node.js below.
 
+![Table of uploads: passport.jpg starting FF D8 FF E0 is accepted as JPEG; selfie.png starting 89 50 4E 47 0D 0A 1A 0A is accepted as PNG; statement.pdf starting %PDF- is accepted; a passport.jpg whose first bytes are an HTML tag is rejected; a PNG sent as image/jpeg is rejected as a mismatch.](/figures/upload-magic-bytes.webp)
+
+_Each case from the tests below, decided by the first bytes of the file._
+
 ## Detecting the real type
 
 ```js title="upload.mjs: sniff"
