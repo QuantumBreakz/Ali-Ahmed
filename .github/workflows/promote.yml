@@ -119,3 +119,13 @@ jobs:
           if [ -z "$GSC_SERVICE_ACCOUNT_JSON" ]; then echo "GSC_SERVICE_ACCOUNT_JSON secret not set; skipping."; exit 0; fi
           [ -n "$GSC_SITE" ] || unset GSC_SITE
           node scripts/promote/gsc-inspect.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Report Search Console queries
+        if: ${{ !cancelled() && github.event_name != 'push' }}
+        env:
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          GSC_SITE: ${{ vars.GSC_SITE }}
+        run: |
+          if [ -z "$GSC_SERVICE_ACCOUNT_JSON" ]; then echo "GSC_SERVICE_ACCOUNT_JSON secret not set; skipping."; exit 0; fi
+          [ -n "$GSC_SITE" ] || unset GSC_SITE
+          node scripts/promote/gsc-queries.mjs | tee -a "$GITHUB_STEP_SUMMARY"
