@@ -32,10 +32,14 @@ const api = (path, init = {}) =>
   });
 
 const existing = new Set();
+const drafts = new Map(); // title or canonical URL -> unpublished article on this account
 if (key) {
   const res = await api("/articles/me/all?per_page=1000");
   if (!res.ok) throw new Error(`DEV rejected the key: ${res.status} ${await res.text()}`);
-  for (const a of await res.json()) existing.add(a.title).add(a.canonical_url);
+  for (const a of await res.json()) {
+    existing.add(a.title).add(a.canonical_url);
+    if (!a.published) drafts.set(a.title, a).set(a.canonical_url, a);
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -43,8 +47,26 @@ let created = 0;
 let failed = 0;
 for (const p of posts) {
   if (created + failed >= limit) break;
+  const draft = drafts.get(p.url) ?? drafts.get(p.title);
+  if (draft && mode === "publish") {
+    // An old draft holds this post's canonical URL, so creating a new article would fail: publish the draft instead.
+    if (created) await sleep(35_000);
+    const res = await api(`/articles/${draft.id}`, { method: "PUT", body: JSON.stringify({ article: { published: true } }) });
+    if (res.status === 429) {
+      console.log(`DEV rate limit reached; stopping here. The next run continues from: ${p.title}`);
+      break;
+    }
+    if (!res.ok) {
+      failed++;
+      console.error(`FAILED publishing draft ${p.title}: ${res.status} ${await res.text()}`);
+      continue;
+    }
+    created++;
+    console.log(`published draft: ${p.title} → ${(await res.json()).url}`);
+    continue;
+  }
   if (existing.has(p.title) || existing.has(p.url) || taken.has(p.slug)) {
-    console.log(`skip (already on DEV): ${p.title}`);
+    console.log(`skip (already on DEV${draft ? ", as a draft" : ""}): ${p.title}`);
     continue;
   }
   const markdown = await fetch(`${p.url.slice(0, -1)}.md`);
