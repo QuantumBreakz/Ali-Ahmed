@@ -130,3 +130,5 @@ Every provider shapes its events slightly differently, so `streamText` is the pa
 - Buffer until a full line arrives, decode with `TextDecoder` in streaming mode, and dispatch on the **blank line**.
 - A chunk can end between `\r` and `\n`: wait before treating `\r` as a line ending.
 - Keep the generic parser separate from the provider-specific code that reads deltas.
+
+When the reader goes away mid-stream, cancel the upstream call: [aborting LLM requests on client disconnect](/blog/cancel-llm-request-client-disconnect-nodejs/).

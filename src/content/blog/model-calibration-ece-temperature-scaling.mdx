@@ -1,0 +1,83 @@
+---
+title: "When a model says 95%, is it right 95% of the time? Calibration, ECE and temperature scaling in Python"
+description: "A fraud or face-match model can rank cases well and still report confidence that's badly off. How to measure calibration with a reliability table and expected calibration error (ECE), and fix overconfidence with one-parameter temperature scaling. Tested NumPy code: ECE from 0.126 to 0.011."
+publishedAt: 2026-11-20
+tags: [Machine Learning, Python, KYC, Evaluation]
+---
+
+A model is **calibrated** when its probabilities mean what they say: of all the cases it scores 0.9, about 90% really are positive. Many models **rank** cases well but are **overconfident**: in my test, cases scored 0.95 were positive only 81% of the time. That matters whenever a probability drives a decision, such as an auto-approve threshold in KYC, a fraud score shown to a reviewer, or an expected-loss calculation. Measure it with a **reliability table** and **expected calibration error (ECE)**, the size-weighted average gap between predicted and observed rates. Fix overconfidence with **temperature scaling**: divide the model's logits by one number **T**, fitted on held-out data. In the test, ECE dropped from **0.126 to 0.011**, and the **ranking didn't change at all**, which is why accuracy and AUC never showed the problem.
+
+## Measuring calibration
+
+```python title="calibration.py: ECE"
+import numpy as np
+
+def ece(probs: np.ndarray, labels: np.ndarray, bins: int = 10) -> float:
+    """Expected calibration error: average gap between predicted probability and observed frequency, weighted by bin size."""
+    edges = np.linspace(0, 1, bins + 1)
+    idx = np.clip(np.digitize(probs, edges[1:-1]), 0, bins - 1)
+    total = 0.0
+    for b in range(bins):
+        mask = idx == b
+        if mask.any():
+            total += mask.mean() * abs(probs[mask].mean() - labels[mask].mean())
+    return float(total)
+```
+
+Group the predictions into bins by score, then compare each bin's **average prediction** with its **actual positive rate**. ECE weights each gap by how many cases fall in the bin.
+
+I simulated an overconfident model: 20,000 cases with known true probabilities, and a model whose logits are 2.5 times too large. That's the right ranking with exaggerated confidence, a common pattern in models trained long on small datasets.
+
+| Score bin | Cases | Mean prediction | Actual positive rate |
+| --------- | ----- | --------------- | -------------------- |
+| 0.0–0.2   | 3,560 | 0.05            | 0.20                 |
+| 0.2–0.4   | 1,054 | 0.30            | 0.41                 |
+| 0.4–0.6   | 845   | 0.50            | 0.51                 |
+| 0.6–0.8   | 1,022 | 0.71            | 0.61                 |
+| 0.8–1.0   | 3,519 | **0.95**        | **0.81**             |
+
+ECE is **0.126**. The model pushes scores towards 0 and 1. A reviewer told "95% likely fraud" is wrong about one time in five, not one in twenty.
+
+## Fixing it: temperature scaling
+
+```python title="calibration.py: temperature"
+def sigmoid(z):
+    return 1 / (1 + np.exp(-z))
+
+def fit_temperature(logits: np.ndarray, labels: np.ndarray) -> float:
+    """One parameter T: p = sigmoid(logit / T). Pick the T with the lowest log loss on held-out data."""
+    def nll(t):
+        p = np.clip(sigmoid(logits / t), 1e-12, 1 - 1e-12)
+        return -np.mean(labels * np.log(p) + (1 - labels) * np.log(1 - p))
+    grid = np.linspace(0.25, 5, 400)
+    return float(grid[np.argmin([nll(t) for t in grid])])
+```
+
+Fitted on one half of the data and tested on the other, it found **T = 2.44**, close to the 2.5 used to create the overconfidence. After dividing by T:
+
+| Score bin | Mean prediction | Actual positive rate |
+| --------- | --------------- | -------------------- |
+| 0.0–0.2   | 0.11            | 0.13                 |
+| 0.2–0.4   | 0.30            | 0.30                 |
+| 0.4–0.6   | 0.50            | 0.51                 |
+| 0.6–0.8   | 0.70            | 0.71                 |
+| 0.8–1.0   | 0.89            | 0.88                 |
+
+ECE is **0.011**. Because dividing by a positive T never changes the order of scores, the test also asserts that the sorted order is **identical** before and after. Accuracy at a fixed rank, ROC curves and AUC are unchanged; only the meaning of the numbers is fixed.
+
+## What to watch out for
+
+- **Fit T on held-out data**, never on the training set, which the model is already overconfident about.
+- **Recalibrate after drift.** A new phone camera, a new document type or a new fraud pattern changes how scores map to outcomes. Re-measure ECE on recent labelled cases regularly.
+- **One parameter fixes one shape.** Temperature scaling corrects uniform over- or under-confidence. If the miscalibration differs across the range, use **isotonic regression** instead, with enough data to support it.
+- **Thresholds move.** If an auto-approve rule says "score above 0.95", it selects different cases after calibration. Re-derive thresholds from the error rates you want, as in [face match thresholds and the FAR/FRR trade-off](/blog/face-match-threshold-far-frr/).
+- **Check per segment.** A model can be calibrated overall and badly off for one country's documents or one camera type, the same way OCR quality differs by script in [OCR for Arabic and Urdu](/blog/ocr-non-latin-scripts-arabic-urdu/).
+
+## Summary
+
+- Calibration means a 0.9 score is right about 90% of the time; good ranking doesn't imply it.
+- Measure with a reliability table and **ECE** on held-out data.
+- **Temperature scaling** (logit ÷ T) fixes uniform overconfidence without changing the ranking: ECE 0.126 → 0.011 here.
+- Recalibrate after drift, re-derive thresholds, and check segments separately.
+
+Related: [how liveness detection is measured](/blog/face-liveness-detection-explained/) and [is your LLM judge any good?](/blog/llm-judge-agreement-cohen-kappa/)

@@ -1,0 +1,75 @@
+---
+title: "Is your LLM judge any good? Measuring agreement with humans using Cohen's kappa"
+description: "An LLM judge that says 'pass' to everything agrees with humans 90% of the time when 90% of answers pass. Why raw agreement misleads, how Cohen's kappa corrects for chance, how to read the confusion matrix, and a quick test for position bias in pairwise judging. Tested Python."
+publishedAt: 2026-11-20
+tags: [LLMs, Evaluation, AI Engineering, Python]
+---
+
+Before you trust an **LLM-as-judge** to grade your system's answers, measure how often it agrees with **human graders** on the same answers. Raw agreement is misleading when one label dominates: if 90% of answers are good, a judge that **says "pass" to everything agrees 90% of the time** and is useless. **Cohen's kappa** corrects for the agreement you'd get by chance: 1 is perfect, **0 is no better than chance**, and that lazy judge scores exactly 0. Look at the **confusion matrix** too, because missing real failures and flagging good answers cost different things. For pairwise judges ("is A or B better?"), also check **position bias** by swapping the order. Tested Python below, standard library only.
+
+## Why raw agreement lies
+
+Take 100 answers that humans graded: 90 pass, 10 fail.
+
+```python title="kappa.py"
+from collections import Counter
+
+def cohen_kappa(a: list[str], b: list[str]) -> float:
+    """Agreement between two raters beyond what chance alone would produce. 1 = perfect, 0 = chance level."""
+    assert len(a) == len(b) and a
+    n = len(a)
+    observed = sum(x == y for x, y in zip(a, b)) / n
+    ca, cb = Counter(a), Counter(b)
+    expected = sum(ca[k] * cb[k] for k in ca.keys() | cb.keys()) / n**2
+    return 1.0 if expected == 1 else (observed - expected) / (1 - expected)
+```
+
+`expected` is the agreement two raters would reach by labelling at random with their own label frequencies. Kappa measures how far the real agreement gets from that baseline towards perfect.
+
+| Judge                                | Raw agreement | Cohen's kappa |
+| ------------------------------------ | ------------- | ------------- |
+| Says "pass" to all 100               | 0.90          | **0.00**      |
+| Gets 94 of 100 right (details below) | 0.94          | **0.69**      |
+
+Going from 0.90 to 0.94 raw agreement looks like a small step; kappa shows it's the difference between useless and useful. As rough guidance, kappa above about 0.6 is substantial agreement, and above 0.8 is near the level two careful humans reach. Measure your humans against each other too: if they only reach 0.7, don't expect the judge to beat that.
+
+## Read the confusion matrix
+
+The 0.69 judge's mistakes:
+
+| Human ↓ / Judge → | pass | fail |
+| ----------------- | ---- | ---- |
+| **pass**          | 86   | 4    |
+| **fail**          | 2    | 8    |
+
+It flags 4 good answers (annoying: someone reviews them) and **misses 2 of 10 real failures** (dangerous: they ship). If the judge gates releases or production responses, the missed failures matter more, and you'd tune its prompt or threshold to catch them at the cost of more false flags. It's the same trade-off as false accepts and false rejects in [face match thresholds](/blog/face-match-threshold-far-frr/).
+
+## Checking position bias
+
+Pairwise judges often prefer whichever answer comes **first** (or second), regardless of content. Ask about the same pairs twice with the order swapped, map the second set of answers back, and count how often the verdict survives:
+
+```python title="Position bias check"
+first = ["A", "A", "B", "A", "A", "B", "A", "A", "A", "B"]
+swapped = ["A", "A", "A", "A", "B", "A", "A", "A", "A", "A"]  # 'A' = whichever came first after swapping
+flipped_back = ["B" if x == "A" else "A" for x in swapped]
+consistent = sum(x == y for x, y in zip(first, flipped_back)) / len(first)
+# 0.4: the verdict survives the swap only 4 times in 10
+```
+
+A judge with no position bias would keep its verdict every time. This one mostly picks "the first answer", whatever it is. The usual fixes are to run both orders and only count verdicts that agree, or to grade answers individually against a rubric instead of comparing them.
+
+## How many labels do you need?
+
+Kappa from 20 examples swings wildly; one changed label moves it noticeably. Label at least 100 examples, and include enough of the **rare class** (failures) to say anything about it: 10 failures, as here, is the bare minimum. Choose examples from real traffic, not ones you wrote to be easy.
+
+Re-measure whenever you change the judge's prompt or model, the same way you'd re-run any evaluation. The rest of an evaluation setup is in [how to evaluate AI agents](/blog/evaluating-ai-agents/) and [evaluating RAG retrieval](/blog/rag-retrieval-evaluation-metrics/).
+
+## Summary
+
+- Raw agreement is inflated by the majority class; a "pass everything" judge can score 90%.
+- **Cohen's kappa** subtracts chance agreement: 0 is chance, 1 is perfect. Aim for above 0.6, and compare with human-to-human kappa.
+- Read the confusion matrix: missed failures and false flags cost different things.
+- Swap the order to test pairwise judges for **position bias**.
+- Use 100+ labelled real examples, with enough failures among them.
+
+Related: [getting reliable JSON from LLMs](/blog/llm-structured-output-validation/), useful when the judge's verdict has to be parsed.

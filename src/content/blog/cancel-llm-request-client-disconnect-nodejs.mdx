@@ -1,0 +1,81 @@
+---
+title: "Stop paying for tokens nobody reads: cancel the LLM call when the client disconnects in Node.js"
+description: "When a user closes the tab mid-answer, a Node.js proxy keeps streaming the LLM response, and you pay for every token. How to abort the upstream request with AbortController when the client goes away, combine it with a timeout using AbortSignal.any, and the test that showed 5 tokens instead of 100."
+publishedAt: 2026-11-20
+tags: [LLMs, Node.js, Streaming, Cost]
+---
+
+When a user closes the tab or presses "stop" while an LLM answer is streaming, the browser drops the connection to **your** server, but your server's request to the **LLM provider** keeps going. The model generates the rest of the answer, and you **pay for every token nobody reads**. Fix it by passing an **`AbortController`'s signal to `fetch`** and **aborting when the client's response closes early**. Combine it with a timeout using **`AbortSignal.any()`**. In my test, a fake LLM streaming 100 tokens stopped after **5** when the client disconnected; without the abort, it generated **all 100**, for 5 seconds, into a closed socket.
+
+## The proxy
+
+```js title="abort.mjs"
+import { createServer } from "node:http";
+
+/** Proxy a streaming upstream call, and abort it as soon as the client goes away. */
+export function createProxy(upstreamUrl) {
+  return createServer(async (req, res) => {
+    const controller = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) controller.abort(new Error("client disconnected"));
+    });
+    try {
+      const upstream = await fetch(upstreamUrl, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]) });
+      res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "text/plain" });
+      for await (const chunk of upstream.body) res.write(chunk);
+      res.end();
+    } catch (error) {
+      if (controller.signal.aborted) return; // client left: nothing to send, upstream already cancelled
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    }
+  });
+}
+```
+
+Three details:
+
+- **`res.on("close")` with `writableFinished`.** The response emits `close` both when it finishes normally and when the connection drops. `writableFinished` is true only in the first case, so we abort only on a real disconnect.
+- **`AbortSignal.any([...])`** (Node.js 20.3+) combines the disconnect signal with a 60-second timeout: whichever fires first cancels the request.
+- **Aborting `fetch` closes the upstream connection.** For a streaming LLM API, that's the provider's signal to stop generating. Providers generally stop generation when the connection closes, but check your provider's billing documentation for exactly what's charged on a cancelled stream.
+
+## The test
+
+The fake upstream writes one token every 50 ms, up to 100, and records how many it sent before its connection closed. The client reads for about 200 ms and disconnects:
+
+```js title="abort.test.mjs"
+await new Promise((resolve) => {
+  const req = request({ port, path: "/" }, (res) => {
+    res.once("data", () =>
+      setTimeout(() => {
+        req.destroy();
+        resolve();
+      }, 200)
+    );
+  });
+  req.end();
+});
+await sleep(300);
+assert.equal(upstreamLog[0].closed, true);
+assert.ok(upstreamLog[0].sent < 15); // it sent 5
+```
+
+A second test checks that a client who stays connected still gets all 100 tokens, so the abort doesn't cut off normal responses. Then I removed the disconnect signal and ran the first test again: the upstream's connection never closed, and it generated all 100 tokens. Both pass on Node.js 24.
+
+## Why it matters for cost
+
+Long answers are where this adds up: a user who asks a question, sees the first sentence is off, and asks again has started two generations, and without cancellation both run to the end. On a chat product, abandoned generations can be a noticeable share of output tokens, which are usually the expensive ones. It's one of the cheaper wins in [cutting LLM API costs](/blog/reduce-llm-api-costs/).
+
+## Where else to pass the signal
+
+- **Retries.** Pass the same signal into your retry loop, so a retry doesn't start after the user has gone; see [retrying LLM API calls](/blog/llm-api-retries-backoff-fallbacks/).
+- **Tool calls in agents.** If the model's turn is cancelled, cancel the tool calls it started too, unless they change state, in which case let them finish and record the result.
+- **Next.js and other frameworks.** Route handlers expose the incoming request's signal (`request.signal`); pass it to `fetch` the same way. Getting the stream to the browser without buffering is covered in [streaming SSE through a Next.js proxy](/blog/nextjs-sse-proxy-streaming/), and reading it in [parsing a streamed LLM response](/blog/parse-sse-llm-stream-nodejs/).
+
+## Summary
+
+- A dropped browser connection doesn't stop your server's request to the LLM provider.
+- Abort an `AbortController` when the response closes before finishing, and pass its signal to `fetch`.
+- Combine it with a timeout using `AbortSignal.any()`.
+- In testing: 5 tokens generated instead of 100 after a disconnect.
+- Pass the same signal to retries and tool calls.

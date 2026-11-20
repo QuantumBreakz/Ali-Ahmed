@@ -1,0 +1,82 @@
+---
+title: "Redacting personal data from logs and LLM prompts in Python: emails, CNICs, cards, IBANs and phone numbers"
+description: "KYC and support systems leak personal data into logs and LLM prompts. A tested Python redactor with typed placeholders, a Luhn check so order numbers aren't mistaken for card numbers, and the phone-number pattern that redacted my test's order ID. Plus where redaction belongs and what regex can't catch."
+publishedAt: 2026-11-20
+tags: [Privacy, Security, Python, KYC]
+---
+
+Personal data spreads through **logs and LLM prompts** without anyone deciding to put it there: an error message includes the request body, a support summary pastes the customer's email, a debugging line prints a document number. Redact it **before** it's written or sent: match each kind of identifier and replace it with a **typed placeholder** such as `[EMAIL]` or `[CNIC]`, so the text stays readable and you can still see what kind of data was there. Two lessons from testing my own redactor: a **broad pattern produces false positives** (my phone-number pattern redacted an **order number**), and **card numbers need a Luhn check** to tell them apart from other long numbers. Here's the tested version and its limits.
+
+## The redactor
+
+```python title="redact.py"
+import re
+
+def luhn_ok(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0
+
+PATTERNS = [
+    ("EMAIL", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")),
+    ("CNIC", re.compile(r"\b\d{5}-\d{7}-\d\b")),
+    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,4})?\b")),
+    ("CARD", re.compile(r"\b(?:\d[ -]?){12,18}\d\b")),
+    ("PHONE", re.compile(r"\+\d{1,3}(?:[ -]?\d){7,12}\b|\b03\d{2}-?\d{7}\b")),  # +international, or Pakistani 03XX
+]
+
+def redact(text: str) -> str:
+    """Replace personal data with typed placeholders. Card-like numbers are only redacted if they pass Luhn."""
+    for label, pattern in PATTERNS:
+        def sub(m, label=label):
+            if label == "CARD" and not luhn_ok(re.sub(r"\D", "", m.group())):
+                return m.group()
+            return f"[{label}]"
+        text = pattern.sub(sub, text)
+    return text
+```
+
+**Order matters.** The specific patterns (email, CNIC, IBAN) run before the generic digit patterns. Otherwise a CNIC such as `35202-1234567-1` could be partly consumed by the card or phone pattern, leaving fragments behind.
+
+## What the tests check
+
+| Input                                                    | Output                                  |
+| -------------------------------------------------------- | --------------------------------------- |
+| `Customer ali@example.com uploaded CNIC 35202-1234567-1` | `Customer [EMAIL] uploaded CNIC [CNIC]` |
+| `Card 4111 1111 1111 1111 declined`                      | `Card [CARD] declined`                  |
+| `Order 1234567812345678 shipped`                         | unchanged: fails Luhn, not a card       |
+| `Payout to GB82 WEST 1234 5698 7654 32 failed`           | `Payout to [IBAN] failed`               |
+| `Call +92 300 1234567 after 5pm`                         | `Call [PHONE] after 5pm`                |
+| `or 0300-1234567`                                        | `or [PHONE]`                            |
+| `Latency p95 was 1234 ms on 2026-11-20`                  | unchanged                               |
+| `Request 7f9c2a10-55e1-4c3b-9d1a-0b6f3e2c8a77 ok`        | unchanged: request IDs stay usable      |
+
+My first phone pattern accepted any run of 10 to 16 digits with optional `+`, spaces and dashes. It redacted the **order number** as `[PHONE]`, which would have made the logs useless for exactly the debugging they exist for. The fix is to be specific: international numbers must start with `+`, and local numbers must match a known national format (here Pakistan's mobile `03XX-XXXXXXX`). Bare digit runs are left alone. That's a deliberate trade-off: a local number typed without a recognisable format gets through, and you add formats for the countries you serve. The Luhn rule works the same way for cards: one random number in ten passes Luhn, so it reduces false positives without eliminating them. The algorithm is explained in [Luhn and IBAN check digits](/blog/luhn-iban-check-digits/).
+
+## Where should redaction happen?
+
+- **In the logger**, not at every call site. A logging filter or formatter that runs `redact()` on every message catches the lines people forget about. Redact structured fields by **name** too (`email`, `cnic`, `document_number`), which is more reliable than matching values.
+- **Before LLM calls.** Summarising a support ticket doesn't need the customer's card number. Redacting before the prompt also keeps the data out of the provider's logs, and makes prompt-injection leaks less damaging; see [canary tokens for detecting prompt leaks](/blog/canary-tokens-system-prompt-leaks/).
+- **Not in the system of record.** The KYC case itself needs the real document number. Redaction is for copies, logs and prompts, not for the data the business actually has to process.
+
+## What regex can't catch
+
+- **Names and addresses.** "Ali Ahmed, House 12, Street 4" has no fixed shape. That needs a named-entity recognition model, or better, not logging free text at all.
+- **Digits in other scripts.** Python's `\d` matches Urdu and Arabic digits (`۳۵۲۰۲`), but the same patterns in many other regex engines and log tools match only ASCII digits. Convert digits to ASCII before redacting, as in [validating a Pakistani CNIC number](/blog/pakistan-cnic-number-validation/).
+- **Images and documents.** A photo of an ID card in a log bucket is personal data too.
+
+Treat the redactor as a safety net that **reduces** exposure, and keep the rule that personal data shouldn't be logged in the first place.
+
+## Summary
+
+- Redact logs and prompts with **typed placeholders**, so text stays readable.
+- Run specific patterns first; confirm card numbers with **Luhn**.
+- Make broad patterns (phone numbers) **specific**, or they eat IDs you need for debugging.
+- Redact in the logger and before LLM calls, not in the system of record.
+- Regex misses names, addresses and images: log less, as well as redacting.
+
+Related: [KYC vs AML vs KYB](/blog/kyc-vs-aml-vs-kyb/) and [request IDs in Node.js logs](/blog/request-id-logging-asynclocalstorage/).

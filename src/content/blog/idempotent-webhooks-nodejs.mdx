@@ -107,3 +107,5 @@ You can't close that gap in your database alone, because the email provider is a
 The same idea applies to message queues: every consumer in a [pub-sub KYC pipeline](/blog/mqtt-kyc-verification-pipeline/) needs it, because brokers redeliver too.
 
 On the sending side, the [transactional outbox pattern](/blog/transactional-outbox-nodejs-sqlite/) makes sure an event is never lost when your database commits.
+
+For APIs you expose, the client-driven equivalent is [idempotency keys for POST requests](/blog/idempotency-keys-post-api-nodejs/).

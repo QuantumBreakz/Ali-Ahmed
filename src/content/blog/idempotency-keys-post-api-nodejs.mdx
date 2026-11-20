@@ -1,0 +1,104 @@
+---
+title: "Idempotency keys for POST APIs in Node.js: retry a payment without charging twice"
+description: "A client retries a POST after a timeout, and the customer is charged twice. How Idempotency-Key headers work: store the first response and replay it, reject the same key with a different body, return 409 while the first request runs, and release the key on server errors. Tested Node.js with node:sqlite."
+publishedAt: 2026-11-20
+tags: [Node.js, Reliability, Fintech, Databases]
+---
+
+A client sends `POST /charges`, the network drops the response, and the client **retries**. Without protection, the server runs the charge **twice**. An **idempotency key** fixes it: the client generates a unique key per operation (usually a UUID) and sends it in an **`Idempotency-Key` header** on every attempt. The server **stores the result of the first attempt** under that key and **replays it** for retries. Three more rules make it safe. Reject the **same key with a different request body** (a client bug, not a retry). Return **409** if a retry arrives **while the first attempt is still running**. **Release the key** when the server fails with a 5xx error or an exception, so the retry can run for real. Tested Node.js with `node:sqlite` below.
+
+This is the **sending** side of the problem; for receiving the same event twice from someone else, see [idempotent webhooks in Node.js](/blog/idempotent-webhooks-nodejs/).
+
+## The implementation
+
+```js title="idempotency.mjs"
+import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+
+export function openStore(path = ":memory:") {
+  const db = new DatabaseSync(path);
+  db.exec(`CREATE TABLE IF NOT EXISTS idempotency (
+    key TEXT PRIMARY KEY, request_hash TEXT NOT NULL, status INTEGER, body TEXT, created_at INTEGER NOT NULL)`);
+  return db;
+}
+
+const hashRequest = (method, path, body) =>
+  createHash("sha256")
+    .update(`${method} ${path}\n${JSON.stringify(body)}`)
+    .digest("hex");
+
+export async function withIdempotency(db, { key, method, path, body, now = Date.now() }, handler) {
+  if (!key) return handler();
+  const requestHash = hashRequest(method, path, body);
+  const claimed =
+    db.prepare("INSERT INTO idempotency (key, request_hash, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING").run(key, requestHash, now)
+      .changes === 1;
+  if (!claimed) {
+    const row = db.prepare("SELECT * FROM idempotency WHERE key = ?").get(key);
+    if (row.request_hash !== requestHash) return { status: 422, body: { error: "Idempotency-Key reused with a different request" } };
+    if (row.status === null) return { status: 409, body: { error: "A request with this Idempotency-Key is still in progress" } };
+    return { status: row.status, body: JSON.parse(row.body), replayed: true };
+  }
+  try {
+    const result = await handler();
+    if (result.status >= 500) {
+      db.prepare("DELETE FROM idempotency WHERE key = ?").run(key); // server error: let the client retry for real
+    } else {
+      db.prepare("UPDATE idempotency SET status = ?, body = ? WHERE key = ?").run(result.status, JSON.stringify(result.body), key);
+    }
+    return result;
+  } catch (error) {
+    db.prepare("DELETE FROM idempotency WHERE key = ?").run(key);
+    throw error;
+  }
+}
+```
+
+The **claim** is the `INSERT … ON CONFLICT DO NOTHING`: the database's primary key guarantees that exactly one request wins it, however many arrive at once. A row with `status` still `NULL` means "in progress".
+
+## The rules, as tests
+
+```js title="idempotency.test.mjs"
+// Response lost, client retries with the same key: one charge, and the retry gets the same response.
+const first = await withIdempotency(db, req("k1", 500), () => charge(500));
+const retry = await withIdempotency(db, req("k1", 500), () => charge(500));
+assert.equal(charges, 1);
+assert.deepEqual(retry.body, first.body);
+
+// Same key, different amount: rejected, not silently answered with the old charge.
+assert.equal((await withIdempotency(db, req("k1", 900), () => charge(900))).status, 422);
+
+// Double-click: two concurrent requests with one key. One runs, the other gets 409.
+const [a, b] = await Promise.all([withIdempotency(db, req("k2", 100), () => charge(100)), withIdempotency(db, req("k2", 100), () => charge(100))]);
+assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+
+// A 503 releases the key: the retry runs and succeeds.
+assert.equal((await withIdempotency(db, req("k3", 50), flaky)).status, 503);
+fail = false;
+assert.equal((await withIdempotency(db, req("k3", 50), flaky)).status, 201);
+```
+
+All pass on Node.js 24, along with the exception case (the key is deleted) and requests without a key (no protection, by design).
+
+## Why each rule exists
+
+- **Replay, not "already done".** The client's retry needs the **original response**, such as the charge ID, to continue. Returning a different body breaks clients that can't tell a retry from a first attempt.
+- **422 on a different body.** If a client reuses a key for a new payment, replaying the old charge would silently drop the new one. Hashing the method, path and body catches it.
+- **409 while in progress.** A second attempt that waited for the first would tie up a connection; one that ran in parallel would double-charge. 409 tells the client to wait and retry.
+- **Store 4xx, release 5xx.** A 400 or 402 (card declined) is a real answer that will be the same next time, so it's stored. A 503 means the operation didn't happen, so the key is released.
+
+## In production
+
+- **Scope keys per client** (store the API key or account ID with the key), so one customer can't replay another's responses.
+- **Expire rows** after a day or so; Stripe documents keeping keys for at least 24 hours.
+- **Recover stuck claims.** If the process crashes mid-request, the row stays "in progress" forever. Add an expiry to in-progress claims, as the webhook handler does with stale claims.
+- **Clients**: generate the key once per user action, not per attempt, and reuse it for every retry. A retry with [backoff and jitter](/blog/llm-api-retries-backoff-fallbacks/) should carry the same key.
+- **Downstream calls**: pass the key on to the payment provider if it supports one, so both layers are protected. The [transactional outbox](/blog/transactional-outbox-nodejs-sqlite/) covers the events you publish afterwards.
+
+## Summary
+
+- Clients send a unique `Idempotency-Key` per operation and reuse it on every retry.
+- Claim the key atomically with a unique constraint; replay the stored response for retries.
+- 422 for a reused key with a different body, 409 while the first attempt is running.
+- Store final answers (2xx, 4xx); release the key on 5xx and exceptions.
+- Scope keys per client, expire them, and recover crashed claims.

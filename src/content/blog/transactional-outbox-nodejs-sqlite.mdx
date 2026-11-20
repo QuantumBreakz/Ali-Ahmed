@@ -111,3 +111,5 @@ The relay can publish an event and crash **before** marking it sent. On restart 
 - Delivery is at least once: pass an event ID and make consumers idempotent.
 
 Related: [an MQTT-based KYC verification pipeline](/blog/mqtt-kyc-verification-pipeline/).
+
+On the request side, [idempotency keys](/blog/idempotency-keys-post-api-nodejs/) stop a retried POST from running twice.
