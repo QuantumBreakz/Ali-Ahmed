@@ -46,6 +46,7 @@ export const topics: Topic[] = [
           "mrz-ocr-error-correction",
           "mrz-date-century-expiry",
           "nfc-epassport-chip-verification",
+          "passport-ocr-vs-nfc-chip-verification",
           "pakistan-cnic-number-validation",
           "luhn-iban-check-digits",
         ],
@@ -55,13 +56,19 @@ export const topics: Topic[] = [
         posts: [
           "face-match-threshold-far-frr",
           "face-liveness-detection-explained",
+          "liveness-detection-certification-iso-30107",
           "duplicate-id-photo-perceptual-hash",
           "model-calibration-ece-temperature-scaling",
         ],
       },
       {
         heading: "Screening and personal data",
-        posts: ["sanctions-name-screening-fuzzy-matching", "homoglyph-mixed-script-detection", "redact-pii-logs-llm-prompts-python"],
+        posts: [
+          "sanctions-name-screening-fuzzy-matching",
+          "homoglyph-mixed-script-detection",
+          "redact-pii-logs-llm-prompts-python",
+          "kyc-data-retention-deletion",
+        ],
       },
     ],
     faq: [
@@ -219,7 +226,12 @@ export const topics: Topic[] = [
     sections: [
       {
         heading: "Retrieval foundations",
-        posts: ["embeddings-vector-search-explained", "rag-chunking-strategies", "minhash-near-duplicate-documents-rag"],
+        posts: [
+          "embeddings-vector-search-explained",
+          "hnsw-vs-cosine-similarity-vector-search",
+          "rag-chunking-strategies",
+          "minhash-near-duplicate-documents-rag",
+        ],
       },
       {
         heading: "Keyword and hybrid search",
@@ -276,6 +288,7 @@ export const topics: Topic[] = [
         heading: "Time and measurement",
         posts: [
           "schedule-jobs-local-time-dst-python",
+          "p50-p90-p99-latency-explained",
           "latency-percentiles-p95-averaging",
           "slo-error-budget-burn-rate",
           "servicemonitor-labels-vs-annotations",

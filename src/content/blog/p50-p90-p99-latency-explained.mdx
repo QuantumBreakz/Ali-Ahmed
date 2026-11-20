@@ -1,0 +1,64 @@
+---
+title: "p50 vs p90 vs p99 latency explained: what each percentile tells you, and why the tail matters more than it looks"
+description: "p50 is the typical request, p90 and p99 are the slow ones. A tested example where the mean describes nobody, p99 is 20 times p50, and a page that makes 20 backend calls is as slow as the per-call p90 half the time."
+publishedAt: 2026-11-20
+tags: [Monitoring, SRE, Performance, Python]
+---
+
+**p50** (the median) is the latency that **half of requests beat**: the typical experience. **p90** is beaten by 90% of requests, and **p99** by 99%: they describe the **slow tail**. The **mean** is the wrong summary for latency, because a few very slow requests pull it far from anything a user experiences. In my test data, p50 was **121 ms**, p90 **193 ms**, and p99 **2,485 ms**, while the mean was **179 ms**, a latency almost no request actually had. The tail matters more than its size suggests: when one user action waits for **20 backend calls**, **18% of actions hit at least one call slower than p99**, and the **median page** ended up slower than the per-call p90.
+
+## The example
+
+```python title="percentiles.py"
+import numpy as np
+
+def summary(ms: np.ndarray) -> dict:
+    return {"mean": ms.mean(), "p50": np.percentile(ms, 50), "p90": np.percentile(ms, 90),
+            "p99": np.percentile(ms, 99), "max": ms.max()}
+
+rng = np.random.default_rng(1)
+fast = rng.lognormal(mean=np.log(120), sigma=0.35, size=9_800)  # normal requests around 120 ms
+slow = rng.lognormal(mean=np.log(2_500), sigma=0.4, size=200)  # 2%: cold cache, retries, GC pauses
+ms = np.concatenate([fast, slow])
+summary(ms)
+# {'mean': 179, 'p50': 121, 'p90': 193, 'p99': 2485, 'max': 7137}
+```
+
+| Statistic | Value    | What it tells you                                           |
+| --------- | -------- | ----------------------------------------------------------- |
+| p50       | 121 ms   | The typical request                                         |
+| p90       | 193 ms   | Most requests are still fast                                |
+| p99       | 2,485 ms | The slow 2% dominate: 1 request in 100 waits over 2 seconds |
+| Mean      | 179 ms   | Pulled up by the tail; describes almost no real request     |
+| Max       | 7,137 ms | One request: useful for debugging, too noisy to alert on    |
+
+**p50 vs p90** tells you whether the experience is consistent: here they're close, so most users see similar speed. **p90 vs p99** shows the tail: a 13× jump means a small group of requests is hitting something different, like cold caches, retries or garbage-collection pauses, and that's where to look.
+
+## Why p99 matters more than "1 in 100"
+
+A page or API call often fans out to several backend calls in parallel and waits for the **slowest**. If each call independently exceeds its p99 one time in a hundred:
+
+| Calls per user action | Chance at least one is slower than p99 |
+| --------------------- | -------------------------------------- |
+| 1                     | 1.0%                                   |
+| 5                     | 4.9%                                   |
+| 20                    | 18.2%                                  |
+| 100                   | 63.4%                                  |
+
+That's `1 - 0.99^n`. The simulation agrees: with 20 calls drawn from the data above, the **median page took 254 ms**, slower than the per-call **p90** of 193 ms. The tail of each component becomes the typical experience of the whole. The same applies to an LLM agent making several tool calls in a turn, or a RAG pipeline calling a retriever, a reranker and a model in sequence.
+
+## How to use them
+
+- **Track p50 and p99 together** (p90 or p95 too, if you like). p50 alone hides the tail; p99 alone hides a general slowdown.
+- **Alert on the tail with enough traffic.** p99 of 50 requests is decided by a single request. Use a window long enough to have hundreds of samples.
+- **Never average percentiles** across servers or time windows; merge the underlying data instead. That mistake gets its own article: [why you can't average p95 latencies](/blog/latency-percentiles-p95-averaging/).
+- **Tie them to an SLO**, such as "99% of requests under 500 ms", so a burn-rate alert tells you when the tail is eating your error budget: see [error budgets and burn rates](/blog/slo-error-budget-burn-rate/).
+
+## Summary
+
+- p50 is the typical request; p90 and p99 describe the slow tail. The mean describes nobody.
+- A big jump from p90 to p99 means a distinct slow path worth finding.
+- With fan-out, the tail becomes typical: 20 calls means 18% of actions hit a p99-slow call.
+- Track p50 and p99 together, alert with enough samples, and never average percentiles.
+
+Related: [request IDs to trace one slow request](/blog/request-id-logging-asynclocalstorage/) and [limiting concurrent calls](/blog/limit-concurrent-promises-nodejs/).

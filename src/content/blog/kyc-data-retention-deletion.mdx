@@ -1,0 +1,85 @@
+---
+title: "Are KYC verification photos deleted? How long identity data is kept, and a retention policy in code"
+description: "What happens to your selfie and ID photos after KYC: why some records must be kept for years under anti-money-laundering rules while raw images can often be deleted much sooner, and a tested Python retention policy with legal holds and abandoned applications."
+publishedAt: 2026-11-20
+tags: [KYC, Privacy, Compliance, Python]
+---
+
+**Not immediately, and not always.** When you verify your identity with a bank or app, the company typically keeps two different kinds of data for different lengths of time. **Records of who you are and how you were verified** usually have to be kept for years: anti-money-laundering rules based on the **FATF Recommendations** require customer due diligence records to be kept for **at least five years after the business relationship ends**, and many countries set their own period. **Raw images and video** (the selfie, the document photos, the liveness recording) are a different question: privacy laws such as the GDPR require personal data to be kept no longer than necessary, so a well-run system deletes them once they're no longer needed, unless a regulator requires them. Below is how a retention policy separates the two, as tested Python. The specific periods vary by country and regulator, so treat the numbers as examples, not legal advice.
+
+## What a KYC provider stores
+
+| Data                                          | Why it's kept                             | Typical retention driver                                         |
+| --------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| Name, date of birth, document number, address | Proof of who the customer is              | AML record-keeping: years after the relationship ends            |
+| The decision and its reasons                  | To show an auditor how the check was done | AML record-keeping                                               |
+| Selfie, document photos, liveness video       | Evidence during review and disputes       | Often shorter: privacy minimisation, unless rules require images |
+| Abandoned applications                        | Nothing, once the person gives up         | Delete soon                                                      |
+
+Some regulators require copies of the document images themselves to be kept with the record, so the "shorter" row isn't universal. The right answer is per country, and per product.
+
+## The policy in code
+
+```python title="retention.py"
+from dataclasses import dataclass
+from datetime import date, timedelta
+
+@dataclass
+class Case:
+    case_id: str
+    outcome: str  # "approved" | "rejected" | "abandoned"
+    decided_on: date | None  # None while in progress
+    relationship_ended_on: date | None = None  # account closed; None while still a customer
+    legal_hold: bool = False
+
+# Example policy. The real numbers come from your regulator and lawyers, per country.
+POLICY = {
+    "raw_images_after_decision": timedelta(days=30),  # selfies, document photos, liveness video
+    "abandoned_after_start": timedelta(days=30),  # never-finished applications
+    "aml_records_after_relationship": timedelta(days=5 * 365),  # FATF: at least five years
+}
+
+def retention_actions(case: Case, today: date, started_on: date) -> list[str]:
+    """What may be deleted for this case today."""
+    if case.legal_hold:
+        return []
+    actions = []
+    if case.outcome == "abandoned":
+        if today - started_on >= POLICY["abandoned_after_start"]:
+            actions.append("delete everything")
+        return actions
+    if case.decided_on and today - case.decided_on >= POLICY["raw_images_after_decision"]:
+        actions.append("delete raw images and video")
+    if case.relationship_ended_on and today - case.relationship_ended_on >= POLICY["aml_records_after_relationship"]:
+        actions.append("delete identity records and decision log")
+    elif case.outcome == "rejected" and case.decided_on and today - case.decided_on >= POLICY["aml_records_after_relationship"]:
+        actions.append("delete identity records and decision log")
+    return actions
+```
+
+What the tests confirm:
+
+- An approved customer's images are deleted **30 days after the decision**, but their identity record is kept for **as long as they're a customer**, even nine years later.
+- After the account closes, identity records go **five years after closure**, not five years after sign-up.
+- An abandoned application is deleted entirely after 30 days.
+- A case under **legal hold** (an investigation or dispute) is never deleted until the hold is lifted.
+
+## What makes deletion actually happen
+
+- **Run it as a scheduled job**, daily, with a log of what was deleted and why. "We'll clean up later" never happens.
+- **Delete from every copy.** Object storage, backups (by expiry), search indexes, analytics exports, and the logs where personal data leaked in. Keep the logs clean in the first place: see [redacting personal data from logs and LLM prompts](/blog/redact-pii-logs-llm-prompts-python/).
+- **Keep proof without the image.** A hash of a deleted file still lets you detect if the same file is uploaded again, without keeping the file. The same goes for [perceptual hashes of ID photos](/blog/duplicate-id-photo-perceptual-hash/).
+- **Keep the decision trail tamper-evident** for the years it must be kept, as with [a hash-chained audit log](/blog/ai-agent-audit-log-hash-chain/).
+
+## If you're the customer
+
+You can ask the company, and usually its KYC provider, what they hold and for how long. Under the GDPR and similar laws you have a right of access and, where no legal duty to keep the data applies, a right to erasure. Expect the answer that core identity records must stay for the regulatory period; it's reasonable to ask whether the images themselves are still needed.
+
+## Summary
+
+- KYC data isn't one thing: **identity records** and **raw images** have different retention reasons.
+- AML rules (FATF: at least five years after the relationship ends) keep identity records; privacy rules push to delete what isn't needed.
+- Count retention from the **end of the relationship**, honour **legal holds**, and delete **abandoned** applications quickly.
+- Automate deletion, and delete from every copy.
+
+Related: [how KYC identity verification works](/blog/how-kyc-identity-verification-works/) and [KYC vs AML vs KYB](/blog/kyc-vs-aml-vs-kyb/).

@@ -1,0 +1,92 @@
+---
+title: "OCR vs NFC chip reading for passport verification: what each one actually proves"
+description: "The key differences between OCR-based document verification and reading a passport's NFC chip: what each proves, what each misses, and how passive, active and chip authentication fit in. With a tested Python model of passive authentication showing an edited MRZ, a swapped photo, a forged signature and a clone."
+publishedAt: 2026-11-20
+tags: [KYC, Identity Verification, Security, Python]
+---
+
+**OCR-based verification** reads a photo of the passport's data page: the printed fields and the machine-readable zone (MRZ). It proves the data is **internally consistent** (check digits match, fields agree), but anyone who can edit an image or print a convincing page can make consistent data. **NFC chip reading** gets the same data from the passport's chip, **digitally signed by the issuing country**. Checking that signature (**passive authentication**) proves the data is **exactly what the country issued**, and a further check (**active or chip authentication**) proves the chip is **not a copy**. In short: OCR checks that the document is well-formed, and the chip proves it's genuine. Most KYC flows use OCR for every document, and NFC where the document has a chip and the user has a phone that can read it.
+
+## The differences side by side
+
+|                                     | OCR of the data page                      | NFC chip reading                                         |
+| ----------------------------------- | ----------------------------------------- | -------------------------------------------------------- |
+| Input                               | Photo or video of the page                | Data read from the chip by phone                         |
+| Works on                            | Every passport and most ID cards          | E-passports and chip ID cards, with an NFC phone         |
+| Detects typos and misreads          | Yes, with check digits                    | Not needed: the data is digital                          |
+| Detects an edited data page         | Only by image forensics, imperfectly      | **Yes**: the edit breaks the signed hash                 |
+| Detects a swapped photo             | Only by image forensics, imperfectly      | **Yes**: the chip's photo is signed                      |
+| Detects a cloned chip               | Not applicable                            | **Yes**, with active or chip authentication              |
+| Gives a reference face for matching | The printed photo, as photographed        | The **issuer's own digital photo**                       |
+| Main failure mode                   | Glare, blur, OCR errors, convincing fakes | Users who can't position the phone, missing certificates |
+
+OCR also has a job the chip needs: the phone unlocks the chip with a key derived from the **document number, date of birth and expiry date**, read from the MRZ (BAC) or with the newer PACE protocol. So a correct MRZ read is step one of chip reading too. The full read sequence is in [how NFC passport chip verification works](/blog/nfc-epassport-chip-verification/).
+
+## What passive authentication checks
+
+The chip stores the data in **data groups**, such as DG1 (the MRZ) and DG2 (the face image), and a **Document Security Object (SOD)**: the hash of every data group, signed by the country's Document Signer, whose certificate chains to the country's CSCA root. Verifying means checking the signature, then re-hashing each data group and comparing it with the signed hash. Here is a small model of that logic, using `cryptography` for the signature:
+
+```python title="passive_auth.py"
+import hashlib
+import json
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.exceptions import InvalidSignature
+
+def make_sod(data_groups: dict[int, bytes], signer: ec.EllipticCurvePrivateKey) -> dict:
+    digests = {n: hashlib.sha256(dg).hexdigest() for n, dg in data_groups.items()}
+    payload = json.dumps(digests, sort_keys=True).encode()
+    return {"digests": digests, "payload": payload, "signature": signer.sign(payload, ec.ECDSA(hashes.SHA256()))}
+
+def passive_auth(data_groups: dict[int, bytes], sod: dict, signer_public: ec.EllipticCurvePublicKey) -> list[str]:
+    """Return problems found; an empty list means the data is exactly what the issuer signed."""
+    try:
+        signer_public.verify(sod["signature"], sod["payload"], ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        return ["SOD signature invalid: not signed by this document signer"]
+    signed = json.loads(sod["payload"])
+    problems = []
+    for n, dg in data_groups.items():
+        if signed.get(str(n)) != hashlib.sha256(dg).hexdigest():
+            problems.append(f"DG{n} does not match the signed hash")
+    return problems
+```
+
+A real SOD is a CMS signed structure in ASN.1, not JSON, and production code also validates the Document Signer certificate against the CSCA, but the logic is the same. The tests run four attacks:
+
+```python title="What each attack produces"
+passive_auth(edited_mrz, sod, country_key)       # ['DG1 does not match the signed hash']
+passive_auth(swapped_photo, sod, country_key)    # ['DG2 does not match the signed hash']
+passive_auth(edited_mrz, forger_sod, country_key)  # ['SOD signature invalid: not signed by this document signer']
+passive_auth(cloned_chip, sod, country_key)      # []  passes
+```
+
+The last line is the point of the next section.
+
+## Why passive authentication isn't enough on its own
+
+A **perfect copy** of the chip's data passes passive authentication, because the data really was signed by the country. Two protocols prove the chip itself is the original:
+
+- **Active Authentication (AA):** the chip holds a private key that can't be read out, and signs a challenge from the reader. A copy of the data doesn't include the key.
+- **Chip Authentication (CA):** a key agreement with the chip's own key pair, which also sets up stronger encryption for the rest of the session.
+
+Not every passport supports either, so a verification result should say which checks ran, not just "chip verified".
+
+## When OCR alone has to do
+
+Many documents have no chip, many users have phones without NFC or struggle to hold the passport in the right place, and some countries' certificates aren't easy to obtain. So OCR remains the baseline, backed by the other signals in the pipeline:
+
+- Check digits to catch misreads, and [safe repair](/blog/mrz-ocr-error-correction/) when exactly one correction fits.
+- Image quality checks and [document preprocessing](/blog/document-photo-preprocessing-ocr/), so the read is reliable in the first place.
+- [Face matching](/blog/face-match-threshold-far-frr/) and [liveness](/blog/face-liveness-detection-explained/) for the person, and duplicate detection such as [perceptual hashing of reused photos](/blog/duplicate-id-photo-perceptual-hash/).
+
+A good design offers NFC when the document and phone support it, falls back to OCR with stronger checks when they don't, and records which path each case took.
+
+## Summary
+
+- **OCR** proves the data is consistent; it can't prove the document is genuine.
+- **NFC with passive authentication** proves the data and photo are exactly what the issuing country signed.
+- **Active or chip authentication** proves the chip isn't a clone; passive authentication alone accepts a perfect copy.
+- OCR is still needed: the MRZ unlocks the chip, and many documents have no chip.
+
+For the whole flow, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

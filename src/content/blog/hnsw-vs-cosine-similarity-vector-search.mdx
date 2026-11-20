@@ -1,0 +1,83 @@
+---
+title: "HNSW vs cosine similarity: one is a metric, the other is an index, and what approximate search costs in recall"
+description: "Cosine similarity measures how close two vectors are; HNSW and IVF are indexes that find close vectors without comparing every one. Tested NumPy code comparing exact cosine search with an approximate index, measuring recall@10 against how much of the collection each query scans."
+publishedAt: 2026-11-20
+tags: [RAG, AI Engineering, Python, Databases]
+---
+
+**"HNSW vs cosine similarity" compares two different kinds of thing.** **Cosine similarity** is a **metric**: it scores how close two vectors are (on normalised vectors, it's just their dot product). **HNSW** (hierarchical navigable small world) is an **index**: a data structure that finds the vectors with the highest similarity **without scoring every vector in the collection**. You use them together: an HNSW index **built for** the cosine metric. The real choice is **exact search vs approximate search**: exact search scores everything and is always right; an approximate index scans a fraction and occasionally **misses** a true top result. That miss rate is measured as **recall@k**. Below, tested NumPy code shows the trade-off: in my test, scanning **6% of the vectors gave 89% recall@10**, and scanning **25% gave 97%**.
+
+## Exact search with cosine similarity
+
+```python title="ann.py: exact"
+import numpy as np
+
+def normalize(x):
+    return x / np.linalg.norm(x, axis=-1, keepdims=True)
+
+def exact_top_k(index: np.ndarray, query: np.ndarray, k: int = 10) -> np.ndarray:
+    """Cosine similarity is a dot product on unit vectors; exact search scores every vector."""
+    scores = index @ query
+    top = np.argpartition(-scores, k)[:k]
+    return top[np.argsort(-scores[top])]
+```
+
+For tens of thousands of vectors this is fast and simple: one matrix product. It's the right choice for small collections, and it's the **ground truth** you measure any index against. The cost grows linearly with the collection, which is what indexes are for.
+
+## An approximate index
+
+HNSW builds a layered graph and walks it towards the query. To keep the code short and easy to check, I used a simpler approximate index, **IVF** (inverted file): cluster the vectors, then search only the clusters closest to the query. It has the same essential trade-off, and the same kind of setting: HNSW's `ef_search` and IVF's `n_probe` both mean "how much of the index to explore".
+
+```python title="ann.py: IVF index"
+class IVFIndex:
+    """Cluster the vectors, then search only the clusters nearest the query."""
+    def __init__(self, vectors: np.ndarray, n_lists: int = 64, iters: int = 10, seed: int = 0):
+        rng = np.random.default_rng(seed)
+        self.vectors = vectors
+        self.centroids = vectors[rng.choice(len(vectors), n_lists, replace=False)]
+        for _ in range(iters):  # spherical k-means
+            assign = np.argmax(vectors @ self.centroids.T, axis=1)
+            self.centroids = normalize(np.stack([vectors[assign == c].mean(0) if (assign == c).any() else self.centroids[c] for c in range(n_lists)]))
+        assign = np.argmax(vectors @ self.centroids.T, axis=1)
+        self.lists = [np.flatnonzero(assign == c) for c in range(n_lists)]
+
+    def search(self, query: np.ndarray, k: int = 10, n_probe: int = 4):
+        nearest = np.argsort(-(self.centroids @ query))[:n_probe]
+        candidates = np.concatenate([self.lists[c] for c in nearest])
+        scores = self.vectors[candidates] @ query
+        return candidates[np.argsort(-scores)[:k]], len(candidates)
+```
+
+Note that the index still ranks candidates by **cosine similarity**. The metric doesn't change; only how many vectors get scored does.
+
+## What does approximate search cost?
+
+50,000 vectors of 128 dimensions in 200 overlapping topics, 256 clusters, 200 queries, compared with exact search:
+
+| `n_probe` | Vectors scored per query | Share of collection | Recall@10 |
+| --------- | ------------------------ | ------------------- | --------- |
+| 1         | 225                      | 0.5%                | 0.69      |
+| 4         | 795                      | 1.6%                | 0.81      |
+| 16        | 3,162                    | 6.3%                | 0.89      |
+| 64        | 12,476                   | 25%                 | 0.97      |
+| exact     | 50,000                   | 100%                | 1.00      |
+
+Two things the numbers show:
+
+- **Recall rises with effort, and the last few percent are the most expensive.** Going from 89% to 97% recall needs four times the scanning.
+- **It depends on the data.** I first generated well-separated topics, and one probe already reached 92% recall. With noisier data that has little cluster structure, 25% scanning reached only 71%. Your embeddings are somewhere in between, so **measure recall on your own vectors** rather than trusting a benchmark.
+
+## Choosing in practice
+
+- **Under roughly 100,000 vectors**, exact search is often fast enough and has perfect recall. Try it before adding an index.
+- **With HNSW**, tune `ef_search` the same way as `n_probe` above: raise it until recall@10 on a sample of real queries against exact search stops improving enough to matter, then check latency.
+- **Recall@10 of the index isn't the RAG quality.** Missing the 9th-best chunk rarely changes an answer; missing the best one does. Measure the end result with [RAG retrieval metrics](/blog/rag-retrieval-evaluation-metrics/), and add keyword search for exact terms with [hybrid search](/blog/hybrid-search-bm25-reciprocal-rank-fusion/).
+
+The background on embeddings themselves is in [embeddings and vector search, explained](/blog/embeddings-vector-search-explained/).
+
+## Summary
+
+- **Cosine similarity is a metric; HNSW is an index.** An HNSW index uses cosine (or another metric) to rank what it finds.
+- The real choice is **exact vs approximate** search, and the cost of approximate is **recall**.
+- In this test: 6% scanned gave 89% recall@10, 25% gave 97%, and the curve depends on your data.
+- Measure recall against exact search on your own embeddings, and use exact search when the collection is small.

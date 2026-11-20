@@ -1,0 +1,70 @@
+---
+title: "Liveness detection certification explained: ISO/IEC 30107-3, APCER, BPCER and what a test report should show"
+description: "What 'certified liveness' means: presentation attack detection testing under ISO/IEC 30107-3, how APCER is computed per attack type and why pooling hides weak spots, BPCER at the same threshold, and what to ask a vendor for. Tested Python for the metrics."
+publishedAt: 2026-11-20
+tags: [KYC, Security, Computer Vision, Evaluation]
+---
+
+**Liveness detection certification** usually means an independent lab has tested a product's **presentation attack detection (PAD)**, its ability to tell a real face from a photo, screen replay or mask, using the method in **ISO/IEC 30107-3**. The standard defines two error rates: **APCER**, the share of **attacks accepted** as live, computed **separately for each attack type** with the **worst type reported**; and **BPCER**, the share of **genuine people rejected**. Labs such as iBeta run conformance tests at levels that differ in the attackers' time, skill and materials. A useful certificate states the level, the attack types tested, and APCER and BPCER **at the same threshold**. Below is how the metrics are computed, and why pooling all attacks together hides a weak spot.
+
+## What is tested
+
+A lab collects **bona fide** presentations (real people) and **attack** presentations, grouped into **species**: printed photos, photos shown on screens, video replays, paper or 3D masks. Higher test levels allow more effort and better materials. Each attempt is recorded as accepted as live or rejected.
+
+What PAD testing does **not** cover is just as important: **injection attacks**, where a deepfake or pre-recorded video is fed straight into the app as if it came from the camera, never pass in front of a lens. They need separate defences, as described in [face liveness detection explained](/blog/face-liveness-detection-explained/).
+
+## Computing APCER and BPCER
+
+```python title="pad_metrics.py"
+from collections import defaultdict
+
+def pad_report(results: list[tuple[str, bool]]) -> dict:
+    """results: (presentation, accepted_as_live). presentation is 'bona fide' or an attack species name."""
+    by_species = defaultdict(lambda: [0, 0])  # accepted, total
+    bona_fide_rejected = bona_fide_total = 0
+    for presentation, accepted in results:
+        if presentation == "bona fide":
+            bona_fide_total += 1
+            bona_fide_rejected += not accepted
+        else:
+            by_species[presentation][0] += accepted
+            by_species[presentation][1] += 1
+    apcer = {s: a / t for s, (a, t) in by_species.items()}
+    return {
+        "APCER per species": apcer,
+        "APCER (worst species)": max(apcer.values()) if apcer else 0.0,
+        "BPCER": bona_fide_rejected / bona_fide_total if bona_fide_total else 0.0,
+    }
+```
+
+A test with 300 genuine attempts and 150 attacks of each of three species:
+
+| Presentation  | Attempts | Accepted as live | Rate                       |
+| ------------- | -------- | ---------------- | -------------------------- |
+| Printed photo | 150      | 0                | APCER 0%                   |
+| Screen replay | 150      | 3                | **APCER 2%**               |
+| Paper mask    | 150      | 0                | APCER 0%                   |
+| Bona fide     | 300      | 285              | **BPCER 5%** (15 rejected) |
+
+The headline APCER is **2%**, the worst species. Pooling all 450 attacks together gives **0.67%**, which sounds three times better and is the number a vendor might be tempted to quote. But attackers don't pick attack types at random: they find the one that works and repeat it. **Screen replay is the open door**, and the per-species figure is what shows it. The test file asserts both numbers.
+
+## Why BPCER has to come with it
+
+Any system can reach 0% APCER by rejecting everyone. BPCER is what that costs: every rejected genuine person is a customer who failed to sign up, or who tries again and again. The two are set by the same threshold, the same trade-off as [false accepts and false rejects in face matching](/blog/face-match-threshold-far-frr/). So a claim of "0% APCER" without the BPCER **at the same threshold** isn't a result. And if the product's scores are shown to reviewers as probabilities, they should also be [calibrated](/blog/model-calibration-ece-temperature-scaling/).
+
+## What to ask a vendor for
+
+1. **The lab report itself**, not a badge: the lab, the standard (ISO/IEC 30107-3), the level, and the date.
+2. **The attack species tested**, with APCER for each, and the BPCER at the same threshold.
+3. **The configuration tested**: the SDK version, devices, and the threshold. A certificate for a different threshold than the one you'll run tells you less than it seems.
+4. **Injection attack defences**, separately, since PAD certification doesn't cover them.
+5. **Your own results.** Run your traffic, devices and lighting through it, and segment BPCER by device and region before going live.
+
+## Summary
+
+- Certification usually means **ISO/IEC 30107-3** PAD testing by an independent lab, at a stated level.
+- **APCER** is per attack species, and the **worst** species is the headline. Pooling hides weak spots: 0.67% pooled vs 2% for screen replay here.
+- **BPCER** at the same threshold is the cost to genuine users; one without the other means little.
+- PAD testing doesn't cover **injection attacks**.
+
+Related: [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).
