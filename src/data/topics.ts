@@ -28,7 +28,13 @@ export const topics: Topic[] = [
     sections: [
       {
         heading: "How verification works",
-        posts: ["how-kyc-identity-verification-works", "kyc-vs-aml-vs-kyb", "mqtt-kyc-verification-pipeline"],
+        posts: [
+          "how-kyc-identity-verification-works",
+          "kyc-vs-aml-vs-kyb",
+          "aml-vs-kyc-transaction-monitoring",
+          "kyb-vs-kyc-beneficial-ownership",
+          "mqtt-kyc-verification-pipeline",
+        ],
       },
       {
         heading: "Capturing a usable image",
@@ -54,8 +60,10 @@ export const topics: Topic[] = [
       {
         heading: "Face match, liveness and fraud signals",
         posts: [
+          "kyc-selfie-id-face-match",
           "face-match-threshold-far-frr",
           "face-liveness-detection-explained",
+          "active-vs-passive-liveness-detection",
           "liveness-detection-certification-iso-30107",
           "duplicate-id-photo-perceptual-hash",
           "model-calibration-ece-temperature-scaling",
@@ -91,6 +99,16 @@ export const topics: Topic[] = [
         question: "How do you choose a face match threshold?",
         answer:
           "Measure false accepts and false rejects on labelled pairs at several thresholds, then pick the point that matches the risk: a lower false accept rate for high-value accounts, a lower false reject rate where friction loses customers. Check the rates per segment, such as device type, because one global number can hide a group that fails far more often.",
+      },
+      {
+        question: "What is the difference between KYC and AML?",
+        answer:
+          "KYC checks who a customer is, mostly at onboarding: identity verification, sanctions screening and a risk rating. AML is the whole programme against money laundering, and KYC is one part of it. AML also covers transaction monitoring after onboarding, investigating alerts, reporting suspicious activity and keeping records.",
+      },
+      {
+        question: "What is the difference between active and passive liveness detection?",
+        answer:
+          "Active liveness asks the user to follow prompts such as turning their head or blinking, and checks the actions happened in order and at human speed. Passive liveness asks nothing and judges the image itself for signs of a photo, screen or mask. Passive has less friction; active is harder to beat with a static photo. Neither stops video injected directly into the app, which needs separate defences.",
       },
     ],
   },

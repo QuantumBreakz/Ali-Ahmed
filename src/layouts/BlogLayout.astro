@@ -28,8 +28,9 @@ interface Props {
   article?: boolean;
   draftPreview?: boolean;
   jsonLd?: Record<string, unknown>[];
+  socialImage?: { src: string; alt: string; width: number; height: number };
 }
-const { title, description, article = false, draftPreview = false, jsonLd, ...page } = Astro.props;
+const { title, description, article = false, draftPreview = false, jsonLd, socialImage = site.socialImage, ...page } = Astro.props;
 const entries = await getPublishedBlog();
 ---
 
@@ -49,10 +50,10 @@ const entries = await getPublishedBlog();
       type={article ? "article" : "website"}
       robots={draftPreview ? "noindex, nofollow" : !article && !entries.length ? "noindex, follow" : undefined}
       llms={new URL("/llms.txt", site.url)}
-      image={new URL(site.socialImage.src, site.url)}
-      imageAlt={site.socialImage.alt}
-      imageWidth={site.socialImage.width}
-      imageHeight={site.socialImage.height}
+      image={new URL(socialImage.src, site.url)}
+      imageAlt={socialImage.alt}
+      imageWidth={socialImage.width}
+      imageHeight={socialImage.height}
       jsonLd={jsonLd}
     />
   </head>

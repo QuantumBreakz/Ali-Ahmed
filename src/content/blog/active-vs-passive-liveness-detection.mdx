@@ -1,0 +1,109 @@
+---
+title: "Active vs passive liveness detection: how each works, what each stops, and a challenge-response check in Python"
+description: "Active liveness asks the user to turn, blink or smile; passive liveness judges a single image or short clip without asking anything. How each works, which attacks each stops, why a random challenge only has a few dozen possible orders, and a tested Python verifier for challenge-response with nonces, timing and expiry."
+publishedAt: 2026-11-22
+tags: [KYC, Computer Vision, Security, Python]
+---
+
+**Face liveness detection** decides whether the face in front of the camera is a live person, not a photo, a screen replay or a mask. **Active liveness** asks the user to do something on cue (turn left, look up, blink) and checks they did it, in the right order, at human speed. **Passive liveness** asks nothing: a model judges a single image or a short clip from cues such as texture, depth, reflections and screen moiré. **Passive is lower friction**; **active is easier to explain and harder to beat with a static photo**. Neither stops a deepfake **injected** straight into the app's video stream, which needs separate defences. Most production systems run passive on every attempt and use a short active challenge when risk is higher. Below is a tested Python verifier for the active side, and the weakness its tests exposed.
+
+![Diagram of a challenge-response liveness check: the server issues three random actions with a one-time nonce; a live user passes; a replayed request, a pre-recorded video in the wrong order, an instant synthetic answer and an expired challenge are rejected. Three of four actions in order give only 24 possible sequences.](/figures/active-liveness.webp)
+
+_What the verifier below accepts and rejects._
+
+## How do active and passive liveness differ?
+
+|                      | Active liveness                                    | Passive liveness                                     |
+| -------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| What the user does   | Follows prompts: turn, blink, smile                | Nothing beyond taking the selfie                     |
+| What is checked      | The right actions, in order, at human speed        | Texture, depth, reflections, moiré, model confidence |
+| Friction             | Higher: some users fail the prompts                | Low                                                  |
+| Stops printed photos | Yes                                                | Yes, if the model is good                            |
+| Stops screen replays | Mostly: a replay can't follow new prompts          | Yes, if trained on replays                           |
+| Weak against         | Libraries of pre-recorded clips, live puppeteering | Attack types missing from its training data          |
+| Neither stops        | Video injected into the app, bypassing the camera  |                                                      |
+
+The quality of either is measured the same way, by attacks accepted per attack type (APCER) and genuine users rejected (BPCER), as described in [liveness detection certification](/blog/liveness-detection-certification-iso-30107/).
+
+## A challenge-response verifier
+
+The server issues a random sequence and a one-time nonce; the app's face tracker reports which actions it saw and when. The verifier checks the order, the timing and that the nonce is fresh:
+
+```python title="active_liveness.py: issuing a challenge"
+import secrets
+import time
+from dataclasses import dataclass, field
+
+ACTIONS = ["turn_left", "turn_right", "look_up", "blink"]
+
+@dataclass
+class Challenge:
+    nonce: str
+    actions: list[str]
+    issued_at: float
+    ttl: float = 30.0
+
+@dataclass
+class ChallengeStore:
+    issued: dict[str, Challenge] = field(default_factory=dict)
+    used: set[str] = field(default_factory=set)
+
+    def issue(self, n: int = 3, now: float | None = None) -> Challenge:
+        rng = secrets.SystemRandom()
+        c = Challenge(secrets.token_urlsafe(12), rng.sample(ACTIONS, n), now if now is not None else time.time())
+        self.issued[c.nonce] = c
+        return c
+```
+
+```python title="active_liveness.py: verifying the response"
+def verify(store: ChallengeStore, nonce: str, events: list[tuple[str, float]], now: float,
+           min_gap: float = 0.25, max_gap: float = 6.0) -> list[str]:
+    """events: (action detected by the face tracker, timestamp). Returns reasons to reject; empty means pass."""
+    c = store.issued.get(nonce)
+    if c is None:
+        return ["unknown challenge"]
+    if nonce in store.used:
+        return ["challenge already used (replay)"]
+    store.used.add(nonce)  # one attempt per challenge, pass or fail
+    problems = []
+    if now - c.issued_at > c.ttl:
+        problems.append("challenge expired")
+    seen = [a for a, _ in events]
+    if seen != c.actions:
+        problems.append(f"wrong actions: asked {c.actions}, saw {seen}")
+    times = [c.issued_at] + [t for _, t in events]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    if any(g < min_gap for g in gaps):
+        problems.append("actions faster than a person can follow prompts")
+    if any(g > max_gap for g in gaps):
+        problems.append("too slow between prompts")
+    return problems
+```
+
+The tests cover the main attacks: a live response passes; the same nonce submitted again is rejected as a **replay**; a pre-recorded clip answering a different order fails the **order** check; a synthetic stream that "performs" all three actions within 150 ms fails the **timing** check; and a response after 30 seconds is **expired**. Marking the nonce used on the first attempt, pass or fail, matters: otherwise an attacker gets unlimited guesses at one challenge.
+
+The server must run this check, never the app. Anything decided on the phone can be patched out by the person you're trying to verify.
+
+## What did the tests expose?
+
+With four actions and three per challenge, there are only **24 possible sequences** (`perm(4, 3)`). An attacker who records the same face performing every sequence can always play the matching clip. More actions and longer sequences raise the number, at the cost of more friction and more genuine users failing. So active challenges stop casual replays, not a determined attacker with a library of clips, or one puppeteering a face live with a real-time deepfake. That's why active checks are combined with:
+
+- **Passive checks on the same frames**, looking for screen and mask artefacts.
+- **Injection defences**: device and app integrity checks, detecting virtual cameras, and checking the stream really comes from the device camera.
+- **The face match itself**, against the document photo: see [how KYC selfie and ID matching works](/blog/kyc-selfie-id-face-match/).
+
+## Which should you use?
+
+- **Default to passive**, for the lowest drop-off.
+- **Step up to active** for high-risk cases: new device, a high-value account, or a passive score near the threshold.
+- **Never rely on either alone** against injection.
+- **Measure per attack type and per device**, because a model that's excellent on recent iPhones can be weak on older Android cameras.
+
+## Summary
+
+- **Active liveness** checks prompted actions in order and at human speed; **passive liveness** judges the image without prompts.
+- A challenge-response verifier needs a **server-side, one-time nonce**, an **order check**, **timing limits** and **expiry**.
+- Three of four actions gives only **24 sequences**, so active checks alone don't stop a clip library or live deepfakes.
+- Combine passive, active and **injection** defences, and measure APCER per attack type.
+
+The broader background is in [face liveness detection explained](/blog/face-liveness-detection-explained/).

@@ -1,0 +1,85 @@
+---
+title: "AML vs KYC: what the difference is in practice, with a structuring-detection rule in Python"
+description: "KYC checks who a customer is at onboarding; AML is the whole programme against money laundering, including monitoring what customers do afterwards. The difference explained, and a tested Python transaction-monitoring rule that flags structuring: repeated cash deposits just under a reporting threshold."
+publishedAt: 2026-11-22
+tags: [KYC, Compliance, Fintech, Python]
+---
+
+**KYC (know your customer)** answers **who** the customer is: identity verification, sanctions screening and a risk rating, mostly at onboarding. **AML (anti-money laundering)** is the **whole programme** a regulated business runs to detect and report money laundering, and **KYC is one part of it**. The rest of AML is about what customers **do** after onboarding: **transaction monitoring**, investigating alerts, filing **suspicious activity reports**, keeping records and periodic re-checks. A customer can pass KYC perfectly and still launder money; transaction monitoring is how you'd notice. Below is a tested Python version of one classic monitoring rule, **structuring detection**, to make the difference concrete.
+
+![Bar charts of cash deposits for three customers against a 10,000 dollar reporting threshold: customer A makes three deposits between 9,200 and 9,800 within five days, totalling 28,500, and is flagged; customer B makes similar deposits spread over twenty days; customer C makes deposits above the threshold, which are reported automatically.](/figures/aml-structuring.webp)
+
+_The structuring rule below flags customer A only._
+
+## KYC vs AML at a glance
+
+|                 | KYC                                          | AML                                                                                  |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Question        | Who is this customer, and how risky?         | Is money being laundered through us, and have we reported it?                        |
+| When            | Onboarding, and periodic refreshes           | Continuously, for the whole relationship                                             |
+| Main activities | ID verification, screening, risk rating, CDD | KYC plus transaction monitoring, investigations, reporting, training, record keeping |
+| Typical output  | Approve, reject or review a customer         | Alerts, cases, suspicious activity reports                                           |
+
+**CDD** (customer due diligence) is the KYC work itself, deepened to **EDD** (enhanced due diligence) for higher-risk customers. **KYB** applies the same idea to businesses and the people who own them; see [KYB vs KYC and beneficial ownership](/blog/kyb-vs-kyc-beneficial-ownership/). The longer overview is in [KYC vs AML vs KYB vs CDD](/blog/kyc-vs-aml-vs-kyb/).
+
+## A monitoring rule: structuring
+
+Many countries require banks to report cash transactions above a threshold; in the US, cash transactions over **$10,000** trigger a Currency Transaction Report. **Structuring** is splitting deposits to stay under that line, and in the US it is itself an offence, even when the money is legitimate. A rule to catch it:
+
+```python title="structuring.py"
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+@dataclass
+class Deposit:
+    customer: str
+    amount: float
+    at: datetime
+    cash: bool = True
+
+def structuring_alerts(deposits: list[Deposit], threshold: float = 10_000, window: timedelta = timedelta(days=7),
+                       near: float = 0.8, min_count: int = 3) -> list[dict]:
+    """Flag customers who make several cash deposits just under the reporting threshold within a rolling window,
+    adding up to more than the threshold. Produces alerts for review, not verdicts."""
+    alerts = []
+    by_customer: dict[str, list[Deposit]] = {}
+    for d in sorted(deposits, key=lambda d: d.at):
+        if d.cash and near * threshold <= d.amount < threshold:
+            by_customer.setdefault(d.customer, []).append(d)
+    for customer, ds in by_customer.items():
+        start = 0
+        for end in range(len(ds)):
+            while ds[end].at - ds[start].at > window:
+                start += 1
+            group = ds[start:end + 1]
+            if len(group) >= min_count and sum(d.amount for d in group) > threshold:
+                alerts.append({"customer": customer, "count": len(group), "total": sum(d.amount for d in group),
+                               "from": group[0].at.date().isoformat(), "to": group[-1].at.date().isoformat()})
+                break  # one alert per customer per run; the reviewer sees the full history
+    return alerts
+```
+
+The test feeds five customers through it:
+
+| Customer | Pattern                                              | Alert?                       |
+| -------- | ---------------------------------------------------- | ---------------------------- |
+| A        | $9,500, $9,800, $9,200 cash within 5 days            | **Yes**: 3 deposits, $28,500 |
+| B        | The same amounts, spread over 20 days                | No                           |
+| C        | $12,000 and $15,000: above the line, reported anyway | No                           |
+| D        | Three $9,900 **wires**, not cash                     | No                           |
+| E        | Small cash deposits of $2,000–3,000                  | No                           |
+
+## Why rules alone aren't enough
+
+The parameters (80% of the threshold, 7 days, 3 deposits) are guesses until tuned on real alerts. Set them loose and analysts drown in false positives; set them tight and patient structurers spread deposits over a longer window, as customer B did. Production systems run many rules plus models, score alerts by risk, and **record why every alert was closed**, the same audit principle as in [sanctions name screening](/blog/sanctions-name-screening-fuzzy-matching/).
+
+KYC data makes monitoring better: the risk rating and expected activity captured at onboarding ("salary account, about $3,000 a month") are what makes $28,500 in cash unusual. That's the practical link between the two. Where AI helps, it's in prioritising and summarising alerts for analysts, not in making the reporting decision.
+
+## Summary
+
+- **KYC** = who the customer is, at onboarding and periodic refresh. **AML** = the whole programme, of which KYC is one part.
+- AML adds **transaction monitoring**, investigation, **reporting** and record keeping.
+- **Structuring** (splitting cash deposits under a reporting threshold) is a classic monitoring rule; the tested version flags 3+ near-threshold cash deposits within 7 days.
+- Tune rules on real alerts, record closure reasons, and feed KYC risk data into monitoring.
+
+Related: [how long KYC records must be kept](/blog/kyc-data-retention-deletion/).

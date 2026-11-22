@@ -23,6 +23,9 @@ const { Content, headings } = await render(entry);
 const toc = headings.map((heading) => ({ depth: heading.depth, title: heading.text, url: `#${heading.slug}` }));
 const blogExport = getBlogExport(entry);
 const topic = topicForPost(getWritingPath(entry).slice("/blog/".length, -1));
+// A post's first figure (![alt](/figures/name.webp), rendered by video/render-figures.mjs at 1600x900) is its social image.
+const figure = (entry.body ?? "").match(/!\[([^\]]+)\]\(\/figures\/([a-z0-9-]+)\.webp\)/);
+const socialImage = figure ? { src: `/figures/${figure[2]}.jpg`, alt: figure[1], width: 1600, height: 900 } : undefined;
 const jsonLd = [
   {
     "@type": "BlogPosting",
@@ -35,7 +38,9 @@ const jsonLd = [
     dateModified: (entry.data.updatedAt ?? entry.data.publishedAt).toISOString(),
     author: { "@id": personId },
     publisher: { "@id": personId },
-    image: new URL(site.socialImage.src, site.url).href,
+    image: socialImage
+      ? [new URL(socialImage.src, site.url).href, new URL(site.socialImage.src, site.url).href]
+      : new URL(site.socialImage.src, site.url).href,
     keywords: entry.data.tags.join(", "),
     wordCount: (entry.body ?? "").split(/\s+/).length,
     isPartOf: [
@@ -70,6 +75,7 @@ const readingMinutes = Math.max(1, Math.ceil((entry.body ?? "").split(/\s+/).len
   article
   {...blogExport}
   jsonLd={jsonLd}
+  socialImage={socialImage}
   toc={toc}
   date={entry.data.publishedAt.toISOString()}
   dateLabel={formatWritingDate(entry.data.publishedAt)}

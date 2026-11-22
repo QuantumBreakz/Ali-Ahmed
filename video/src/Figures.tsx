@@ -868,6 +868,237 @@ export function FigJudgeKappa() {
   );
 }
 
+/* 16. Active liveness challenge-response ------------------------------------------------------------- */
+export function FigActiveLiveness() {
+  const rows: [string, string, string, boolean][] = [
+    ["Live person", "turn left → look up → blink, ~1 s apart", "pass", true],
+    ["Same request sent again", "nonce already used", "replay rejected", false],
+    ["Pre-recorded video", "look up → turn left → blink", "wrong order", false],
+    ["Synthetic stream", "all three actions within 150 ms", "faster than a person", false],
+    ["Answer after 40 s", "challenge issued 40 s ago", "expired", false],
+  ];
+  return (
+    <Frame
+      kicker="Active liveness · challenge: turn left → look up → blink + one-time nonce"
+      title="A random challenge stops replays, not a library of clips"
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "330px 1fr 300px", fontFamily: sans }}>
+        {rows.map(([who, what, verdict, ok]) => (
+          <div key={who} style={{ display: "contents" }}>
+            <div style={{ fontSize: 27, color: color.ink, padding: "18px 0", borderTop: `1px solid ${color.line}` }}>{who}</div>
+            <div style={{ fontSize: 22, color: color.muted, fontFamily: mono, padding: "22px 0", borderTop: `1px solid ${color.line}` }}>{what}</div>
+            <div
+              style={{
+                fontSize: 26,
+                color: ok ? color.accent : color.warm,
+                padding: "18px 0",
+                borderTop: `1px solid ${color.line}`,
+                textAlign: "right",
+              }}
+            >
+              {ok ? "✓ " : "✗ "}
+              {verdict}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 26, fontSize: 24, fontFamily: sans, color: color.ink }}>
+        But 3 of 4 actions in order is only <span style={{ fontFamily: mono, color: color.warm }}>24</span> possible sequences: pair it with passive
+        and injection checks.
+      </div>
+    </Frame>
+  );
+}
+
+/* 17. AML structuring ------------------------------------------------------------------------------------ */
+export function FigAmlStructuring() {
+  const T = 10000;
+  const y = (amt: number) => 330 - (amt / 16000) * 300;
+  const panel = (x0: number, title: string, deps: [number, number][], flagged: string, tone: string) => (
+    <g>
+      <text x={x0} y={20} fill={tone} fontSize={26} fontFamily={sans}>
+        {title}
+      </text>
+      <line x1={x0} x2={x0 + 400} y1={y(T)} y2={y(T)} stroke={color.ink} strokeWidth={2} strokeDasharray="8 8" />
+      <line x1={x0} x2={x0 + 400} y1={330} y2={330} stroke={color.line} strokeWidth={2} />
+      {deps.map(([day, amt], i) => (
+        <g key={i}>
+          <rect x={x0 + 10 + day * 12 + i * 50} y={y(amt)} width={26} height={330 - y(amt)} rx={4} fill={amt >= T ? color.faint : tone} />
+          <text x={x0 + 23 + day * 12 + i * 50} y={360} fill={color.muted} fontSize={16} fontFamily={mono} textAnchor="middle">{`day ${day}`}</text>
+        </g>
+      ))}
+      <text x={x0} y={410} fill={tone} fontSize={22} fontFamily={sans}>
+        {flagged}
+      </text>
+    </g>
+  );
+  return (
+    <Frame
+      kicker="AML transaction monitoring · cash deposits vs a $10,000 reporting threshold"
+      title="Structuring: deposits that stay just under the line"
+    >
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {panel(
+          0,
+          "Customer A",
+          [
+            [0, 9500],
+            [2, 9800],
+            [5, 9200],
+          ],
+          "Alert: 3 in 5 days, $28,500",
+          color.warm
+        )}
+        {panel(
+          500,
+          "Customer B",
+          [
+            [0, 9500],
+            [10, 9800],
+            [20, 9200],
+          ],
+          "No alert: spread over 20 days",
+          color.accent
+        )}
+        {panel(
+          1000,
+          "Customer C",
+          [
+            [0, 12000],
+            [1, 15000],
+          ],
+          "No alert: reported anyway",
+          color.muted
+        )}
+        <text x={0} y={480} fill={color.ink} fontSize={22} fontFamily={sans}>
+          Dashed line: the reporting threshold. The rule looks for 3+ cash deposits at 80–100% of it within 7 days.
+        </text>
+        <text x={0} y={520} fill={color.faint} fontSize={20} fontFamily={sans}>
+          KYC knows who the customer is; monitoring like this is the rest of AML.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 18. KYB ownership chain ----------------------------------------------------------------------------- */
+export function FigKybOwnership() {
+  const node = (x: number, y: number, label: string, kind: "company" | "person", note?: string, hot?: boolean) => (
+    <g>
+      <rect
+        x={x - 110}
+        y={y - 34}
+        width={220}
+        height={68}
+        rx={kind === "company" ? 8 : 34}
+        fill={hot ? color.warmDim : color.surface}
+        stroke={hot ? color.warm : kind === "company" ? color.line : color.accent}
+        strokeWidth={2}
+      />
+      <text x={x} y={y + 9} fill={color.ink} fontSize={25} fontFamily={sans} textAnchor="middle">
+        {label}
+      </text>
+      {note && (
+        <text x={x} y={y + 64} fill={hot ? color.warm : color.accent} fontSize={22} fontFamily={mono} textAnchor="middle">
+          {note}
+        </text>
+      )}
+    </g>
+  );
+  const edge = (x1: number, y1: number, x2: number, y2: number, pct: string) => (
+    <g>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color.faint} strokeWidth={2} />
+      <text x={(x1 + x2) / 2 + 10} y={(y1 + y2) / 2} fill={color.muted} fontSize={21} fontFamily={mono}>
+        {pct}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="KYB · ultimate beneficial owners" title="15% on the register, 36% through the chain">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {edge(700, 74, 330, 166, "60%")}
+        {edge(700, 74, 1140, 166, "25%")}
+        {edge(760, 74, 900, 446, "")}
+        <text x={796} y={170} fill={color.muted} fontSize={21} fontFamily={mono}>
+          15% direct
+        </text>
+        {edge(330, 234, 150, 316, "50%")}
+        {edge(330, 234, 520, 316, "50%")}
+        {edge(520, 384, 300, 446, "30%")}
+        {edge(560, 384, 820, 446, "70%")}
+        {node(700, 40, "Target Ltd", "company")}
+        {node(330, 200, "Holding A", "company")}
+        {node(1140, 200, "Bilal", "person", "25%: a UBO in the US, not UK/EU")}
+        {node(150, 350, "Omar", "person", "30%")}
+        {node(520, 350, "Holding B", "company")}
+        {node(300, 480, "Zainab", "person", "9%")}
+        {node(900, 480, "Sara", "person", "", true)}
+        <text x={1030} y={472} fill={color.warm} fontSize={24} fontFamily={mono}>
+          15% + 60%×50%×70%
+        </text>
+        <text x={1030} y={506} fill={color.warm} fontSize={24} fontFamily={mono}>
+          = 36%, the largest owner
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 19. KYC selfie match ------------------------------------------------------------------------------------ */
+export function FigKycSelfieMatch() {
+  const steps = ["Face found", "Face size", "Sharpness", "Brightness", "Similarity ≥ 0.80"];
+  const outcomes: [string, string, string][] = [
+    ["Same person", "similarity 0.951", "match"],
+    ["Different person", "similarity −0.02", "human review"],
+    ["Blurry selfie", "fails sharpness", "retry: “hold still”"],
+    ["Face too small", "fails face size", "retry: “move closer”"],
+  ];
+  return (
+    <Frame kicker="KYC selfie vs ID photo" title="Check the photo first, then compare the faces">
+      <div style={{ display: "flex", alignItems: "center", gap: 14, fontFamily: sans }}>
+        {steps.map((st, i) => (
+          <div key={st} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div
+              style={{
+                padding: "18px 22px",
+                border: `1px solid ${i === 4 ? color.accent : color.line}`,
+                borderRadius: 12,
+                background: color.surface,
+                fontSize: 24,
+                color: color.ink,
+              }}
+            >
+              {st}
+            </div>
+            {i < steps.length - 1 && <div style={{ fontSize: 30, color: color.faint }}>→</div>}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 16, fontSize: 21, color: color.muted, fontFamily: sans }}>
+        Quality gates (first four) send the user back with a reason; only good images reach the comparison.
+      </div>
+      <div style={{ marginTop: 30, display: "grid", gridTemplateColumns: "320px 320px 1fr", fontFamily: sans }}>
+        {outcomes.map(([who, why, out]) => (
+          <div key={who} style={{ display: "contents" }}>
+            <div style={{ fontSize: 26, color: color.ink, padding: "16px 0", borderTop: `1px solid ${color.line}` }}>{who}</div>
+            <div style={{ fontSize: 22, color: color.muted, fontFamily: mono, padding: "19px 0", borderTop: `1px solid ${color.line}` }}>{why}</div>
+            <div
+              style={{
+                fontSize: 26,
+                color: out === "match" ? color.accent : out.startsWith("retry") ? color.ink : color.warm,
+                padding: "16px 0",
+                borderTop: `1px solid ${color.line}`,
+              }}
+            >
+              {out}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -884,4 +1115,8 @@ export const figures = [
   { id: "fig-dst-schedule", component: FigDstSchedule },
   { id: "fig-pii-redaction", component: FigPiiRedaction },
   { id: "fig-judge-kappa", component: FigJudgeKappa },
+  { id: "fig-active-liveness", component: FigActiveLiveness },
+  { id: "fig-aml-structuring", component: FigAmlStructuring },
+  { id: "fig-kyb-ownership", component: FigKybOwnership },
+  { id: "fig-kyc-selfie-match", component: FigKycSelfieMatch },
 ] as const;

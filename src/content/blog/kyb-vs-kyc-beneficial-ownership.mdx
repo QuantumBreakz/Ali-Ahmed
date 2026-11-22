@@ -1,0 +1,87 @@
+---
+title: "KYB vs KYC: verifying a business and finding its real owners, with a beneficial-ownership calculation in Python"
+description: "KYC verifies a person; KYB verifies a business and the people behind it. How KYB works, why the 25% beneficial-ownership threshold means different things in the US and the UK and EU, and tested Python that multiplies stakes through holding companies to find owners the share register hides."
+publishedAt: 2026-11-22
+tags: [KYC, Compliance, Fintech, Python]
+---
+
+**KYC** verifies a **person**: that they exist, are who they say, and aren't on a sanctions list. **KYB (know your business)** verifies a **company**: that it's legally registered and active, who its directors are, and above all who its **ultimate beneficial owners (UBOs)** are, the natural persons who own or control it, often through other companies. Each UBO then goes through KYC. The hard part is ownership through chains: someone who holds 15% directly can effectively own **36%** through two holding companies, as in the tested example below. Thresholds also differ: the US counts owners of **25% or more**, the UK and EU **more than 25%**, so a person at exactly 25% is a beneficial owner in one regime and not the other.
+
+![Ownership diagram: Target Ltd is owned 60% by Holding A, 15% by Sara and 25% by Bilal. Holding A is owned 50% by Omar and 50% by Holding B, which is owned 70% by Sara and 30% by Zainab. Effective stakes: Sara 36%, Omar 30%, Bilal 25%, Zainab 9%.](/figures/kyb-ownership.webp)
+
+_Sara holds 15% on the register, and 36% once the chain through two holding companies is multiplied out._
+
+## What does KYB check?
+
+1. **The company exists**: registration number, legal name and status from the official registry.
+2. **Who runs it**: directors and officers, each verified like any individual.
+3. **Who owns it**: the shareholder structure, traced through holding companies until only natural persons remain.
+4. **Who controls it**: people with control without ownership, such as a CEO or someone holding voting rights.
+5. **Risk**: industry, countries involved, sanctions and adverse media on the company and its people.
+
+KYB is part of the same AML programme as KYC; see [AML vs KYC](/blog/aml-vs-kyc-transaction-monitoring/) and [KYC vs AML vs KYB vs CDD](/blog/kyc-vs-aml-vs-kyb/).
+
+## Calculating effective ownership
+
+Multiply stakes along every chain from the company to each person, and add the chains together:
+
+```python title="ubo.py"
+from collections import defaultdict
+
+def effective_ownership(company: str, shareholders: dict[str, list[tuple[str, float]]]) -> dict[str, float]:
+    """Each person's total effective stake in `company`. shareholders maps an entity to its direct owners:
+    [(owner, fraction), ...]. Entities with no entry are treated as natural persons."""
+    totals: dict[str, float] = defaultdict(float)
+
+    def walk(entity: str, share: float, path: tuple[str, ...]):
+        if entity in path:
+            raise ValueError(f"circular ownership: {' -> '.join(path + (entity,))}")
+        owners = shareholders.get(entity)
+        if not owners:
+            totals[entity] += share
+            return
+        for owner, fraction in owners:
+            walk(owner, share * fraction, path + (entity,))
+
+    for owner, fraction in shareholders[company]:
+        walk(owner, fraction, (company,))
+    return dict(totals)
+
+def beneficial_owners(company, shareholders, threshold=0.25, inclusive=True):
+    """inclusive=True: '25% or more' (the US CDD rule). inclusive=False: 'more than 25%' (UK and EU)."""
+    stakes = effective_ownership(company, shareholders)
+    hit = (lambda s: round(s, 9) >= threshold) if inclusive else (lambda s: round(s, 9) > threshold)
+    return sorted(((p, round(s, 4)) for p, s in stakes.items() if hit(s)), key=lambda x: -x[1])
+```
+
+For the structure in the figure:
+
+```python title="Results"
+structure = {
+    "Target Ltd": [("Holding A", 0.60), ("Sara", 0.15), ("Bilal", 0.25)],
+    "Holding A": [("Omar", 0.50), ("Holding B", 0.50)],
+    "Holding B": [("Sara", 0.70), ("Zainab", 0.30)],
+}
+effective_ownership("Target Ltd", structure)
+# {'Omar': 0.3, 'Sara': 0.36, 'Zainab': 0.09, 'Bilal': 0.25}
+beneficial_owners("Target Ltd", structure)                   # US: [('Sara', 0.36), ('Omar', 0.3), ('Bilal', 0.25)]
+beneficial_owners("Target Ltd", structure, inclusive=False)  # UK/EU: [('Sara', 0.36), ('Omar', 0.3)]
+```
+
+The tests check that the stakes add up to 100%, that both threshold rules give the results above, and that circular ownership (company X owns Y, which owns X) raises an error instead of looping forever. Circular structures exist in practice and are themselves a reason for a human to look closer.
+
+## Where it gets harder
+
+- **Rounding at exactly the threshold.** Floating-point arithmetic can land a hair off the intended value (in Python, `0.35 + 0.1` is `0.44999999999999996`), which is why the comparison rounds first. A person meant to hold exactly 25% shouldn't fall out of the list through arithmetic. For legal records, store stakes as exact fractions or basis points instead.
+- **Control, not just ownership.** Voting agreements, trusts and nominee shareholders can give control without a large stake. If no one meets the ownership threshold, regulations generally require identifying who controls the company, such as a senior manager.
+- **Data quality.** Registries differ in what they publish and how current it is; documents from the company (share registers, trust deeds) fill the gaps, and then need [document checks](/blog/how-kyc-identity-verification-works/) of their own.
+- **Screening every person found.** Each UBO and director goes through [sanctions name screening](/blog/sanctions-name-screening-fuzzy-matching/), including the transliteration problems of names from different scripts.
+
+## Summary
+
+- **KYC** verifies people; **KYB** verifies a company, its directors and its **ultimate beneficial owners**.
+- Effective ownership **multiplies along chains and adds across them**: a 15% shareholder can own 36%.
+- Thresholds differ: **25% or more** (US) vs **more than 25%** (UK, EU). Make the rule explicit in code.
+- Detect circular ownership, round before comparing, and identify controllers when no one meets the threshold.
+
+Related: [AML vs KYC with a transaction-monitoring rule](/blog/aml-vs-kyc-transaction-monitoring/).

@@ -1,7 +1,7 @@
-// Render every still figure to ../public/figures/<name>.webp for the blog posts.
+// Render every still figure to ../public/figures/<name>.webp (in posts) and <name>.jpg (og:image) for the blog posts.
 //   npm run figures            all figures
 //   npm run figures -- <id>    one figure (e.g. fig-ann-recall)
-// Remotion writes PNG stills; Pillow (python3) converts them to WebP, about 45 KB instead of 600 KB.
+// Remotion writes PNG stills; Pillow (python3) converts them to WebP for pages (~45 KB) and JPEG for social previews.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 
@@ -14,7 +14,7 @@ for (const id of ids) {
   execFileSync("npx", ["remotion", "still", "src/index.ts", id, png, "--image-format=png"], { stdio: "inherit" });
   execFileSync("python3", [
     "-c",
-    "import sys; from PIL import Image; Image.open(sys.argv[1]).convert('RGB').save(sys.argv[2], 'WEBP', quality=86, method=6)",
+    "import sys; from PIL import Image; im = Image.open(sys.argv[1]).convert('RGB'); im.save(sys.argv[2], 'WEBP', quality=86, method=6); im.save(sys.argv[2][:-5] + '.jpg', 'JPEG', quality=86, optimize=True, progressive=True)",
     png,
     png.replace(/\.png$/, ".webp"),
   ]);
