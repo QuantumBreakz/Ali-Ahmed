@@ -266,6 +266,10 @@ if (!(await pathExists(outputDirectory))) {
   for (const sourceFile of [...htmlFiles, ...cssFiles, ...textFiles]) {
     const source = await readFile(sourceFile, "utf8");
     const extension = path.extname(sourceFile).toLowerCase();
+    // Markdown tables written with a blank first header cell render <th></th>, which axe reports as empty-table-header.
+    if (htmlExtensions.has(extension) && /<th\b[^>]*>\s*<\/th>/.test(source)) {
+      errors.add(`${path.relative(outputDirectory, sourceFile)}: table has an empty header cell; give the first column a name`);
+    }
     const references = htmlExtensions.has(extension)
       ? htmlReferences(source)
       : stylesheets.has(extension)

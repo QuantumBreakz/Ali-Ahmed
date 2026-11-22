@@ -87,7 +87,7 @@ for (const post of posts) {
     continue;
   }
   files["README.md"] = {
-    content: `# ${post.title}\n\n${post.description}\n\nCode from the article: ${post.url}\n\nBy [Ali Ahmed](https://aliahmed.si), AI engineer.\n`,
+    content: `# ${post.title}\n\n${post.description}\n\nCode from the article: ${post.url}\n\nBy [Ali Ahmed](https://aliahmed.si) (QuantumBreakz), AI engineer in Lahore.\n`,
   };
   const description = `${post.title}: code from ${post.url}`;
   if (!publish) {

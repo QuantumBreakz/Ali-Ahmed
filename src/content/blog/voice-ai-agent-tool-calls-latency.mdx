@@ -1,0 +1,95 @@
+---
+title: "Tool calls in voice AI agents: answering within the turn, holding lines for slow tools, and retries without double bookings"
+description: "A voice agent's tool call is a webhook the caller is waiting on, in silence. How to answer within a latency budget, reply with a holding line when a tool is slow and give the real result on the next turn, make retried calls idempotent by call ID, and verify the request signature. Tested Node.js."
+publishedAt: 2026-11-22
+tags: [Voice AI, AI Agents, Node.js, Reliability]
+---
+
+When a voice AI agent decides to call a tool (check a calendar, book a slot, look up an order), the platform sends a **webhook** to your server and the **caller waits in silence** until it answers. Text chat users tolerate a few seconds; on a phone call, two seconds of dead air feels broken. So a tool-call handler for voice needs three things a normal webhook doesn't: a **latency budget** (answer within about 1–2 seconds), a **holding line** when the tool is slower ("let me check that and come back to you"), with the real result delivered on the agent's **next turn**, and **idempotency by call ID**, because platforms retry slow webhooks and a retried booking must not book twice. Plus, as with any webhook, **verify the signature**. Below is a tested Node.js handler that does all four.
+
+![Timeline of three tool calls: a fast availability check answers in about 50 milliseconds within the turn; a slow booking replies with a holding line at the 1.5-second budget and its result is given on the next turn; a retry of the same booking call returns the pending answer instead of booking a second time.](/figures/voice-tool-calls.webp)
+
+_The test cases below: fast tool, slow tool with a holding line, and a retry that doesn't book twice._
+
+## How does function calling work in a voice agent?
+
+The model decides it needs a tool and emits a tool call with arguments, the same loop as in [how LLM tool calling works](/blog/llm-tool-calling-explained/). In a voice agent, the platform handles speech on both sides and forwards each tool call to your server as an HTTP request, usually including a **call ID**. Your response becomes the tool result the model speaks from. The difference from text is the clock: the caller hears nothing until you answer.
+
+## The handler
+
+```js title="toolcall.mjs: handler"
+export function createToolCallHandler(tools, { budgetMs = 1500, results = new Map() } = {}) {
+  return async function handle({ callId, name, args }) {
+    const known = results.get(callId);
+    if (known) return known.done ? { result: known.value } : { result: "Still checking that for you." };
+    const tool = tools[name];
+    if (!tool) return { error: `unknown tool ${name}` };
+    const entry = { done: false, value: undefined };
+    results.set(callId, entry);
+    const work = Promise.resolve(tool(args)).then(
+      (value) => Object.assign(entry, { done: true, value }),
+      (error) => Object.assign(entry, { done: true, value: `Sorry, I couldn't do that: ${error.message}` })
+    );
+    const timer = new Promise((resolve) => setTimeout(resolve, budgetMs, "timeout"));
+    if ((await Promise.race([work.then(() => "done"), timer])) === "done") return { result: entry.value };
+    return { result: "Let me check that and come back to you in a moment.", pending: true };
+  };
+}
+```
+
+- **The race** returns whichever comes first: the tool's result or the budget. The tool keeps running either way.
+- **The results map** is keyed by call ID. A retry finds the entry: "still checking" while the work runs, the real result once it's done, and **the tool never runs twice**.
+- **Errors become sentences.** The model needs something it can say to the caller, not a stack trace; the same idea as in [writing tool errors for LLM agents](/blog/agent-tool-error-messages/).
+
+## Do the tests pass?
+
+```js title="toolcall.test.mjs"
+// Fast tool: answered within the turn.
+assert.deepEqual(await handle({ callId: "c1", name: "checkAvailability", args: { day: "Monday" } }), {
+  result: "Monday: 10:00 and 14:00 are free",
+});
+
+// Slow tool (3 s): a holding line at the 1.5 s budget.
+const first = await handle({ callId: "c2", name: "bookSlot", args: { time: "10:00" } });
+assert.equal(first.pending, true);
+
+// The platform retries the same call: no second booking.
+assert.deepEqual(await handle({ callId: "c2", name: "bookSlot", args: { time: "10:00" } }), { result: "Still checking that for you." });
+await sleep(1700);
+assert.deepEqual(await handle({ callId: "c2", name: "bookSlot", args: { time: "10:00" } }), { result: "Booked 10:00" });
+assert.equal(bookings, 1);
+```
+
+All pass on Node.js 24: the fast tool answers in about 50 ms, the slow one returns its holding line at **1,501 ms**, a retry during the work doesn't book again, and the result is available on the next request. A failing tool returns "Sorry, I couldn't do that: calendar unavailable".
+
+## Verifying the request
+
+Anyone who finds your tool endpoint can call it, so check that each request comes from your voice platform. Most sign the body with a shared secret; check the exact header name and format in your platform's documentation:
+
+```js title="toolcall.mjs: signature"
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifySignature(rawBody, signatureHex, secret) {
+  const expected = createHmac("sha256", secret).update(rawBody).digest();
+  const given = Buffer.from(signatureHex ?? "", "hex");
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+```
+
+Compute it over the **raw body**, before any JSON parsing changes the bytes, and compare in constant time. The tests check a valid signature, a tampered body, a short signature and a missing header. Keeping the secret out of the agent's prompt and logs is covered in [securing a voice AI agent's webhook](/blog/voice-ai-webhook-security/).
+
+## In production
+
+- **Persist the results map.** The in-memory map works for one process; with several instances or restarts, store results by call ID in Redis or a database with an expiry, as in [idempotency keys for POST APIs](/blog/idempotency-keys-post-api-nodejs/).
+- **Make state-changing tools idempotent downstream too.** Pass the call ID to the booking system, so even a crash between booking and recording the result can't double-book.
+- **Tell the model about holding lines.** In the system prompt, explain that "come back to you" means it should ask the tool again, or wait for the result, rather than invent an answer.
+- **Measure the budget.** Track p95 tool latency per tool; any tool that regularly exceeds the budget needs caching or a faster path. Why the tail matters is in [p50 vs p90 vs p99](/blog/p50-p90-p99-latency-explained/).
+
+## Summary
+
+- In voice, a tool call is a webhook the caller waits on in silence: answer within **about 1.5 seconds**.
+- Race the tool against the budget; reply with a **holding line** and deliver the result on the next turn.
+- Key results by **call ID** so retries never repeat a booking.
+- Verify an HMAC signature over the raw body, and persist results outside the process.
+
+Related: [single agent vs multi-agent systems](/blog/single-agent-vs-multi-agent/).

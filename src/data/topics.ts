@@ -33,6 +33,7 @@ export const topics: Topic[] = [
           "kyc-vs-aml-vs-kyb",
           "aml-vs-kyc-transaction-monitoring",
           "kyb-vs-kyc-beneficial-ownership",
+          "cdd-vs-edd-risk-based-due-diligence",
           "mqtt-kyc-verification-pipeline",
         ],
       },
@@ -50,6 +51,7 @@ export const topics: Topic[] = [
         posts: [
           "passport-mrz-check-digits",
           "mrz-ocr-error-correction",
+          "ocr-accuracy-cer-wer-field-accuracy",
           "mrz-date-century-expiry",
           "nfc-epassport-chip-verification",
           "passport-ocr-vs-nfc-chip-verification",
@@ -109,6 +111,11 @@ export const topics: Topic[] = [
         question: "What is the difference between active and passive liveness detection?",
         answer:
           "Active liveness asks the user to follow prompts such as turning their head or blinking, and checks the actions happened in order and at human speed. Passive liveness asks nothing and judges the image itself for signs of a photo, screen or mask. Passive has less friction; active is harder to beat with a static photo. Neither stops video injected directly into the app, which needs separate defences.",
+      },
+      {
+        question: "What is the difference between CDD and EDD?",
+        answer:
+          "Customer due diligence (CDD) is the standard KYC check: verify identity, screen sanctions and PEP lists, and record the purpose and expected activity. Enhanced due diligence (EDD) adds documented source of funds and wealth, senior management approval, more frequent reviews and tighter monitoring for higher-risk customers. A risk assessment decides which applies, but a foreign politically exposed person always requires EDD.",
       },
     ],
   },
@@ -190,7 +197,13 @@ export const topics: Topic[] = [
     sections: [
       {
         heading: "How agents work",
-        posts: ["llm-tool-calling-explained", "what-is-model-context-protocol", "single-agent-vs-multi-agent", "agent-tool-error-messages"],
+        posts: [
+          "llm-tool-calling-explained",
+          "voice-ai-agent-tool-calls-latency",
+          "what-is-model-context-protocol",
+          "single-agent-vs-multi-agent",
+          "agent-tool-error-messages",
+        ],
       },
       {
         heading: "Testing and accountability",

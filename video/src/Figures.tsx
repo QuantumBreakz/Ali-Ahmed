@@ -1099,6 +1099,148 @@ export function FigKycSelfieMatch() {
   );
 }
 
+/* 20. CDD vs EDD ----------------------------------------------------------------------------------------- */
+export function FigCddEdd() {
+  const rows: [string, string, string, string][] = [
+    ["Local salary account, branch", "0", "SDD", "no risk factors"],
+    ["Remote, international transfers", "30", "CDD", "country +10 · transfers +15 · remote +5"],
+    ["Crypto, high-risk country", "70", "EDD", "4 factors · source of funds missing"],
+    ["Foreign minister's relative", "0", "EDD", "foreign PEP: mandatory, whatever the score"],
+    ["Domestic official", "20", "CDD", "domestic PEP is a factor, not automatic"],
+    ["Confirmed sanctions match", "–", "stop", "do not onboard; escalate"],
+  ];
+  const tone = (l: string) => (l === "SDD" ? color.accent : l === "CDD" ? color.ink : color.warm);
+  return (
+    <Frame kicker="Risk-based due diligence · SDD under 6 · CDD 6–39 · EDD 40+" title="The score picks the level; some facts override it">
+      <div style={{ display: "grid", gridTemplateColumns: "460px 90px 110px 1fr", fontFamily: sans }}>
+        {rows.map(([who, score, level, why]) => (
+          <div key={who} style={{ display: "contents" }}>
+            <div style={{ fontSize: 25, color: color.ink, padding: "15px 0", borderTop: `1px solid ${color.line}` }}>{who}</div>
+            <div style={{ fontSize: 24, color: color.muted, fontFamily: mono, padding: "16px 0", borderTop: `1px solid ${color.line}` }}>{score}</div>
+            <div style={{ fontSize: 25, color: tone(level), fontFamily: mono, padding: "15px 0", borderTop: `1px solid ${color.line}` }}>{level}</div>
+            <div style={{ fontSize: 22, color: color.muted, padding: "17px 0", borderTop: `1px solid ${color.line}` }}>{why}</div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
+/* 21. Voice agent tool calls ------------------------------------------------------------------------------ */
+export function FigVoiceToolCalls() {
+  const ms = (t: number) => 260 + t * 0.26; // 1 ms = 0.26 px, 0–4000 ms
+  const lane = (y: number, label: string, children: ReactNode) => (
+    <g>
+      <text x={240} y={y + 30} fill={color.ink} fontSize={23} fontFamily={sans} textAnchor="end">
+        {label}
+      </text>
+      {children}
+    </g>
+  );
+  return (
+    <Frame kicker="Voice agent tool calls · 1.5 s budget per turn" title="Never leave the caller in silence">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        <line x1={ms(1500)} x2={ms(1500)} y1={20} y2={420} stroke={color.warm} strokeWidth={3} strokeDasharray="8 8" />
+        <text x={ms(1500) + 10} y={36} fill={color.warm} fontSize={20} fontFamily={sans}>
+          budget
+        </text>
+        {lane(
+          70,
+          "Fast tool (50 ms)",
+          <>
+            <rect x={ms(0)} y={70} width={50 * 0.26 + 6} height={44} rx={6} fill={color.accent} />
+            <text x={ms(60) + 16} y={100} fill={color.ink} fontSize={21} fontFamily={sans}>
+              answer in the same turn
+            </text>
+          </>
+        )}
+        {lane(
+          170,
+          "Slow tool (3 s)",
+          <>
+            <rect x={ms(0)} y={170} width={3000 * 0.26} height={44} rx={6} fill={color.surface} stroke={color.line} />
+            <rect x={ms(1500) - 4} y={166} width={8} height={52} rx={2} fill={color.warm} />
+            <text x={ms(1500) + 16} y={200} fill={color.ink} fontSize={20} fontFamily={sans}>
+              holding line at 1.5 s
+            </text>
+            <text x={ms(3000) + 12} y={200} fill={color.accent} fontSize={20} fontFamily={sans}>
+              result next turn
+            </text>
+          </>
+        )}
+        {lane(
+          270,
+          "Retry, same call ID",
+          <>
+            <rect x={ms(1800)} y={270} width={120} height={44} rx={6} fill={color.surface} stroke={color.line} />
+            <text x={ms(1800) + 140} y={300} fill={color.ink} fontSize={20} fontFamily={sans}>
+              "still checking": no second booking
+            </text>
+          </>
+        )}
+        {lane(
+          370,
+          "Bad signature",
+          <>
+            <rect x={ms(0)} y={370} width={40} height={44} rx={6} fill={color.warmDim} stroke={color.warm} />
+            <text x={ms(0) + 60} y={400} fill={color.warm} fontSize={20} fontFamily={sans}>
+              rejected before any tool runs
+            </text>
+          </>
+        )}
+        {[0, 1000, 2000, 3000, 4000].map((t) => (
+          <text key={t} x={ms(t)} y={470} fill={color.faint} fontSize={20} fontFamily={mono} textAnchor="middle">
+            {t / 1000} s
+          </text>
+        ))}
+        <text x={260} y={530} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Tested: holding line returned at 1,501 ms; the booking ran once across three requests.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 22. OCR metrics -------------------------------------------------------------------------------------------- */
+export function FigOcrMetrics() {
+  const bar = (y: number, label: string, value: number, text: string, tone: string, note: string) => (
+    <g>
+      <text x={0} y={y + 28} fill={color.ink} fontSize={25} fontFamily={sans}>
+        {label}
+      </text>
+      <rect x={330} y={y} width={value * 700} height={40} rx={6} fill={tone} />
+      <text x={330 + value * 700 + 14} y={y + 29} fill={tone} fontSize={25} fontFamily={mono}>
+        {text}
+      </text>
+      <text x={330} y={y + 70} fill={color.muted} fontSize={19} fontFamily={sans}>
+        {note}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="One passport read, two misread characters (I→1, 0→O)" title="Same read, three very different scores">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {bar(10, "Character error rate", 0.05, "5%", color.accent, "2 wrong characters out of 40: looks excellent")}
+        {bar(120, "Word error rate", 0.4, "40%", color.warm, "2 wrong words out of 5: looks terrible")}
+        {bar(230, "Field accuracy", 0.8, "80%", color.ink, "4 of 5 fields right, but the wrong one is the document number")}
+        <line x1={0} x2={1400} y1={350} y2={350} stroke={color.line} />
+        <text x={0} y={400} fill={color.ink} fontSize={24} fontFamily={sans}>
+          Normalise first: "Anna Maria" vs "ANNA MARIA" with a double space (case and spacing only)
+        </text>
+        <text x={0} y={442} fill={color.warm} fontSize={24} fontFamily={mono}>
+          unnormalised CER 80%
+        </text>
+        <text x={360} y={442} fill={color.accent} fontSize={24} fontFamily={mono}>
+          normalised CER 0%
+        </text>
+        <text x={0} y={496} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Urdu digits need explicit mapping: NFKC leaves "۳۵۲۰۲" ≠ "35202" (CER 100%).
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1119,4 +1261,7 @@ export const figures = [
   { id: "fig-aml-structuring", component: FigAmlStructuring },
   { id: "fig-kyb-ownership", component: FigKybOwnership },
   { id: "fig-kyc-selfie-match", component: FigKycSelfieMatch },
+  { id: "fig-cdd-edd-risk", component: FigCddEdd },
+  { id: "fig-voice-tool-calls", component: FigVoiceToolCalls },
+  { id: "fig-ocr-metrics", component: FigOcrMetrics },
 ] as const;

@@ -62,7 +62,7 @@ export function summary(post) {
           children: [
             "By ",
             { tag: "a", attrs: { href: `${SITE}/` }, children: ["Ali Ahmed"] },
-            ", AI engineer working on computer vision, OCR and LLM systems.",
+            " (QuantumBreakz on GitHub), AI engineer in Lahore working on computer vision, OCR and LLM systems.",
           ],
         },
       ],

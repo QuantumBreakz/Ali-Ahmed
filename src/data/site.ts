@@ -9,8 +9,11 @@ export type Link = {
 
 export const identity = {
   firstName: "Ali",
+  lastName: "Ahmed",
   fullName: "Ali Ahmed",
   nameUrdu: "علی",
+  fullNameUrdu: "علی احمد",
+  handle: "QuantumBreakz",
 } as const;
 
 export const site = {
@@ -22,6 +25,10 @@ export const site = {
   sourceRepositoryPublic: sourceRepository.public,
   sourceRepositoryBranch: sourceRepository.branch,
   description: "AI engineer, product builder, security enthusiast (in that order).",
+  // One sentence that tells this Ali Ahmed apart from everyone else with the name; reused in llms.txt and bylines.
+  identityLine:
+    "Ali Ahmed (QuantumBreakz on GitHub) is an AI engineer in Lahore, Pakistan, who builds LLM systems and KYC computer vision and OCR, and contributes to open source, including LiteLLM.",
+  byline: "Ali Ahmed (QuantumBreakz), AI engineer in Lahore",
   homeTitle: "Ali Ahmed · AI Engineer, LLMs, Computer Vision & OCR · Lahore",
   homeDescription:
     "Ali Ahmed is an AI engineer in Lahore who shipped KYC computer vision and multilingual OCR at ShuftiPro, multi-agent LLMs at Kryptomind, and LiteLLM fixes.",
@@ -29,14 +36,28 @@ export const site = {
   worksFor: { name: "SmartLogics", url: "https://smart-logics.vercel.app" },
   alumniOf: "National University of Computer and Emerging Sciences (FAST-NUCES)",
   location: { locality: "Lahore", country: "PK" },
-  sameAs: ["https://github.com/QuantumBreakz", "https://www.linkedin.com/in/ali-ahmed-dev/"],
+  sameAs: [
+    "https://github.com/QuantumBreakz",
+    "https://www.linkedin.com/in/ali-ahmed-dev/",
+    "https://dev.to/quantumbreakz",
+    "https://aliahmed-ai.blogspot.com/",
+  ],
   knowsAbout: [
     "Artificial intelligence",
     "Large language models",
+    "LLM gateways",
+    "LiteLLM",
     "Retrieval-augmented generation",
     "AI agents",
+    "Model Context Protocol",
     "Computer vision",
     "Optical character recognition",
+    "Know your customer (KYC)",
+    "Identity verification",
+    "Face liveness detection",
+    "Python",
+    "Node.js",
+    "Open-source software",
     "Full-stack web development",
     "Serverless computing",
     "Application security",

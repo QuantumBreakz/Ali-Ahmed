@@ -1,0 +1,91 @@
+---
+title: "Measuring OCR accuracy: character error rate, word error rate and field accuracy, in Python"
+description: "How to measure an OCR system properly: character error rate (CER) and word error rate (WER) from edit distance, why normalising case, spacing and digits changes the answer, and why identity documents need field-level accuracy: 2.3% CER can still mean a wrong passport number. Tested Python."
+publishedAt: 2026-11-22
+tags: [OCR, Python, KYC, Evaluation]
+---
+
+**Character error rate (CER)** is the number of character edits (insertions, deletions, substitutions) needed to turn the OCR output into the correct text, divided by the length of the correct text. **Word error rate (WER)** is the same at word level. Both come from **edit distance** (Levenshtein). Two practical points decide whether the numbers mean anything. First, **normalise before comparing**: case, spacing and Unicode differences aren't recognition errors, and in my test they turned a perfect read into **80% CER**; Urdu digits need explicit mapping, because Unicode normalisation doesn't convert them. Second, for identity documents, measure **field accuracy**, the share of fields read exactly right: a read with **2.3% CER** still had the **passport number wrong**, and a wrong document number fails the whole verification.
+
+![Comparison of three metrics on the same passport read with two misread characters: character error rate 5 percent, word error rate 40 percent, and field accuracy 80 percent with the document number field wrong. Below, the same name in different case and spacing scores 80 percent CER without normalisation and 0 with it.](/figures/ocr-metrics.webp)
+
+_The same read scored three ways, and what normalisation does to CER._
+
+## Edit distance, CER and WER
+
+```python title="ocr_metrics.py: metrics"
+import unicodedata
+
+def edit_distance(a, b) -> int:
+    """Levenshtein distance between two sequences (characters or words)."""
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+def normalize(text: str) -> str:
+    """Compare what matters: Unicode form, case and whitespace differences aren't recognition errors here."""
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+def cer(reference: str, hypothesis: str, norm: bool = True) -> float:
+    r, h = (normalize(reference), normalize(hypothesis)) if norm else (reference, hypothesis)
+    return edit_distance(r, h) / max(len(r), 1)
+
+def wer(reference: str, hypothesis: str, norm: bool = True) -> float:
+    r, h = (normalize(reference), normalize(hypothesis)) if norm else (reference, hypothesis)
+    return edit_distance(r.split(), h.split()) / max(len(r.split()), 1)
+```
+
+The same function measures characters or words, because Python compares list items the same way it compares characters. `edit_distance("kitten", "sitting")` is 3, the textbook example.
+
+## Why the same read gets very different scores
+
+A passport read with two classic OCR confusions, `I` read as `1` in the name and `0` as `O` in the document number:
+
+```python title="Results"
+ref = "ERIKSSON ANNA MARIA L898902C3 1974-08-12"
+hyp = "ERIKSSON ANNA MAR1A L8989O2C3 1974-08-12"
+cer(ref, hyp)  # 0.05: 2 wrong characters out of 40
+wer(ref, hyp)  # 0.4: 2 wrong words out of 5
+```
+
+**CER says 95% right, WER says 60% right.** Neither is wrong; they answer different questions. CER suits comparing OCR engines on long text. WER exaggerates single-character errors in short, dense text like this, where one wrong character makes a whole "word" wrong.
+
+## Normalise, or measure the wrong thing
+
+`cer("Anna Maria", "ANNA  MARIA", norm=False)` is **0.8**: an 80% error rate for a read that's correct apart from case and a double space. With normalisation it's **0**. Decide what counts as an error for your use case and normalise everything else, consistently, for every system you compare.
+
+Unicode normalisation has limits. NFKC does **not** turn Urdu (Extended Arabic-Indic) digits into ASCII digits, so `cer("35202", "۳۵۲۰۲")` is **1.0** even though it's the same number. If your documents carry Urdu or Arabic digits, as Pakistani CNICs do, map them explicitly before comparing; see [validating a Pakistani CNIC number](/blog/pakistan-cnic-number-validation/) and [OCR for Arabic and Urdu](/blog/ocr-non-latin-scripts-arabic-urdu/).
+
+## Field accuracy: what KYC actually depends on
+
+```python title="ocr_metrics.py: fields"
+def field_accuracy(pairs: list[tuple[str, str]]) -> float:
+    """Share of fields read exactly right after normalisation: what a KYC decision actually depends on."""
+    return sum(normalize(r) == normalize(h) for r, h in pairs) / len(pairs)
+
+fields = [("ERIKSSON", "ERIKSSON"), ("ANNA MARIA", "ANNA MARIA"), ("L898902C3", "L8989O2C3"),
+          ("1974-08-12", "1974-08-12"), ("UTO", "UTO")]
+# CER over all fields: 0.023. Field accuracy: 0.8, and the wrong field is the document number.
+```
+
+A 2.3% character error rate sounds excellent. But the one wrong field is the **document number**, which unlocks the passport chip, gets checked against registries and identifies the document. Report accuracy **per field type**: names, numbers, dates and country codes fail in different ways, and their consequences differ. For MRZ fields, check digits catch many such errors, and sometimes a [safe repair](/blog/mrz-ocr-error-correction/) can fix them.
+
+## Building a test set
+
+- **Real documents, labelled twice.** Have two people transcribe each field independently and resolve disagreements; your ground truth is only as good as this.
+- **Cover the hard cases**: glare, blur, worn cards, non-Latin scripts, every document type you support. Image quality is the biggest driver; see [preparing ID photos for OCR](/blog/document-photo-preprocessing-ocr/).
+- **Report CER, field accuracy and the error breakdown**, per document type and per script, and track them every release.
+- **Keep the test set fixed** across releases, so changes in the numbers reflect the system, not the data.
+
+## Summary
+
+- **CER** = character edits ÷ reference length; **WER** = the same per word. Both come from edit distance.
+- **Normalise first**: case and spacing alone turned a correct read into 80% CER. Map non-ASCII digits explicitly.
+- For identity documents, report **field accuracy per field type**: 2.3% CER still hid a wrong document number.
+- Measure on a fixed, double-labelled set that covers your hard cases.
+
+Related: [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

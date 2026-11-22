@@ -1,0 +1,119 @@
+---
+title: "CDD vs EDD: risk-based customer due diligence, with a risk-scoring model in Python"
+description: "Customer due diligence (CDD) is the standard KYC check; enhanced due diligence (EDD) adds source of funds, senior approval and closer monitoring for higher-risk customers; simplified due diligence (SDD) does less for low risk. How a risk score decides which applies, why foreign PEPs and sanctions hits override the score, and tested Python."
+publishedAt: 2026-11-22
+tags: [KYC, Compliance, Fintech, Python]
+---
+
+**CDD (customer due diligence)** is the standard set of KYC checks: verify the customer's identity, screen them against sanctions and PEP lists, and record the purpose of the relationship and the activity you expect. **EDD (enhanced due diligence)** is what you add for **higher-risk** customers: documented **source of funds and wealth**, **senior management approval**, more frequent reviews and tighter monitoring. **SDD (simplified due diligence)** allows lighter checks where risk is demonstrably low. Which one applies is decided by a **risk assessment**, usually a score built from country, product, channel and customer factors. Two things override the score: a **confirmed sanctions match** stops onboarding, and a **foreign politically exposed person (PEP)** always gets EDD under FATF Recommendation 12. Below is a tested Python model of that decision.
+
+![Five customers through the risk model: a local salary account scores 0, simplified due diligence; a remote customer making international transfers scores 30, standard CDD; a crypto customer from a high-risk country scores 70, enhanced due diligence with source of funds missing; a foreign PEP scores 0 but gets enhanced due diligence anyway; a sanctions match stops onboarding.](/figures/cdd-edd-risk.webp)
+
+_The five test customers and the level each one gets._
+
+## CDD, EDD and SDD side by side
+
+| Level | When                                        | What it adds                                                                                     |
+| ----- | ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| SDD   | Demonstrably low risk, where rules allow it | Identity verification and sanctions screening, with less frequent review                         |
+| CDD   | The default                                 | Identity, sanctions and PEP screening, purpose and expected activity, periodic review            |
+| EDD   | High risk, or a mandatory trigger           | Source of funds and wealth, senior approval, more frequent review, tighter monitoring thresholds |
+
+All three are part of KYC, which is in turn one part of an AML programme; see [KYC vs AML vs KYB vs CDD](/blog/kyc-vs-aml-vs-kyb/) and [AML vs KYC in practice](/blog/aml-vs-kyc-transaction-monitoring/).
+
+## A risk-scoring model
+
+```python title="risk.py: scoring"
+from dataclasses import dataclass
+
+# Example weights. A real model comes from the business's own risk assessment and its regulator's guidance.
+COUNTRY_RISK = {"high": 30, "medium": 10, "low": 0}
+PRODUCT_RISK = {"crypto_withdrawals": 20, "international_transfers": 15, "salary_account": 0}
+CHANNEL_RISK = {"remote_unverified_device": 10, "remote": 5, "branch": 0}
+
+@dataclass
+class Customer:
+    name: str
+    country_risk: str
+    products: list[str]
+    channel: str
+    pep: str | None = None  # None, "domestic" or "foreign"
+    sanctions_hit: bool = False
+    adverse_media: bool = False
+    expected_monthly: float = 0.0
+    source_of_funds_documented: bool = False
+
+def risk_score(c: Customer) -> tuple[int, list[str]]:
+    score, reasons = 0, []
+    def add(points, why):
+        nonlocal score
+        if points:
+            score += points
+            reasons.append(f"+{points} {why}")
+    add(COUNTRY_RISK[c.country_risk], f"{c.country_risk}-risk country")
+    for p in c.products:
+        add(PRODUCT_RISK.get(p, 0), p.replace("_", " "))
+    add(CHANNEL_RISK[c.channel], c.channel.replace("_", " "))
+    add(25 if c.adverse_media else 0, "adverse media")
+    add(20 if c.pep == "domestic" else 0, "domestic PEP")
+    add(10 if c.expected_monthly > 50_000 else 0, "high expected volume")
+    return score, reasons
+```
+
+Every point comes with a reason. That's the most important design choice in the model: an auditor or a reviewer needs to see **why** a customer was rated high, not just the number.
+
+## Deciding the level
+
+```python title="risk.py: decision"
+def due_diligence(c: Customer) -> dict:
+    """Decide the level of due diligence. Some triggers override the score entirely."""
+    if c.sanctions_hit:
+        return {"level": "stop", "why": ["confirmed sanctions match: do not onboard, escalate"]}
+    score, reasons = risk_score(c)
+    if c.pep == "foreign":
+        reasons = ["foreign PEP: enhanced due diligence is mandatory regardless of score"] + reasons
+        level = "EDD"
+    elif score >= 40:
+        level = "EDD"
+    elif score <= 5:
+        level = "SDD"
+    else:
+        level = "CDD"
+    actions = {
+        "SDD": ["verify identity", "screen sanctions"],
+        "CDD": ["verify identity", "screen sanctions and PEPs", "record purpose and expected activity", "review every 2 years"],
+        "EDD": ["everything in CDD", "document source of funds and wealth", "senior management approval",
+                "review every year", "tighter monitoring thresholds"],
+    }[level]
+    missing = ["source of funds"] if level == "EDD" and not c.source_of_funds_documented else []
+    return {"level": level, "score": score, "why": reasons, "actions": actions, "missing": missing}
+```
+
+The test runs six customers through it:
+
+| Customer                        | Score | Level | Why                                                 |
+| ------------------------------- | ----- | ----- | --------------------------------------------------- |
+| Local salary account, branch    | 0     | SDD   | No risk factors                                     |
+| Remote, international transfers | 30    | CDD   | Medium-risk country, transfers, remote              |
+| Crypto, high-risk country       | 70    | EDD   | Four factors; **source of funds still missing**     |
+| Foreign minister's relative     | 0     | EDD   | Foreign PEP: mandatory, whatever the score          |
+| Domestic official               | 20    | CDD   | Domestic PEP is a risk factor, not an automatic EDD |
+| Confirmed sanctions match       | none  | stop  | Don't onboard; escalate                             |
+
+Two results show why the overrides exist. The foreign PEP scores **0** on every other factor, and a pure score would have put them on **simplified** checks. And the distinction between foreign and domestic PEPs matters: FATF requires enhanced measures for foreign PEPs in all cases, but for domestic PEPs only when the relationship is higher risk, so treating every PEP as automatic EDD over-burdens low-risk customers without being required.
+
+## Making it real
+
+- **Calibrate the weights.** The numbers above are illustrative. A real model is set by the business's documented risk assessment, checked against its regulator's guidance, and tested on past cases: did the customers who later caused problems score high?
+- **Feed it good inputs.** PEP and sanctions flags come from [name screening](/blog/sanctions-name-screening-fuzzy-matching/), and for businesses from tracing [beneficial owners](/blog/kyb-vs-kyc-beneficial-ownership/). A wrong input gives a confident wrong level.
+- **Re-score on change.** A new product, a move to a high-risk country or new adverse media should trigger a fresh assessment, not wait for the periodic review.
+- **Keep the reasons.** Store the score, the reasons and the version of the model with the case, for as long as records must be kept; see [KYC data retention](/blog/kyc-data-retention-deletion/).
+
+## Summary
+
+- **CDD** is the standard check; **EDD** adds source of funds, senior approval and closer monitoring; **SDD** is lighter where risk is low.
+- A **risk score** from country, product, channel and customer factors picks the level, and each point carries a reason.
+- **Overrides beat the score:** a sanctions match stops onboarding; a **foreign PEP** always gets EDD; a domestic PEP is a risk factor.
+- Calibrate weights on real cases, re-score when facts change, and keep the reasons.
+
+For the full verification flow these checks sit in, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).
