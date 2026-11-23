@@ -38,13 +38,22 @@ function fixImages(node: Node) {
   node.children?.forEach(fixImages);
 }
 
+const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+
+// Medium's importer collapses newlines and indentation inside <pre>, so write them as <br> and &nbsp;.
+function codeToHtml(node: Node) {
+  node.children = (node.children ?? []).map((child) => {
+    if (child.type !== "code") return (codeToHtml(child), child);
+    const lines = (child.value ?? "").split("\n").map((line) => escape(line).replace(/^ +/, (sp) => "&nbsp;".repeat(sp.length)));
+    return { type: "html", value: `<pre><code>${lines.join("<br>")}</code></pre>` } as Node;
+  });
+}
+
 const icons =
   '<link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16 32x32 48x48">' +
   '<link rel="icon" href="/favicon-96x96.png" type="image/png" sizes="96x96">' +
   '<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">' +
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">';
-
-const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 export async function getStaticPaths() {
   return (await getPublishedBlog()).map((entry) => ({ params: { slug: getWritingPath(entry).split("/")[2] }, props: { entry } }));
@@ -60,12 +69,15 @@ export const GET: APIRoute = async ({ props }) => {
   );
   tablesToLists(tree);
   fixImages(tree);
+  codeToHtml(tree);
   const hast = await unified()
-    .use(remarkRehype)
+    .use(remarkRehype, { allowDangerousHtml: true })
     .run(tree as never);
+  // Whitespace between blocks becomes an empty heading after every heading in Medium's importer.
   const body = unified()
-    .use(rehypeStringify)
-    .stringify(hast as never);
+    .use(rehypeStringify, { allowDangerousHtml: true })
+    .stringify(hast as never)
+    .replace(/>\n+</g, "><");
   const title = escape(entry.data.title);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="robots" content="noindex">${icons}</head><body><main><article><h1>${title}</h1>${body}</article></main></body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
