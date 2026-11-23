@@ -44,7 +44,7 @@ const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 function codeToHtml(node: Node) {
   node.children = (node.children ?? []).map((child) => {
     if (child.type !== "code") return (codeToHtml(child), child);
-    const lines = (child.value ?? "").split("\n").map((line) => escape(line).replace(/^ +/, (sp) => "&nbsp;".repeat(sp.length)));
+    const lines = (child.value ?? "").split("\n").map((line) => escape(line).replace(/^ +/, (sp) => "\u2002".repeat(sp.length)));
     return { type: "html", value: `<pre><code>${lines.join("<br>")}</code></pre>` } as Node;
   });
 }
