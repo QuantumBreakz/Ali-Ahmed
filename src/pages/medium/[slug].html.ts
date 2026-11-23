@@ -40,11 +40,12 @@ function fixImages(node: Node) {
 
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-// Medium's importer collapses newlines and indentation inside <pre>, so write them as <br> and &nbsp;.
+// Medium's importer collapses newlines and indentation inside <pre> (even &nbsp;) and splits code at blank lines,
+// so lines are joined with <br>, indented with en spaces, and blank lines hold one en space.
 function codeToHtml(node: Node) {
   node.children = (node.children ?? []).map((child) => {
     if (child.type !== "code") return (codeToHtml(child), child);
-    const lines = (child.value ?? "").split("\n").map((line) => escape(line).replace(/^ +/, (sp) => "\u2002".repeat(sp.length)));
+    const lines = (child.value ?? "").split("\n").map((line) => escape(line).replace(/^ +/, (sp) => "\u2002".repeat(sp.length)) || "\u2002");
     return { type: "html", value: `<pre><code>${lines.join("<br>")}</code></pre>` } as Node;
   });
 }
