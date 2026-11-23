@@ -22,7 +22,11 @@ const requestedRoutes = options.routes?.split(",").map((route) => route.trim());
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const outputDirectory = resolve(projectRoot, "dist");
 const screenshotDirectory = resolve(projectRoot, "test-results/a11y", options.theme);
-const routes = (await listHtmlFiles(outputDirectory)).map(routeFor).sort();
+// /medium/*.html are plain import feeds for Medium (noindex, unlinked), not pages people browse.
+const routes = (await listHtmlFiles(outputDirectory))
+  .map(routeFor)
+  .filter((route) => !route.startsWith("/medium/"))
+  .sort();
 for (const route of requestedRoutes ?? []) {
   if (!routes.includes(route)) throw new Error(`Unknown built route: ${route}. Use its exact path, for example /blog/.`);
 }
