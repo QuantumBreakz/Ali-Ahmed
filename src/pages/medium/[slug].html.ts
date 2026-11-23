@@ -1,5 +1,6 @@
 // Plain-HTML copy of each post for Medium's importer, which drops the site's code blocks, tables and lead.
-// Not linked anywhere, noindex, canonical to the real article.
+// Not linked anywhere and noindex. No rel=canonical: Medium follows it and imports the original page instead,
+// so the canonical is set to the real article in each Medium story's settings after import.
 import type { APIRoute } from "astro";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -51,7 +52,7 @@ export async function getStaticPaths() {
 
 export const GET: APIRoute = async ({ props }) => {
   const { entry } = props as { entry: Awaited<ReturnType<typeof getPublishedBlog>>[number] };
-  const { canonicalUrl, markdownContent } = getBlogExport(entry);
+  const { markdownContent } = getBlogExport(entry);
   const tree = unified().use(remarkParse).use(remarkGfm).parse(markdownContent) as unknown as Node;
   // Drop the h1 (it becomes <title>) and the "Published:" line; the description paragraph stays as the lead.
   tree.children = (tree.children ?? []).filter(
@@ -66,6 +67,6 @@ export const GET: APIRoute = async ({ props }) => {
     .use(rehypeStringify)
     .stringify(hast as never);
   const title = escape(entry.data.title);
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="robots" content="noindex"><link rel="canonical" href="${canonicalUrl}">${icons}</head><body><main><article><h1>${title}</h1>${body}</article></main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="robots" content="noindex">${icons}</head><body><main><article><h1>${title}</h1>${body}</article></main></body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 };
