@@ -109,3 +109,5 @@ The same idea applies to message queues: every consumer in a [pub-sub KYC pipeli
 On the sending side, the [transactional outbox pattern](/blog/transactional-outbox-nodejs-sqlite/) makes sure an event is never lost when your database commits.
 
 For APIs you expose, the client-driven equivalent is [idempotency keys for POST requests](/blog/idempotency-keys-post-api-nodejs/).
+
+Before deduplicating, check the request is genuine: [verifying webhook signatures in Node.js](/blog/verify-webhook-signatures-nodejs/).

@@ -50,6 +50,7 @@ export const topics: Topic[] = [
         heading: "Reading and checking document data",
         posts: [
           "passport-mrz-check-digits",
+          "mrz-parser-python-td3-td1",
           "mrz-ocr-error-correction",
           "ocr-accuracy-cer-wer-field-accuracy",
           "mrz-date-century-expiry",
@@ -143,7 +144,12 @@ export const topics: Topic[] = [
       },
       {
         heading: "Streaming responses",
-        posts: ["parse-sse-llm-stream-nodejs", "nextjs-sse-proxy-streaming", "cancel-llm-request-client-disconnect-nodejs"],
+        posts: [
+          "parse-sse-llm-stream-nodejs",
+          "partial-json-streaming-llm",
+          "nextjs-sse-proxy-streaming",
+          "cancel-llm-request-client-disconnect-nodejs",
+        ],
       },
       {
         heading: "Gateways, caching and cost",
@@ -304,7 +310,12 @@ export const topics: Topic[] = [
     sections: [
       {
         heading: "Doing things exactly once",
-        posts: ["idempotent-webhooks-nodejs", "idempotency-keys-post-api-nodejs", "transactional-outbox-nodejs-sqlite"],
+        posts: [
+          "verify-webhook-signatures-nodejs",
+          "idempotent-webhooks-nodejs",
+          "idempotency-keys-post-api-nodejs",
+          "transactional-outbox-nodejs-sqlite",
+        ],
       },
       {
         heading: "Running servers",

@@ -132,3 +132,5 @@ Every provider shapes its events slightly differently, so `streamText` is the pa
 - Keep the generic parser separate from the provider-specific code that reads deltas.
 
 When the reader goes away mid-stream, cancel the upstream call: [aborting LLM requests on client disconnect](/blog/cancel-llm-request-client-disconnect-nodejs/).
+
+If the model is streaming JSON, render it before it finishes with [a partial JSON parser](/blog/partial-json-streaming-llm/).

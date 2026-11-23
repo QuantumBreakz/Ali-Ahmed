@@ -1,0 +1,109 @@
+---
+title: "Parsing a passport MRZ in Python: every field of TD3 passports and TD1 ID cards, with check digits"
+description: "A tested Python parser for the machine-readable zone of passports (TD3, 2 lines of 44) and ID cards (TD1, 3 lines of 30): document type, issuing state, names, document number, nationality, birth date, sex, expiry, optional data and every check digit, plus what the MRZ can't tell you about names."
+publishedAt: 2026-11-23
+tags: [KYC, OCR, Python, Identity Verification]
+---
+
+A passport's **machine-readable zone (MRZ)** packs the data page into fixed-width lines: **TD3** (passports) uses **2 lines of 44 characters**, **TD1** (ID cards) uses **3 lines of 30**. Every field sits at a fixed position, and `<` fills unused space. Parsing is slicing: the **document type** and **issuing state** at the start of line 1, the **name** as `SURNAME<<GIVEN<NAMES`, then on line 2 the **document number, nationality, birth date, sex, expiry date and optional data**, each important one followed by a **check digit**, with a final **composite** check digit over several fields. Below is a tested parser for both layouts. One limit to know: the MRZ alphabet is only `A–Z`, `0–9` and `<`, so names lose their apostrophes, hyphens and accents, and `O'NEILL` comes back as `O NEILL`.
+
+![The ICAO specimen passport MRZ split into its fields: line 1 holds document type P, issuing state UTO and the name ERIKSSON, ANNA MARIA; line 2 holds document number L898902C3 with check digit 6, nationality UTO, birth date 740812 with check 2, sex F, expiry 120415 with check 9, optional data ZE184226B with check 1, and the composite check digit 0.](/figures/mrz-fields.webp)
+
+_The TD3 specimen from ICAO Doc 9303, field by field._
+
+## Where each field lives
+
+| Field                       | TD3 (passport)        | TD1 (ID card)                   |
+| --------------------------- | --------------------- | ------------------------------- |
+| Document type               | line 1, positions 1–2 | line 1, positions 1–2           |
+| Issuing state               | line 1, 3–5           | line 1, 3–5                     |
+| Name                        | line 1, 6–44          | line 3, all 30                  |
+| Document number + check     | line 2, 1–9 + 10      | line 1, 6–14 + 15               |
+| Nationality                 | line 2, 11–13         | line 2, 16–18                   |
+| Birth date (YYMMDD) + check | line 2, 14–19 + 20    | line 2, 1–6 + 7                 |
+| Sex                         | line 2, 21            | line 2, 8                       |
+| Expiry date + check         | line 2, 22–27 + 28    | line 2, 9–14 + 15               |
+| Optional data               | line 2, 29–42 + 43    | line 1, 16–30 and line 2, 19–29 |
+| Composite check digit       | line 2, 44            | line 2, 30                      |
+
+Positions follow ICAO Doc 9303 Parts 4 and 5; Python slices are zero-based, so position 1–2 is `[0:2]`.
+
+## The parser
+
+```python title="mrz_parse.py: TD3 passports"
+from dataclasses import dataclass
+
+WEIGHTS = (7, 3, 1)
+def check_digit(field: str) -> str:
+    v = lambda c: int(c) if c.isdigit() else 0 if c == "<" else ord(c) - 55
+    return str(sum(v(c) * WEIGHTS[i % 3] for i, c in enumerate(field)) % 10)
+
+@dataclass
+class MRZ:
+    document_type: str
+    issuing_state: str
+    surname: str
+    given_names: str
+    document_number: str
+    nationality: str
+    birth_date: str
+    sex: str
+    expiry_date: str
+    optional_data: str
+    checks: dict
+
+def _names(field: str) -> tuple[str, str]:
+    surname, _, given = field.partition("<<")
+    clean = lambda s: " ".join(p for p in s.split("<") if p)
+    return clean(surname), clean(given)
+
+def parse_td3(lines: list[str]) -> MRZ:
+    """Passport MRZ: 2 lines of 44 characters (ICAO 9303 Part 4)."""
+    l1, l2 = (l.strip().upper() for l in lines)
+    if len(l1) != 44 or len(l2) != 44:
+        raise ValueError("TD3 needs two lines of 44 characters")
+    surname, given = _names(l1[5:44])
+    checks = {
+        "document_number": check_digit(l2[0:9]) == l2[9],
+        "birth_date": check_digit(l2[13:19]) == l2[19],
+        "expiry_date": check_digit(l2[21:27]) == l2[27],
+        "optional_data": (check_digit(l2[28:42]) == l2[42]) or (set(l2[28:43]) == {"<"}),
+        "composite": check_digit(l2[0:10] + l2[13:20] + l2[21:43]) == l2[43],
+    }
+    return MRZ(l1[0:2].replace("<", ""), l1[2:5].replace("<", ""), surname, given, l2[0:9].replace("<", ""),
+               l2[10:13].replace("<", ""), l2[13:19], l2[20].replace("<", "X"), l2[21:27], l2[28:42].replace("<", ""), checks)
+```
+
+The TD1 parser is the same idea with the positions from the table; both are in the test file, along with a `parse()` that picks the layout from the line count and lengths. How the check digit itself works is in [how passport MRZ check digits work](/blog/passport-mrz-check-digits/).
+
+## What the tests show
+
+```python title="Results"
+parse(["P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<", "L898902C36UTO7408122F1204159ZE184226B<<<<<10"])
+# MRZ(document_type='P', issuing_state='UTO', surname='ERIKSSON', given_names='ANNA MARIA',
+#     document_number='L898902C3', nationality='UTO', birth_date='740812', sex='F', expiry_date='120415',
+#     optional_data='ZE184226B', checks={'document_number': True, 'birth_date': True, 'expiry_date': True,
+#                                        'optional_data': True, 'composite': True})
+```
+
+- **Both ICAO specimens parse**, TD3 above and the TD1 card (`D23145890`, Anna Maria Eriksson), with every check digit passing.
+- **One misread character** (`74O812` for the birth date) leaves the field parsed but fails its **own check and the composite**, while the document-number check still passes. That pattern tells you which field to re-read; for automated repairs, see [correcting MRZ OCR errors](/blog/mrz-ocr-error-correction/).
+- **Names lose punctuation**: `O<NEILL<<MARY<JANE` becomes surname `O NEILL`, given names `MARY JANE`. The MRZ can't say whether the space was an apostrophe, a hyphen or a real space. Show the name from the visual zone, and use the MRZ name only for matching.
+
+## What the parser doesn't do
+
+- **Dates are `YYMMDD`.** Turning `740812` into 1974 needs a century rule; see [parsing MRZ dates correctly](/blog/mrz-date-century-expiry/).
+- **Long TD1 document numbers** spill into the optional data, with `<` in the check digit position. Handle that case if you accept ID cards from countries that use it.
+- **Transliteration.** Names from non-Latin scripts are transliterated into `A–Z` by the issuing country's rules, so matching them against other records needs [fuzzy name matching](/blog/sanctions-name-screening-fuzzy-matching/).
+- **Authenticity.** A valid MRZ only proves the characters are consistent; the [NFC chip](/blog/passport-ocr-vs-nfc-chip-verification/) proves the data is genuine.
+
+The check-digit, repair and date functions are packaged as `mrz-checkdigit` on [PyPI](https://pypi.org/project/mrz-checkdigit/).
+
+## Summary
+
+- TD3 is **2×44**, TD1 is **3×30**; every field has a fixed position, and `<` is filler.
+- Parse by slicing, then verify **each check digit and the composite**; which checks fail tells you where the misread is.
+- MRZ names drop apostrophes, hyphens and accents: display the visual-zone name.
+- Dates need a century rule, and authenticity needs the chip.
+
+For where MRZ parsing sits in the whole flow, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

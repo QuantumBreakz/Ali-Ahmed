@@ -1241,6 +1241,118 @@ export function FigOcrMetrics() {
   );
 }
 
+/* 23. MRZ fields ---------------------------------------------------------------------------------------------- */
+export function FigMrzFields() {
+  const CW = 30; // px per character at fontSize 50 mono
+  const line = (y: number, segs: [string, string, string][]) => {
+    let x = 0;
+    return segs.map(([text, label, tone], i) => {
+      const left = x;
+      x += text.length * CW;
+      return (
+        <div key={y + "-" + i} style={{ position: "absolute", left, top: y, width: text.length * CW }}>
+          <div style={{ fontFamily: mono, fontSize: 50, color: tone, letterSpacing: 0, width: text.length * CW, whiteSpace: "pre" }}>{text}</div>
+          <div style={{ height: 4, margin: "4px 3px 0", background: tone, opacity: 0.8 }} />
+          <div style={{ fontFamily: sans, fontSize: 18, color: color.muted, marginTop: 8, textAlign: "center", whiteSpace: "nowrap" }}>{label}</div>
+        </div>
+      );
+    });
+  };
+  const A = color.accent,
+    I = color.ink,
+    W = color.warm,
+    F = color.faint;
+  return (
+    <Frame kicker="ICAO 9303 TD3 specimen · 2 lines × 44 characters" title="Every passport MRZ field sits at a fixed position">
+      <div style={{ position: "relative", height: 560, marginLeft: 40 }}>
+        {line(10, [
+          ["P<", "type", I],
+          ["UTO", "issuer", A],
+          ["ERIKSSON", "surname", I],
+          ["<<", "", F],
+          ["ANNA<MARIA", "given names", A],
+          ["<".repeat(19), "filler", F],
+        ])}
+        {line(190, [
+          ["L898902C3", "document no.", I],
+          ["6", "✓", W],
+          ["UTO", "nation", A],
+          ["740812", "birth", I],
+          ["2", "✓", W],
+          ["F", "sex", A],
+          ["120415", "expiry", I],
+          ["9", "✓", W],
+          ["ZE184226B<<<<<", "optional data", A],
+          ["1", "✓", W],
+          ["0", "all", W],
+        ])}
+        <div style={{ position: "absolute", top: 400, fontFamily: sans, fontSize: 25, color: color.ink }}>
+          <span style={{ color: W }}>Orange</span> digits are check digits; the last one covers the document number, dates and optional data together.
+        </div>
+        <div style={{ position: "absolute", top: 450, fontFamily: sans, fontSize: 25, color: color.muted }}>
+          Tested: both ICAO specimens pass every check; one misread (74O812) fails its own check and the composite.
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* 24. Webhook signatures ------------------------------------------------------------------------------------- */
+export function FigWebhookSignatures() {
+  const rows: [string, boolean, string][] = [
+    ["Signed with the current secret", true, "accepted"],
+    ["Signed with the old secret, during rotation", true, "accepted: both secrets configured"],
+    ["Same request replayed 10 minutes later", false, "timestamp outside 300 s window"],
+    ["Amount changed in transit", false, "signature mismatch"],
+    ["Timestamp forged to look fresh", false, "signature mismatch: it covers the timestamp"],
+    ["Body re-serialised, 10.50 → 10.5", false, "signature mismatch: verify the raw bytes"],
+  ];
+  return (
+    <Frame kicker="HMAC-SHA256 over “timestamp.raw body” · 5-minute window" title="What a correct webhook verifier accepts">
+      <div style={{ display: "grid", gridTemplateColumns: "640px 70px 1fr", fontFamily: sans }}>
+        {rows.map(([req, ok, why]) => (
+          <div key={req} style={{ display: "contents" }}>
+            <div style={{ fontSize: 27, color: color.ink, padding: "17px 0", borderTop: `1px solid ${color.line}` }}>{req}</div>
+            <div style={{ fontSize: 34, padding: "12px 0", borderTop: `1px solid ${color.line}` }}>{ok ? <Tick /> : <Cross />}</div>
+            <div style={{ fontSize: 23, color: ok ? color.accent : color.warm, padding: "19px 0", borderTop: `1px solid ${color.line}` }}>{why}</div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
+/* 25. Partial JSON --------------------------------------------------------------------------------------------- */
+export function FigPartialJson() {
+  const rows: [string, string, string][] = [
+    ["15", '{"title":"Refun', '{ title: "Refun" }'],
+    ["30", '…"Refund policy","step', '{ title: "Refund policy" }'],
+    ["60", '…["Open the order","Choose \\', '{ title, steps: ["Open the order", "Choose "] }'],
+    ["119", '…"eligible":true,"notes":null}', "{ title, steps (2), days: 14, eligible: true, notes: null }"],
+  ];
+  return (
+    <Frame kicker="Streaming structured output · 119-character response" title="Usable JSON at every point in the stream">
+      <div style={{ display: "grid", gridTemplateColumns: "110px 560px 1fr", fontFamily: mono }}>
+        <div style={{ fontFamily: sans, fontSize: 21, color: color.muted, paddingBottom: 12 }}>chars</div>
+        <div style={{ fontFamily: sans, fontSize: 21, color: color.muted, paddingBottom: 12 }}>stream so far (invalid JSON)</div>
+        <div style={{ fontFamily: sans, fontSize: 21, color: color.accent, paddingBottom: 12 }}>parsePartialJson returns</div>
+        {rows.map(([n, raw, out]) => (
+          <div key={n} style={{ display: "contents" }}>
+            <div style={{ fontSize: 26, color: color.muted, padding: "22px 0", borderTop: `1px solid ${color.line}` }}>{n}</div>
+            <div style={{ fontSize: 24, color: color.warm, padding: "23px 0", borderTop: `1px solid ${color.line}` }}>{raw}</div>
+            <div style={{ fontSize: 24, color: color.ink, padding: "23px 16px", borderTop: `1px solid ${color.line}`, background: color.accentDim }}>
+              {out}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 34, fontFamily: sans, fontSize: 24, color: color.muted }}>
+        Tested: all 119 prefixes parse, and no key ever disappears once it has appeared.
+      </div>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1264,4 +1376,7 @@ export const figures = [
   { id: "fig-cdd-edd-risk", component: FigCddEdd },
   { id: "fig-voice-tool-calls", component: FigVoiceToolCalls },
   { id: "fig-ocr-metrics", component: FigOcrMetrics },
+  { id: "fig-mrz-fields", component: FigMrzFields },
+  { id: "fig-webhook-signatures", component: FigWebhookSignatures },
+  { id: "fig-partial-json", component: FigPartialJson },
 ] as const;

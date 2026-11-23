@@ -27,7 +27,7 @@ export const site = {
   description: "AI engineer, product builder, security enthusiast (in that order).",
   // One sentence that tells this Ali Ahmed apart from everyone else with the name; reused in llms.txt and bylines.
   identityLine:
-    "Ali Ahmed (QuantumBreakz on GitHub) is an AI engineer in Lahore, Pakistan, who builds LLM systems and KYC computer vision and OCR, and contributes to open source, including LiteLLM.",
+    "Ali Ahmed (QuantumBreakz on GitHub) is an AI engineer in Lahore, Pakistan, who builds LLM systems and KYC computer vision and OCR, and contributes to open-source AI and developer infrastructure.",
   byline: "Ali Ahmed (QuantumBreakz), AI engineer in Lahore",
   homeTitle: "Ali Ahmed · AI Engineer, LLMs, Computer Vision & OCR · Lahore",
   homeDescription:

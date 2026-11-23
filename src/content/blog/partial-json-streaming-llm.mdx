@@ -1,0 +1,86 @@
+---
+title: "Parsing partial JSON from a streaming LLM: show structured output while it's still being written"
+description: "When an LLM streams JSON, every intermediate chunk is invalid JSON. A small tested JavaScript parser that closes open strings, drops dangling keys and half-written literals, and closes open arrays and objects, so the UI can render fields as they arrive. Every one of 119 prefixes of the test document parsed."
+publishedAt: 2026-11-23
+tags: [LLMs, Node.js, Streaming, AI Engineering]
+---
+
+When you ask an LLM for **structured output** and stream the response, the client receives JSON one fragment at a time: `{"title":"Refu`, then `nd policy","ste`, and so on. Every intermediate state is **invalid JSON**, so `JSON.parse` fails until the very last token, and the user stares at a spinner. A **partial JSON parser** fixes that: track which strings, arrays and objects are open, **close an open string**, **drop what can't be completed yet** (a dangling key, a trailing comma, a half-written `tru`), then **append the missing closing brackets** and parse. The UI can then render each field as soon as it exists. Below is a tested parser in about 35 lines; on the test document, **all 119 prefixes parsed**, and no field ever disappeared once it had appeared.
+
+![A streamed JSON response at four moments: after 15 characters the parser returns a title of Refun; after 30, the full title Refund policy with the half-written steps key dropped; after 60, the title, one complete step and a second step still being written; at the end, the complete object with title, two steps, days 14, eligible true and notes null. All 119 prefixes parsed.](/figures/partial-json.webp)
+
+_What the parser returns at four points in the stream._
+
+## The parser
+
+```js title="partial-json.mjs"
+export function parsePartialJson(text) {
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+  let fixed = inString ? (escaped ? text.slice(0, -1) : text) + '"' : text;
+  const closers = () =>
+    [...stack]
+      .reverse()
+      .map((c) => (c === "{" ? "}" : "]"))
+      .join("");
+  // Cleanups, applied one at a time until the text parses: each removes one kind of unfinished tail.
+  const rules = [
+    /[\s,]+$/, // trailing comma or whitespace
+    /:\s*(-|t|tr|tru|f|fa|fal|fals|n|nu|nul|-?\d+\.)$/, // half-written literal after a key
+    /(?<=[,{])\s*"(?:[^"\\]|\\.)*"\s*:?\s*$/, // dangling key, with or without its colon
+    /(?<=[,[])\s*(-|t|tr|tru|f|fa|fal|fals|n|nu|nul|-?\d+\.)$/, // half-written literal in an array
+  ];
+  for (let guard = 0; guard < 8; guard++) {
+    try {
+      return JSON.parse(fixed + closers());
+    } catch {}
+    const before = fixed;
+    for (const rule of rules) fixed = fixed.replace(rule, "");
+    if (fixed === before) break;
+  }
+  return undefined;
+}
+```
+
+The scan tracks one thing that's easy to get wrong: **escaped quotes**. `"say \"hi` is still inside a string, and the parser must not treat the escaped quote as its end. If the text stops right after a backslash, the parser drops that backslash before closing the string; otherwise the closing quote would itself be escaped.
+
+## What did testing catch?
+
+My first version applied the cleanups in a fixed order: drop the dangling key, then the half-written literal. On `{"days":14,"eligible":tr` that does nothing useful, because `"eligible"` isn't dangling until `tr` is gone. It returned nothing instead of `{ days: 14 }`. The fix is the loop: **try to parse, apply every cleanup once, try again**, so the order no longer matters.
+
+```js title="partial-json.test.mjs"
+assert.deepEqual(parsePartialJson('{"title":"Refu'), { title: "Refu" });
+assert.deepEqual(parsePartialJson('{"title":"Refund","ste'), { title: "Refund" });
+assert.deepEqual(parsePartialJson('{"title":"Refund","steps":["Open'), { title: "Refund", steps: ["Open"] });
+assert.deepEqual(parsePartialJson('{"days":14,"eligible":tr'), { days: 14 });
+assert.deepEqual(parsePartialJson('{"q":"say \\"hi'), { q: 'say "hi' });
+assert.deepEqual(parsePartialJson('{"q":"a\\'), { q: "a" }); // stream cut mid-escape
+```
+
+The main test feeds every prefix of a 119-character document, with a nested array, an escaped quote, a number, `true` and `null`. All 119 parse, the last equals `JSON.parse` of the full text, and no key present in one prefix is missing from the next.
+
+## Using it in a UI
+
+- **Render only what's stable.** A string value grows as it streams (`"Refu"`, then `"Refund policy"`), which is fine for text. For values that trigger actions, such as an ID or an enum, wait until the field is complete: when a **later key appears**, the earlier one is finished.
+- **Validate the final object**, not the partial ones. Run the schema check once the stream ends, as in [getting reliable JSON from LLMs](/blog/llm-structured-output-validation/).
+- **Parse the stream first.** The text you pass in is the concatenated content deltas from the event stream; reading those correctly is covered in [parsing a streamed LLM response](/blog/parse-sse-llm-stream-nodejs/).
+- **Throttle re-parsing.** Re-parsing the whole text on every token is O(n²) over the response. For long documents, parse every few tokens or on an animation frame.
+
+## Summary
+
+- Streaming JSON is invalid until the end; a partial parser makes it usable as it arrives.
+- Track open strings and brackets, **close the string**, **drop unfinished tails**, **close the brackets**, parse.
+- Apply cleanups in a loop rather than a fixed order: the tests showed a fixed order fails.
+- Render text fields as they grow, act on a field only when the next key appears, and validate the final object.
+
+Related: [cancel the LLM call when the client disconnects](/blog/cancel-llm-request-client-disconnect-nodejs/).

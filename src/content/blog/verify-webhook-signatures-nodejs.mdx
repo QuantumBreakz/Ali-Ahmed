@@ -1,0 +1,105 @@
+---
+title: "Verifying webhook signatures in Node.js: raw body, HMAC, timestamps, replay windows and secret rotation"
+description: "How to verify signed webhooks correctly in Node.js: sign over the timestamp and the raw body, compare in constant time, reject requests outside a 5-minute window to stop replays, and accept two secrets during rotation. Tested code, including why re-serialised JSON breaks the signature."
+publishedAt: 2026-11-23
+tags: [Security, Node.js, Reliability, Web Development]
+---
+
+Most webhook providers sign each request with a **shared secret**: they compute an **HMAC-SHA256** over the request and send it in a header, usually together with a **timestamp**. Verifying correctly takes four rules. **Sign and verify over the raw body bytes**, not over JSON you've parsed and re-serialised: in my test, `JSON.stringify(JSON.parse(body))` turned `10.50` into `10.5` and broke a valid signature. **Include the timestamp in what's signed** and reject anything older than about **5 minutes**, which stops replays of captured requests. **Compare in constant time**. And **accept a list of secrets**, so you can rotate without downtime. Below is a tested implementation; check your provider's documentation for its exact header names and string format.
+
+![Six webhook requests and the verifier's decision: a correctly signed request is accepted; one signed with the old secret is accepted during rotation; a replay 10 minutes later is rejected as outside the 300-second window; a tampered amount fails the signature; a forged fresh timestamp fails the signature; and re-serialised JSON fails because 10.50 became 10.5.](/figures/webhook-signatures.webp)
+
+_What the verifier below accepts and rejects._
+
+## Why each rule matters
+
+| Rule                           | The attack or bug it stops                                               |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| HMAC over the raw body         | Anyone who finds your URL sending fake events                            |
+| Timestamp inside the signature | An attacker changing the timestamp to make an old request look fresh     |
+| 5-minute window                | Replaying a captured valid request hours later                           |
+| Constant-time comparison       | Learning the signature byte by byte from response timing                 |
+| List of secrets                | Downtime or rejected events while you rotate a leaked or expiring secret |
+
+A signature only proves a request came from the provider. It doesn't stop the provider from sending the same event twice, so make the handler [idempotent](/blog/idempotent-webhooks-nodejs/) as well.
+
+## The verifier
+
+```js title="webhook-sig.mjs: verify"
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+/** Sign as many providers do: HMAC-SHA256 over "<timestamp>.<raw body>", sent with the timestamp. */
+export function sign(rawBody, secret, timestamp) {
+  return createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+}
+
+/** secrets is a list so you can rotate: accept the new secret and the old one for a while. */
+export function verifyWebhook({ rawBody, timestamp, signature }, secrets, { now = Date.now(), toleranceSec = 300 } = {}) {
+  const ts = Number(timestamp);
+  if (!Number.isInteger(ts)) return { ok: false, reason: "missing or malformed timestamp" };
+  const age = Math.floor(now / 1000) - ts;
+  if (Math.abs(age) > toleranceSec) return { ok: false, reason: `timestamp outside ${toleranceSec}s tolerance (age ${age}s)` };
+  const given = Buffer.from(String(signature ?? ""), "hex");
+  for (const secret of secrets) {
+    const expected = Buffer.from(sign(rawBody, secret, ts), "hex");
+    if (given.length === expected.length && timingSafeEqual(given, expected)) return { ok: true };
+  }
+  return { ok: false, reason: "signature mismatch" };
+}
+```
+
+The window is checked in both directions: a timestamp far in the future is as suspicious as one in the past, and allowing a little skew covers clocks that disagree by seconds.
+
+## Getting the raw body
+
+```js title="webhook-sig.mjs: raw body"
+export async function readRawBody(req, limit = 1_000_000) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error("body too large");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+```
+
+With plain `node:http`, read the body yourself as above. Frameworks usually parse JSON before your handler runs; use their raw-body option for the webhook route (for example, Express's `express.raw({ type: "application/json" })` on that route only), verify, and only then `JSON.parse`.
+
+## The tests
+
+```js title="webhook-sig.test.mjs"
+const body = '{"event":"call.ended","id":"evt_1","amount":10.50}';
+const good = { rawBody: body, timestamp: String(t), signature: sign(body, "new-secret", t) };
+
+assert.deepEqual(verifyWebhook(good, ["new-secret"], { now }), { ok: true });
+// Rotation: the old secret still works while both are configured.
+assert.deepEqual(verifyWebhook({ ...good, signature: sign(body, "old-secret", t) }, ["new-secret", "old-secret"], { now }), { ok: true });
+// A captured request replayed 10 minutes later.
+assert.match(verifyWebhook(good, ["new-secret"], { now: now + 600_000 }).reason, /outside 300s/);
+// A forged fresh timestamp: the signature covers it.
+assert.equal(verifyWebhook({ ...good, timestamp: String(t + 60) }, ["new-secret"], { now: now + 60_000 }).reason, "signature mismatch");
+// Re-serialised JSON: 10.50 becomes 10.5, and the signature no longer matches.
+assert.equal(verifyWebhook({ ...good, rawBody: JSON.stringify(JSON.parse(body)) }, ["new-secret"], { now }).ok, false);
+```
+
+All pass on Node.js 24, along with a tampered amount, a malformed timestamp, a missing signature, and an end-to-end check through a real HTTP server that returns 200 for a signed request and 401 for a bad one.
+
+## Rotating a secret
+
+1. Generate the new secret in the provider's dashboard, if it supports two active secrets, and add it to your list **first**.
+2. Switch the provider to sign with the new secret.
+3. After the provider's retry period has passed, remove the old secret.
+
+Keep secrets in environment variables or a secret manager, never in code, logs or an AI agent's prompt; see [securing a voice AI agent's webhook](/blog/voice-ai-webhook-security/) and [where environment variables go](/blog/where-do-environment-variables-go/).
+
+## Summary
+
+- Verify an **HMAC over the timestamp and the raw body**, not re-serialised JSON.
+- Reject requests outside a **5-minute window**, in both directions, to stop replays.
+- Compare in **constant time**, after checking lengths.
+- Accept **a list of secrets** so rotation needs no downtime.
+- Signatures prove the sender; idempotency handles duplicates.
+
+Related: [voice AI agent tool calls](/blog/voice-ai-agent-tool-calls-latency/) and [JWT verification pitfalls](/blog/jwt-verification-pitfalls-nodejs/).
