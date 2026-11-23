@@ -52,7 +52,7 @@ export function BlogReader({
         <TOCProvider toc={toc}>
           <article id="blog-content" tabIndex={-1} className={`blog-page ${article ? "blog-article" : "blog-index"}`}>
             <header className="blog-heading">
-              <p className="blog-kicker">{article ? "From the notebook" : "Experiments & observations"}</p>
+              <div className="blog-kicker">{article ? "From the notebook" : "Experiments & observations"}</div>
               <h1>{title}</h1>
               <p className="blog-deck">{description}</p>
               {article && (

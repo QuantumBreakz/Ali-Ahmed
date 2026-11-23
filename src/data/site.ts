@@ -40,6 +40,7 @@ export const site = {
     "https://github.com/QuantumBreakz",
     "https://www.linkedin.com/in/ali-ahmed-dev/",
     "https://dev.to/quantumbreakz",
+    "https://medium.com/@ali.ahmed.work.dev",
     "https://aliahmed-ai.blogspot.com/",
   ],
   knowsAbout: [
