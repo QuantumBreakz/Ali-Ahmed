@@ -55,6 +55,7 @@ export const topics: Topic[] = [
           "ocr-accuracy-cer-wer-field-accuracy",
           "mrz-date-century-expiry",
           "nfc-epassport-chip-verification",
+          "passport-bac-key-derivation-python",
           "passport-ocr-vs-nfc-chip-verification",
           "pakistan-cnic-number-validation",
           "luhn-iban-check-digits",
@@ -265,6 +266,7 @@ export const topics: Topic[] = [
         heading: "Retrieval foundations",
         posts: [
           "embeddings-vector-search-explained",
+          "cosine-vs-dot-product-vs-euclidean",
           "hnsw-vs-cosine-similarity-vector-search",
           "rag-chunking-strategies",
           "minhash-near-duplicate-documents-rag",

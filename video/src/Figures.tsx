@@ -1353,6 +1353,80 @@ export function FigPartialJson() {
   );
 }
 
+/* 26. Passport BAC keys ------------------------------------------------------------------------------------- */
+export function FigPassportBacKeys() {
+  const box = (label: string, value: string, tone: string) => (
+    <div style={{ border: `1px solid ${color.line}`, borderRadius: 10, padding: "14px 20px", background: color.surface }}>
+      <div style={{ fontFamily: sans, fontSize: 19, color: color.muted }}>{label}</div>
+      <div style={{ fontFamily: mono, fontSize: 27, color: tone, marginTop: 6 }}>{value}</div>
+    </div>
+  );
+  const arrow = (text: string) => <div style={{ fontFamily: sans, fontSize: 19, color: color.faint, padding: "6px 0 6px 24px" }}>↓ {text}</div>;
+  return (
+    <Frame kicker="Basic Access Control · ICAO Doc 9303 Part 11 worked example" title="From three MRZ fields to the keys that unlock the chip">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40 }}>
+        <div>
+          {box("Document no. + check · birth date + check · expiry + check", "L898902C<3 6908061 9406236", color.ink)}
+          {arrow("SHA-1, first 16 bytes")}
+          {box("K_seed", "239AB9CB282DAF66231DC5A4DF6BFBAE", color.ink)}
+          {arrow("SHA-1(K_seed ‖ counter), 16 bytes, odd parity")}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+            {box("K_enc (counter 1)", "AB94FDECF2674FDFB9B391F85D7F76F2", color.accent)}
+            {box("K_mac (counter 2)", "7962D9ECE03D1ACD4C76089DCE131543", color.accent)}
+          </div>
+        </div>
+        <div style={{ fontFamily: sans, fontSize: 24, color: color.ink, lineHeight: 1.45 }}>
+          <div style={{ color: color.accent, fontSize: 22, marginBottom: 10 }}>Matches ICAO's test values byte for byte</div>
+          <div>The reader proves it holds the keys with EXTERNAL AUTHENTICATE; the keys are never sent.</div>
+          <div style={{ marginTop: 22, color: color.warm }}>One misread character, C → O:</div>
+          <div style={{ fontFamily: mono, fontSize: 24, color: color.warm, marginTop: 6 }}>K_enc E6A410DA4F438AFD…</div>
+          <div style={{ marginTop: 10, color: color.muted, fontSize: 22 }}>
+            Completely different key: the chip refuses, with no hint which field was wrong.
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* 27. Similarity metrics ------------------------------------------------------------------------------------ */
+export function FigSimilarityMetrics() {
+  const bar = (y: number, label: string, value: number, tone: string) => (
+    <g>
+      <text x={0} y={y + 28} fill={color.ink} fontSize={24} fontFamily={sans}>
+        {label}
+      </text>
+      <rect x={300} y={y} width={value * 700} height={40} rx={6} fill={tone} />
+      <text x={300 + value * 700 + 14} y={y + 29} fill={tone} fontSize={24} fontFamily={mono}>
+        {Math.round(value * 10)} of 10
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="10,000 vectors · 384 dimensions · overlap with cosine's top 10" title="Metrics only agree once vectors are normalised">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        <text x={0} y={20} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Unnormalised vectors (lengths vary 6×)
+        </text>
+        {bar(40, "Dot product", 0.5, color.warm)}
+        {bar(100, "Euclidean distance", 0.1, color.warm)}
+        <text x={0} y={210} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Normalised to length 1
+        </text>
+        {bar(230, "Dot product", 1, color.accent)}
+        {bar(290, "Euclidean distance", 1, color.accent)}
+        <line x1={0} x2={1400} y1={370} y2={370} stroke={color.line} />
+        <text x={0} y={415} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Dot product favours long vectors: its top 10 average length 53.7, against 34.1 for all vectors.
+        </text>
+        <text x={0} y={460} fill={color.muted} fontSize={22} fontFamily={mono}>
+          On unit vectors: ‖a − b‖² = 2 − 2·cos(a, b) (max error 1.3e-15)
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1379,4 +1453,6 @@ export const figures = [
   { id: "fig-mrz-fields", component: FigMrzFields },
   { id: "fig-webhook-signatures", component: FigWebhookSignatures },
   { id: "fig-partial-json", component: FigPartialJson },
+  { id: "fig-passport-bac-keys", component: FigPassportBacKeys },
+  { id: "fig-similarity-metrics", component: FigSimilarityMetrics },
 ] as const;

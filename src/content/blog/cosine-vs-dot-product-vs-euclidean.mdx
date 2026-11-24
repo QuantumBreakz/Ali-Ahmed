@@ -1,0 +1,88 @@
+---
+title: "Cosine similarity vs dot product vs Euclidean distance: when vector search results agree, and when they don't"
+description: "Which similarity metric to use for vector search, tested in NumPy on 10,000 vectors: on normalised embeddings cosine, dot product and Euclidean distance return the identical top 10; on unnormalised vectors dot product shares only half of cosine's results and Euclidean only one in ten. Plus why similarity scores aren't probabilities."
+publishedAt: 2026-11-24
+tags: [RAG, Vector Search, Python, Machine Learning]
+---
+
+For vector search, the choice between **cosine similarity**, **dot product** and **Euclidean distance** matters much less than one question: **are your vectors normalised to length 1?** If they are, the three metrics **rank results identically**: on unit vectors, the dot product _is_ the cosine, and squared Euclidean distance is exactly **2 − 2 × cosine**, so sorting by any of them gives the same order. If they aren't, the metrics disagree a lot: in my test on 10,000 random 384-dimensional vectors of varying length, the **dot product's top 10 shared only 5 results with cosine's**, and **Euclidean distance's shared just 1**. Dot product favours long vectors; Euclidean favours vectors close to the query's length. Most embedding models output normalised vectors, so the usual answer is: **normalise, then use the dot product**, which is the cheapest of the three.
+
+![Overlap of each metric's top 10 with cosine similarity's top 10, on 10,000 vectors of 384 dimensions. Unnormalised vectors: dot product shares 5 of 10, Euclidean distance shares 1 of 10. Normalised vectors: both share all 10. Dot product's top 10 have an average length of 53.7 against 34.1 for all vectors.](/figures/similarity-metrics.webp)
+
+_Same data, same query, three metrics: they only agree after normalisation._
+
+## What does each metric measure?
+
+| Metric             | Formula        | Measures                      | Sensitive to vector length?                         |
+| ------------------ | -------------- | ----------------------------- | --------------------------------------------------- |
+| Cosine similarity  | a·b / (‖a‖‖b‖) | The angle between the vectors | No                                                  |
+| Dot product        | a·b            | Angle **and** both lengths    | Yes: longer vectors score higher                    |
+| Euclidean distance | ‖a − b‖        | Straight-line distance        | Yes: prefers vectors of similar length to the query |
+
+For text embeddings, the **direction** carries the meaning, and the length mostly reflects things like text length or the model's internals. That's why cosine is the default for semantic search: it ignores length.
+
+## The test
+
+```python title="similarity.py: metrics"
+import numpy as np
+
+def cosine(q, X):
+    return (X @ q) / (np.linalg.norm(X, axis=1) * np.linalg.norm(q))
+
+def dot(q, X):
+    return X @ q
+
+def neg_euclidean(q, X):  # higher is closer, so it sorts the same way as the others
+    return -np.linalg.norm(X - q, axis=1)
+
+def top_k(scores, k):
+    return list(np.argsort(-scores, kind="stable")[:k])
+
+def normalize(X):
+    return X / np.linalg.norm(X, axis=-1, keepdims=True)
+```
+
+```python title="similarity.py: experiment"
+rng = np.random.default_rng(7)
+X = rng.normal(size=(10_000, 384))
+X *= rng.uniform(0.5, 3.0, size=(10_000, 1))  # lengths vary 6x, as unnormalised embeddings can
+q = rng.normal(size=384)
+
+# Unnormalised: dot vs cosine overlap 0.5, Euclidean vs cosine overlap 0.1
+# Mean length of dot product's top 10: 53.73, cosine's: 38.22, all vectors: 34.06
+
+Xn, qn = normalize(X), normalize(q)
+assert top_k(dot(qn, Xn), 10) == top_k(cosine(qn, Xn), 10) == top_k(neg_euclidean(qn, Xn), 10)
+assert np.allclose(np.linalg.norm(Xn - qn, axis=1) ** 2, 2 - 2 * cosine(qn, Xn))  # max error 1.3e-15
+```
+
+The numbers in the comments are what the run printed. After normalisation the three top-10 lists are identical, element for element, and the identity `‖a − b‖² = 2 − 2·cos(a, b)` holds to floating-point precision.
+
+## Why does Euclidean disagree so much?
+
+Without normalisation, a vector far from the query in length is far away in Euclidean terms even if it points the same way. In the test, the vectors' lengths ranged roughly from 10 to 60, so length differences dominated the distance, and Euclidean's top 10 was mostly vectors that happened to be about as long as the query. That's rarely what "similar meaning" should mean.
+
+## So which metric should you use?
+
+- **Your model outputs normalised vectors** (most sentence-embedding models do; check the model card): use the **dot product** (often called "inner product" in vector databases). It's the cheapest, and it gives the same ranking as cosine.
+- **Not sure:** normalise once, when you store the vectors and when you embed the query, then use the dot product. Normalising the stored vectors is a one-time cost.
+- **The model's documentation says to use a specific metric:** follow it. Some models are trained so that length carries information, and then the dot product on raw vectors is intended.
+- **Euclidean distance:** fine on normalised vectors (same ranking), but there's rarely a reason to prefer it for text.
+
+Whatever you choose, **index and query with the same metric**. An [HNSW index built for cosine](/blog/hnsw-vs-cosine-similarity-vector-search/) queried with inner product on unnormalised vectors returns the wrong neighbours without any error.
+
+## Are similarity scores probabilities?
+
+No. A cosine of 0.8 doesn't mean "80% similar". In the test, random 384-dimensional vectors had cosines between them averaging −0.001, with a maximum of 0.21 across 10,000 vectors: in high dimensions, unrelated vectors sit near 0. Real embedding models produce their own ranges (some put even unrelated texts well above 0), so a threshold like "keep results above 0.75" has to be **measured on your own data**, not borrowed. The same goes for [semantic caching](/blog/semantic-cache-llm-responses/), where a wrong threshold serves the wrong cached answer.
+
+Measure the threshold the way you'd measure retrieval in general: label some query-document pairs, then look at [recall and precision at k](/blog/rag-retrieval-evaluation-metrics/) for a few candidate thresholds.
+
+## Summary
+
+- **Normalised vectors:** cosine, dot product and Euclidean distance give the **same ranking**. Use the dot product: it's cheapest.
+- **Unnormalised vectors:** they disagree. In the test, dot product shared 5 of cosine's top 10, Euclidean only 1.
+- Dot product favours **long** vectors; Euclidean favours vectors of the **query's length**.
+- Index and query with the **same metric**.
+- Similarity scores aren't probabilities; **measure thresholds on your own data**.
+
+For the bigger picture, see [embeddings and vector search explained](/blog/embeddings-vector-search-explained/), and for combining vector and keyword results, [hybrid search with BM25 and reciprocal rank fusion](/blog/hybrid-search-bm25-reciprocal-rank-fusion/).

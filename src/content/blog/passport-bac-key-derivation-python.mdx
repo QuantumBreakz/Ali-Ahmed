@@ -1,0 +1,143 @@
+---
+title: "Unlocking a passport's NFC chip: deriving the BAC keys from the MRZ in Python"
+description: "How a phone gets the keys to read an e-passport chip: Basic Access Control derives two 3DES keys from the document number, birth date and expiry date in the MRZ. Tested Python that reproduces ICAO's worked example byte for byte, including the mutual-authentication cryptogram, plus why one OCR misread means the chip won't answer."
+publishedAt: 2026-11-24
+tags: [KYC, Identity Verification, Python, Security]
+---
+
+Before a phone can read anything from an e-passport's NFC chip, it has to prove it has seen the data page. **Basic Access Control (BAC)** does this with the **machine-readable zone (MRZ)**: the reader takes the **document number, date of birth and expiry date**, each followed by its **check digit**, hashes them with **SHA-1**, and turns the first 16 bytes of the hash into two **3DES keys**: **K_enc** for encryption and **K_mac** for message authentication. It then proves it knows those keys in a challenge-response with the chip. Below is tested Python that reproduces the **worked example in ICAO Doc 9303 Part 11** byte for byte, from the MRZ string to the authentication command. The practical lesson for KYC is simple: **a single misread MRZ character gives completely different keys, and the chip just refuses to talk**, so MRZ accuracy comes first.
+
+![The BAC key derivation for ICAO's worked example: document number L898902C, birth date 690806 and expiry 940623, each with its check digit, form the 24-character MRZ information string, the document number padded with one filler chevron followed by 369080619406236. SHA-1 of it, cut to 16 bytes, gives K_seed 239AB9CB…6BFBAE. SHA-1 of K_seed with counter 1 and parity adjustment gives K_enc AB94FDEC…7F76F2; counter 2 gives K_mac 7962D9EC…131543. All values match ICAO Doc 9303.](/figures/passport-bac-keys.webp)
+
+_From MRZ fields to the two keys, with ICAO's own test values._
+
+## What goes into the key?
+
+| Input                                 | Example (ICAO) | Where it comes from                |
+| ------------------------------------- | -------------- | ---------------------------------- |
+| Document number, padded to 9 with `<` | `L898902C<`    | MRZ line 2, positions 1–9          |
+| Its check digit                       | `3`            | Computed, or read from position 10 |
+| Date of birth (YYMMDD) + check digit  | `690806` + `1` | Positions 14–20                    |
+| Date of expiry (YYMMDD) + check digit | `940623` + `6` | Positions 22–28                    |
+
+Concatenated, that's the 24-character **MRZ_information**: `L898902C<369080619406236`. Everything else is derived from it. The [MRZ parser](/blog/mrz-parser-python-td3-td1/) extracts these fields, and [how MRZ check digits work](/blog/passport-mrz-check-digits/) covers the digits.
+
+## The key derivation
+
+```python title="bac.py: keys"
+import hashlib
+
+WEIGHTS = (7, 3, 1)
+
+def check_digit(field: str) -> str:
+    v = lambda c: int(c) if c.isdigit() else 0 if c == "<" else ord(c) - 55
+    return str(sum(v(c) * WEIGHTS[i % 3] for i, c in enumerate(field)) % 10)
+
+def mrz_information(document_number: str, birth_date: str, expiry_date: str) -> str:
+    doc = document_number.upper().ljust(9, "<")
+    return doc + check_digit(doc) + birth_date + check_digit(birth_date) + expiry_date + check_digit(expiry_date)
+
+def _adjust_parity(key: bytes) -> bytes:
+    """DES keys use odd parity: the lowest bit of each byte makes the count of 1 bits odd."""
+    out = bytearray()
+    for b in key:
+        b &= 0xFE
+        out.append(b | (bin(b).count("1") % 2 == 0))
+    return bytes(out)
+
+def derive_key(seed: bytes, counter: int) -> bytes:
+    """ICAO KDF for 3DES: SHA-1(seed || counter), first 16 bytes, parity adjusted."""
+    digest = hashlib.sha1(seed + counter.to_bytes(4, "big")).digest()
+    return _adjust_parity(digest[:16])
+
+def bac_keys(document_number: str, birth_date: str, expiry_date: str) -> dict:
+    info = mrz_information(document_number, birth_date, expiry_date)
+    k_seed = hashlib.sha1(info.encode("ascii")).digest()[:16]
+    return {"mrz_information": info, "k_seed": k_seed, "k_enc": derive_key(k_seed, 1), "k_mac": derive_key(k_seed, 2)}
+```
+
+Two details catch people out. The counter is a **4-byte big-endian** integer (1 for the encryption key, 2 for the MAC key). And the **parity adjustment** changes the lowest bit of some bytes: skip it and most libraries still accept the key, but your values no longer match ICAO's test vectors, which makes debugging much harder.
+
+## Proving the keys to the chip
+
+The keys are never sent. The reader proves it has them:
+
+1. **GET CHALLENGE:** the chip returns an 8-byte random number, **RND.IC**.
+2. The reader picks its own random **RND.IFD** (8 bytes) and key material **K.IFD** (16 bytes), encrypts `RND.IFD || RND.IC || K.IFD` with **K_enc** (3DES, CBC, zero IV) to get **E.IFD**, and computes a **retail MAC** (ISO 9797-1 algorithm 3) over it with **K_mac** to get **M.IFD**.
+3. **EXTERNAL AUTHENTICATE** sends `E.IFD || M.IFD`. A chip that derived the same keys from its own copy of the MRZ can decrypt and check it, and answers with its own cryptogram.
+4. Both sides then derive **session keys** from `K.IFD XOR K.IC`, and every following command is encrypted and MAC'd (**secure messaging**).
+
+```python title="bac.py: external authenticate"
+from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+from cryptography.hazmat.primitives.ciphers import Cipher, modes
+
+def encrypt(key16: bytes, data: bytes) -> bytes:
+    e = Cipher(TripleDES(key16 + key16[:8]), modes.CBC(bytes(8))).encryptor()
+    return e.update(data) + e.finalize()
+
+def _des(key8: bytes, data: bytes, decrypt_=False) -> bytes:
+    c = Cipher(TripleDES(key8 * 3), modes.ECB())
+    op = c.decryptor() if decrypt_ else c.encryptor()
+    return op.update(data) + op.finalize()
+
+def retail_mac(key16: bytes, data: bytes) -> bytes:
+    """ISO 9797-1 MAC algorithm 3 with padding method 2 (append 0x80, then zeros)."""
+    data = data + b"\x80" + bytes((8 - (len(data) + 1) % 8) % 8)
+    ka, kb = key16[:8], key16[8:]
+    h = bytes(8)
+    for i in range(0, len(data), 8):
+        h = _des(ka, bytes(a ^ b for a, b in zip(h, data[i:i + 8])))
+    return _des(ka, _des(kb, h, decrypt_=True))
+
+def mutual_auth_command(keys: dict, rnd_ifd: bytes, rnd_ic: bytes, k_ifd: bytes) -> bytes:
+    e_ifd = encrypt(keys["k_enc"], rnd_ifd + rnd_ic + k_ifd)
+    return e_ifd + retail_mac(keys["k_mac"], e_ifd)
+```
+
+3DES lives in `cryptography`'s `decrepit` module because it's a legacy cipher. Passports still need it for BAC, so it's the right tool here.
+
+## Does it match ICAO's worked example?
+
+```python title="test_bac.py"
+k = bac_keys("L898902C", "690806", "940623")
+assert k["mrz_information"] == "L898902C<369080619406236"
+assert k["k_seed"].hex().upper() == "239AB9CB282DAF66231DC5A4DF6BFBAE"
+assert k["k_enc"].hex().upper() == "AB94FDECF2674FDFB9B391F85D7F76F2"
+assert k["k_mac"].hex().upper() == "7962D9ECE03D1ACD4C76089DCE131543"
+
+cmd = mutual_auth_command(k, bytes.fromhex("781723860C06C226"),          # RND.IFD
+                          bytes.fromhex("4608F91988702212"),               # RND.IC
+                          bytes.fromhex("0B795240CB7049B01C19B33E32804F0B"))  # K.IFD
+assert cmd[:32].hex().upper() == "72C29C2371CC9BDB65B779B8E8D37B29ECC154AA56A8799FAE2F498F76ED92F2"
+assert cmd[32:].hex().upper() == "5F1448EEA8AD90A7"
+```
+
+Every value matches the worked example in ICAO Doc 9303 Part 11, from the seed through to the authentication command. The test also decrypts the command back to `RND.IFD || RND.IC || K.IFD` and re-checks the MAC.
+
+## What happens when the MRZ is misread?
+
+Changing one character, `C` to `O` in the document number (a classic [OCR confusion](/blog/mrz-ocr-error-correction/)), gives `K_enc = E6A410DA4F438AFD…` instead of `AB94FDECF2674FDF…`. Nothing about the new key resembles the old one, which is the point of a hash. The chip rejects the authentication and returns an error, and the app has no way to tell which character was wrong.
+
+So in a KYC flow:
+
+- **Validate the check digits before trying NFC.** If a check digit fails, re-read or let the user correct the field. Don't send doomed attempts to the chip.
+- **Show the three fields** (document number, birth date, expiry) for the user to confirm when automatic reading is uncertain.
+- **Expect retries:** a phone that loses the NFC connection mid-read has to start the authentication again.
+
+## Which phones can do this?
+
+Reading a passport chip needs an NFC phone and an app that speaks ISO 7816 commands: Android phones with NFC, and iPhones from the iPhone 7 on, running iOS 13 or later. The cryptography above is the same on both. What differs is the NFC API and how users hold the phone against the cover or data page.
+
+## BAC vs PACE
+
+BAC's weakness is the key's input: document numbers, birth dates and expiry dates are far from random, so the effective key strength is much lower than 3DES suggests, and recorded sessions can be attacked offline. **PACE (Password Authenticated Connection Establishment)** fixes this with a Diffie-Hellman key agreement: the password still comes from the MRZ (or a card access number), but the session keys are strong, and a recorded session can't be cracked offline by guessing the password. Newer passports support PACE, and readers should try PACE first and fall back to BAC. Either way, unlocking the chip only gives access. Proving the data is genuine is the next step, [passive authentication](/blog/passport-ocr-vs-nfc-chip-verification/), and proving the chip isn't a clone is [chip or active authentication](/blog/nfc-epassport-chip-verification/).
+
+## Summary
+
+- BAC keys come from **document number, birth date and expiry date, each with its check digit**: SHA-1, first 16 bytes, then a counter-based KDF with **parity adjustment**.
+- The reader proves the keys with **EXTERNAL AUTHENTICATE** (3DES-CBC plus retail MAC); the keys themselves are never sent.
+- The code reproduces **ICAO Doc 9303's worked example** exactly.
+- **One wrong MRZ character means a silent failure**, so validate check digits before touching the chip.
+- Prefer **PACE**, fall back to BAC, and remember that unlocking isn't verifying.
+
+The check-digit functions are also packaged as `mrz-checkdigit` on [PyPI](https://pypi.org/project/mrz-checkdigit/). For the whole verification flow, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).
