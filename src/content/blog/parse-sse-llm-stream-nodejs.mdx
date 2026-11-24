@@ -134,3 +134,5 @@ Every provider shapes its events slightly differently, so `streamText` is the pa
 When the reader goes away mid-stream, cancel the upstream call: [aborting LLM requests on client disconnect](/blog/cancel-llm-request-client-disconnect-nodejs/).
 
 If the model is streaming JSON, render it before it finishes with [a partial JSON parser](/blog/partial-json-streaming-llm/).
+
+The parser is packaged with zero dependencies and TypeScript types: `npm install llm-sse-parse` ([npm](https://www.npmjs.com/package/llm-sse-parse), [source on GitHub](https://github.com/QuantumBreakz/llm-sse-parse)).
