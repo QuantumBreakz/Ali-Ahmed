@@ -42,6 +42,11 @@ for (const post of todo) {
     console.log(`  would publish: ${post.title}`);
     continue;
   }
-  const page = await api("createPage", { access_token: token, title: post.title, ...AUTHOR, content: JSON.stringify(summary(post)) });
+  const page = await api("createPage", {
+    access_token: token,
+    title: post.title,
+    ...AUTHOR,
+    content: JSON.stringify(summary(post), (k, v) => (k === "alt" ? undefined : v)),
+  }); // Telegraph allows only href and src
   console.log(`  ${page.url}`);
 }

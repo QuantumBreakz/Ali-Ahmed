@@ -108,7 +108,7 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
         run: |
           if [ -z "$BLOGGER_REFRESH_TOKEN" ]; then echo "Blogger secrets not set; skipping Blogger."; exit 0; fi
-          node scripts/promote/blogger.mjs --publish --limit 3
+          node scripts/promote/blogger.mjs --publish --limit 3 --refresh 3
 
       - name: Report Search Console index status
         if: ${{ !cancelled() && github.event_name != 'push' }}

@@ -1,0 +1,119 @@
+---
+title: "Passive authentication for e-passports in Python: checking data group hashes and the SOD signature"
+description: "How a KYC app proves a passport chip's data is genuine: hash every data group, compare with the Document Security Object, check its messageDigest, verify the signature and chain the Document Signer certificate to the country's CSCA. Tested Python against a synthetic passport, with the forgery each check catches and the SET-vs-[0] tag bug that rejects genuine passports."
+publishedAt: 2026-11-24
+tags: [KYC, Identity Verification, Python, Security]
+---
+
+Reading an e-passport chip proves nothing on its own: anyone can write data to an NFC chip. **Passive authentication** is the check that the data is **exactly what the issuing country signed**. It has four steps: **hash each data group** you read (DG1 holds the MRZ, DG2 the photo) and compare with the hash list in the **Document Security Object (SOD)**; check that the SOD's **messageDigest** attribute matches that hash list; **verify the signature** over the signed attributes with the **Document Signer (DS) certificate**; and check that the DS certificate was **issued by the country's CSCA**, which you get from a trusted list, never from the chip. Below is tested Python that runs all four against a synthetic passport. Each forgery step an attacker could try fails a different check, and one subtle bug, verifying the signature over the attributes as they're stored instead of re-tagged as a SET, makes **genuine passports fail**.
+
+![Results of the passive authentication test on a synthetic passport. Genuine passport: all four checks pass. Name edited in DG1: the DG1 hash check fails. Hash list rewritten as well: the messageDigest check fails. Signed attributes rebuilt as well: the SOD signature check fails. Signed with a self-made DS certificate: the DS certificate chain check fails. Genuine passport but signature checked over the stored 0xA0 tag instead of the 0x31 SET tag: the SOD signature check fails.](/figures/passive-auth.webp)
+
+_Each layer of a forgery is stopped by the next check down, and the last row is a verifier bug, not an attack._
+
+## What's on the chip?
+
+| File   | Contents                                        | What passive authentication does with it    |
+| ------ | ----------------------------------------------- | ------------------------------------------- |
+| DG1    | The MRZ, as tag `61` wrapping tag `5F1F`        | Hash it, compare with the SOD               |
+| DG2    | The face image (tag `75`)                       | Hash it, compare with the SOD               |
+| DG14   | Chip authentication keys (when present)         | Hash it; used later for chip authentication |
+| EF.SOD | Hashes of the data groups, signed by the DS key | Verify the signature and the certificate    |
+
+The SOD is a CMS `SignedData` structure (RFC 5652). Its content is an **LDSSecurityObject** (OID `2.23.136.1.1.1`): a version, a hash algorithm and a list of `(data group number, hash)` pairs. Reading the files requires unlocking the chip first, with keys from the MRZ: see [deriving the BAC keys](/blog/passport-bac-key-derivation-python/).
+
+## The four checks
+
+```python title="passive_auth.py: verify"
+import hashlib
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+
+def passive_authentication(data_groups, lds, signed_attrs, signature, ds_cert, csca_certs, retag=True) -> list[str]:
+    """Return the failed checks; an empty list means the data is genuine and unaltered."""
+    failures = []
+    expected = lds_hashes(lds)                                   # 1. data group hashes
+    for n, dg in data_groups.items():
+        if expected.get(n) != hashlib.sha256(dg).digest():
+            failures.append(f"DG{n} hash")
+    if message_digest(signed_attrs) != hashlib.sha256(lds).digest():  # 2. messageDigest
+        failures.append("messageDigest")
+    signed_bytes = (b"\x31" + signed_attrs[1:]) if retag else signed_attrs  # 3. signature, over a SET
+    try:
+        ds_cert.public_key().verify(signature, signed_bytes, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        failures.append("SOD signature")
+    if not any(_issued_by(ds_cert, csca) for csca in csca_certs):  # 4. chain to a trusted CSCA
+        failures.append("DS certificate chain")
+    return failures
+
+def _issued_by(cert, issuer) -> bool:
+    try:
+        cert.verify_directly_issued_by(issuer)
+        return True
+    except (ValueError, InvalidSignature, TypeError):
+        return False
+```
+
+`lds_hashes` and `message_digest` are small DER readers (about 25 lines together, in the test file). In production, parse the SOD with a library that handles every variant (RSA, RSA-PSS and ECDSA signatures; SHA-1 to SHA-512 hashes): `pymrtd` in Python or JMRTD on Android. The checks themselves stay the same.
+
+## Does each check catch something?
+
+The test builds a synthetic country: a CSCA certificate, a DS certificate issued by it, and a passport whose DG1 holds the ICAO specimen MRZ. Then it plays the attacker, one step at a time:
+
+```python title="test_passive_auth.py"
+dgs = {1: dg1(MRZ), 2: b"\x75" + b"\x00" * 64}  # DG2 stand-in for the photo
+lds = lds_security_object(dgs)
+attrs = signed_attributes(lds)
+sig = sign(attrs, ds_key)
+assert passive_authentication(dgs, lds, attrs, sig, ds, [csca]) == []
+
+edited = {**dgs, 1: dg1(MRZ.replace("ERIKSSON", "ERIKSSAN"))}
+assert passive_authentication(edited, lds, attrs, sig, ds, [csca]) == ["DG1 hash"]
+
+lds2 = lds_security_object(edited)                     # attacker rewrites the hash list
+assert passive_authentication(edited, lds2, attrs, sig, ds, [csca]) == ["messageDigest"]
+
+attrs2 = signed_attributes(lds2)                       # ...and the signed attributes
+assert passive_authentication(edited, lds2, attrs2, sig, ds, [csca]) == ["SOD signature"]
+
+fake_ds = cert("DS Utopia", "CSCA Utopia", fake_key, fake_key, False)  # ...and signs with their own key
+assert passive_authentication(edited, lds2, attrs2, sign(attrs2, fake_key), fake_ds, [csca]) == ["DS certificate chain"]
+```
+
+Every step fails exactly one check, and it's always the next layer down. The attacker can recompute any hash, but at the bottom there's a signature only the country's key can make, and a certificate only the country's CSCA can issue. Note the fake DS certificate uses the **same names** as the real one: matching subject and issuer names proves nothing, only the signature on the certificate does.
+
+## Why do genuine passports fail the signature check?
+
+The last row of the figure is the bug I'd expect most first implementations to hit. In the SOD, the signed attributes are stored with the context tag `[0]` (byte `0xA0`). But RFC 5652 says the signature is computed over the attributes encoded as a **SET OF** (byte `0x31`). The content is identical, only the first byte differs, and that's enough:
+
+```python title="The one-byte bug"
+passive_authentication(dgs, lds, attrs, sig, ds, [csca], retag=False)  # verify over the stored bytes
+# ['SOD signature']   <- a genuine passport, rejected
+```
+
+So if every passport fails at the signature step, check the tag before you check anything else.
+
+## Where does the CSCA certificate come from?
+
+**Never from the chip.** The SOD carries the DS certificate, which is fine, because the chain check verifies it. The CSCA at the top of the chain has to come from a source you trust: the **ICAO Public Key Directory (PKD)**, or **master lists** that countries publish (signed lists of the CSCA certificates they've checked). Trusting a CSCA that arrives with the document would let an attacker bring their own root, which is exactly the last forgery in the test.
+
+Two more things a production verifier needs:
+
+- **Validity and revocation.** The DS certificate must have been valid when the passport was signed, and not revoked. Countries publish CRLs through the PKD.
+- **Hash every data group you use.** If your app reads DG2 for the [face match](/blog/kyc-selfie-id-face-match/), its hash must be checked too. A genuine DG1 next to a swapped photo is the classic attack.
+
+## What passive authentication doesn't prove
+
+It proves the **data** is genuine. It doesn't prove the **chip** is: a perfect copy of the files onto another chip passes every check above. Stopping clones needs **chip authentication** or **active authentication**, where the chip proves it holds a private key that never leaves it. See [how NFC passport verification works](/blog/nfc-epassport-chip-verification/) for the whole flow, and [OCR vs NFC chip verification](/blog/passport-ocr-vs-nfc-chip-verification/) for what each method can and can't catch.
+
+## Summary
+
+- Passive authentication is four checks: **data group hashes**, **messageDigest**, **SOD signature**, **DS certificate chain to a trusted CSCA**.
+- In the test, each forgery step failed exactly one check: edited DG1, rewritten hashes, rebuilt attributes, self-made DS certificate.
+- Verify the signature over the signed attributes **re-tagged as a SET (0x31)**, not as stored (0xA0), or genuine passports fail.
+- Get CSCA certificates from the **ICAO PKD or master lists**, never from the chip.
+- It proves the data is genuine, not the chip: add **chip or active authentication** against clones.
+
+The parsed MRZ fields come from [parsing a passport MRZ in Python](/blog/mrz-parser-python-td3-td1/). For the whole KYC flow, see [how KYC identity verification works](/blog/how-kyc-identity-verification-works/).

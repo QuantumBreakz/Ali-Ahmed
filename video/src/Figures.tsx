@@ -1427,6 +1427,90 @@ export function FigSimilarityMetrics() {
   );
 }
 
+/* 28. Passive authentication ------------------------------------------------------------------------------ */
+export function FigPassiveAuth() {
+  const rows: [string, string, boolean][] = [
+    ["Genuine passport", "all four checks pass", true],
+    ["Name edited in DG1", "DG1 hash", false],
+    ["…and the hash list rewritten", "messageDigest", false],
+    ["…and the signed attributes rebuilt", "SOD signature", false],
+    ["…and signed with a self-made DS certificate", "DS certificate chain", false],
+    ["Genuine, but signature checked over the [0] tag", "SOD signature", false],
+  ];
+  return (
+    <Frame kicker="Passive authentication · tested on a synthetic passport" title="Every forgery step is caught by a different check">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", fontFamily: sans }}>
+        <div style={{ fontSize: 21, color: color.muted, paddingBottom: 12 }}>What the chip data looks like</div>
+        <div style={{ fontSize: 21, color: color.muted, paddingBottom: 12 }}>Check that fails</div>
+        {rows.map(([what, check, ok]) => (
+          <div key={what} style={{ display: "contents" }}>
+            <div style={{ fontSize: 28, color: color.ink, padding: "17px 0", borderTop: `1px solid ${color.line}` }}>{what}</div>
+            <div
+              style={{
+                fontFamily: mono,
+                fontSize: 25,
+                color: ok ? color.accent : color.warm,
+                padding: "19px 16px",
+                borderTop: `1px solid ${color.line}`,
+                background: ok ? color.accentDim : "transparent",
+              }}
+            >
+              {ok ? "✓ " : "✗ "}
+              {check}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 28, fontFamily: sans, fontSize: 23, color: color.muted }}>
+        The last row is a verifier bug: the signature covers the attributes re-tagged as a SET (0x31), not as stored (0xA0).
+      </div>
+    </Frame>
+  );
+}
+
+/* 29. Vapi HMAC -------------------------------------------------------------------------------------------- */
+export function FigVapiHmac() {
+  const line = (label: string, text: string, tone: string) => (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontFamily: sans, fontSize: 20, color: color.muted }}>{label}</div>
+      <div style={{ fontFamily: mono, fontSize: 23, color: tone, marginTop: 6 }}>{text}</div>
+    </div>
+  );
+  const rows: [string, boolean][] = [
+    ["Valid signature, timestamp in seconds or ms", true],
+    ["One byte of the body changed", false],
+    ["Body re-serialised with JSON.stringify", false],
+    ["Timestamp 6 minutes old (replay)", false],
+    ["Missing or wrong-length signature", false],
+  ];
+  return (
+    <Frame kicker="Vapi webhooks · HMAC-SHA256 over {timestamp}.{body}" title="Sign the raw bytes: parsed-then-stringified JSON fails">
+      <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 48 }}>
+        <div>
+          {line("Raw body Vapi signed", '"cost":0.10,"summary":"Caf\\u00e9 …"', color.accent)}
+          {line("JSON.stringify(JSON.parse(body))", '"cost":0.1,"summary":"Café …"', color.warm)}
+          <div style={{ marginTop: 26, fontFamily: sans, fontSize: 23, color: color.ink, lineHeight: 1.45 }}>
+            Same data, different bytes, so a different HMAC. Keep the raw buffer with <span style={{ fontFamily: mono }}>express.raw()</span> or a{" "}
+            <span style={{ fontFamily: mono }}>verify</span> hook.
+          </div>
+        </div>
+        <div style={{ fontFamily: sans }}>
+          {rows.map(([what, ok]) => (
+            <div
+              key={what}
+              style={{ display: "flex", gap: 14, fontSize: 25, color: color.ink, padding: "15px 0", borderTop: `1px solid ${color.line}` }}
+            >
+              <span style={{ color: ok ? color.accent : color.warm, fontWeight: 700 }}>{ok ? "✓" : "✗"}</span>
+              {what}
+            </div>
+          ))}
+          <div style={{ marginTop: 14, fontSize: 21, color: color.muted }}>7 of 7 tests pass, all checks constant-time.</div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1455,4 +1539,6 @@ export const figures = [
   { id: "fig-partial-json", component: FigPartialJson },
   { id: "fig-passport-bac-keys", component: FigPassportBacKeys },
   { id: "fig-similarity-metrics", component: FigSimilarityMetrics },
+  { id: "fig-passive-auth", component: FigPassiveAuth },
+  { id: "fig-vapi-hmac", component: FigVapiHmac },
 ] as const;

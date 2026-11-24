@@ -49,8 +49,31 @@ export function summary(post) {
   const body = readFileSync(new URL(`${post.slug}.mdx`, folder), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "");
   const lead = body.split(/\n\n+/).find((p) => /^[A-Za-z*]/.test(p.trim()));
   const headings = [...body.matchAll(/^## (.+)$/gm)].map((m) => m[1]).filter((h) => !/^(Related|Summary|Further reading)/.test(h));
+  const fig = body.match(/^!\[([^\]]*)\]\((\/figures\/[^)\s]+)\.webp\)\s*\n+_(.+)_\s*$/m);
+  const points = (body.split(/^## Summary\s*$/m)[1] ?? "")
+    .split(/\n## /)[0]
+    .split("\n")
+    .filter((l) => l.startsWith("- "))
+    .map((l) => ({ tag: "li", children: inline(l.slice(2).trim()) }));
   return [
     { tag: "p", children: inline(lead.trim().replace(/\n/g, " ")) },
+    ...(fig
+      ? [
+          {
+            tag: "figure",
+            children: [
+              { tag: "img", attrs: { src: `${SITE}${fig[2]}.jpg`, alt: fig[1] } },
+              { tag: "figcaption", children: [fig[3]] },
+            ],
+          },
+        ]
+      : []),
+    ...(points.length
+      ? [
+          { tag: "h4", children: ["Key points"] },
+          { tag: "ul", children: points },
+        ]
+      : []),
     { tag: "h4", children: ["What the full article covers"] },
     { tag: "ul", children: headings.map((h) => ({ tag: "li", children: inline(h) })) },
     { tag: "p", children: ["Read the full article, with code, on ", { tag: "a", attrs: { href: post.url }, children: ["aliahmed.si"] }, "."] },
@@ -74,6 +97,10 @@ const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, 
 export const toHtml = (nodes) =>
   nodes
     .map((n) =>
-      typeof n === "string" ? esc(n) : `<${n.tag}${n.attrs?.href ? ` href="${esc(n.attrs.href)}"` : ""}>${toHtml(n.children ?? [])}</${n.tag}>`
+      typeof n === "string"
+        ? esc(n)
+        : n.tag === "img"
+          ? `<img src="${esc(n.attrs.src)}" alt="${esc(n.attrs.alt ?? "")}" loading="lazy" style="max-width:100%;height:auto">`
+          : `<${n.tag}${n.attrs?.href ? ` href="${esc(n.attrs.href)}"` : ""}>${toHtml(n.children ?? [])}</${n.tag}>`
     )
     .join("");

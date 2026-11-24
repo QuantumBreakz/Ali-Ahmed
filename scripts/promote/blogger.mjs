@@ -2,6 +2,7 @@
 //
 //   node scripts/promote/blogger.mjs [--limit 3]            dry run
 //   node scripts/promote/blogger.mjs --publish [--limit 3]  publish up to 3 articles not yet on the blog
+//   add --refresh 3 to also rewrite up to 3 posts last updated before REFRESH_BEFORE with the current summary format
 //
 // Needs BLOGGER_CLIENT_ID, BLOGGER_CLIENT_SECRET, BLOGGER_REFRESH_TOKEN, BLOGGER_BLOG_ID (blogger-auth.mjs saves them).
 // Posts already on the blog (same title) are skipped. The small default limit drips the backlog out over days.
@@ -13,6 +14,9 @@ if (!BLOGGER_REFRESH_TOKEN || !BLOGGER_BLOG_ID) throw new Error("Run blogger-aut
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 3;
 const publish = process.argv.includes("--publish");
+const refreshArg = process.argv.indexOf("--refresh");
+const refreshLimit = refreshArg > -1 ? Number(process.argv[refreshArg + 1]) : 0;
+const REFRESH_BEFORE = "2026-11-25"; // posts older than this still have the thin heading-list summary
 
 const headers = {
   authorization: `Bearer ${await refreshToken(BLOGGER_CLIENT_ID, BLOGGER_CLIENT_SECRET, BLOGGER_REFRESH_TOKEN)}`,
@@ -53,4 +57,26 @@ for (const [i, post] of todo.entries()) {
   }
   if (!res.ok) throw new Error(`Blogger insert failed: ${res.status} ${body.error?.message}`);
   console.log(`  ${body.url}`);
+}
+
+const byTitle = new Map(posts.map((p) => [p.title, p]));
+const stale = (existing.items ?? []).filter((i) => i.status !== "DRAFT" && i.updated < REFRESH_BEFORE && byTitle.has(i.title)).slice(0, refreshLimit);
+if (refreshLimit) console.log(`Blogger refresh: ${stale.length} of the older summaries to ${publish ? "rewrite" : "rewrite (dry run)"}.`);
+for (const item of stale) {
+  if (!publish) {
+    console.log(`  would refresh: ${item.title}`);
+    continue;
+  }
+  await new Promise((r) => setTimeout(r, 60_000));
+  const res = await fetch(`${api}/${item.id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ content: toHtml(summary(byTitle.get(item.title))) }),
+  });
+  if (res.status === 429) {
+    console.log("Blogger rate limit reached during refresh; the next run continues.");
+    break;
+  }
+  if (!res.ok) throw new Error(`Blogger refresh failed: ${res.status} ${(await res.json()).error?.message}`);
+  console.log(`  refreshed ${item.url}`);
 }
