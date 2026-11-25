@@ -13,6 +13,10 @@ video:
 
 Online **KYC (Know Your Customer) verification** answers two questions: **is this identity document genuine and readable**, and **is the person holding the phone the person on the document**? A typical pipeline runs six stages: capture, document detection and classification, data extraction (OCR and the MRZ), authenticity checks, face matching, and liveness detection, followed by a decision that combines them. I worked on the computer vision and multilingual OCR side of this at ShuftiPro, for documents from more than 100 countries. This post walks through each stage in order, and links to a deeper post on each one.
 
+![The six stages of online identity verification, each with the question it answers and where it fails. Capture: is the photo usable, fails on glare, blur and cropping. Detect and classify: which document is this, fails on rare or new versions. OCR and MRZ: what does it say and is it consistent, fails on non-Latin scripts and worn cards. Authenticity: is the document genuine, fails on good-quality forgeries. Face match: is it the same person, fails on threshold choice, ageing and image quality. Liveness: is a live person present, fails on masks, replays and injected deepfakes. A decision combines all six; every rejection has a reason, and thresholds are business choices.](/figures/kyc-stages.webp)
+
+_Six questions, six failure modes, one decision with a reason._
+
 ## Step 1: Capture: why most failures start here
 
 Most rejected verifications aren't fraud. They're **bad photos**: glare on a laminated card, a thumb over the date of birth, motion blur, or a card photographed at an angle so steep that the text is unreadable. Good systems check quality **on the device, before upload**: is the whole card in frame, is it sharp enough, is there glare over a text field? Telling the user "move away from the light" during capture is cheaper than rejecting them two minutes later.

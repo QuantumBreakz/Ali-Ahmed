@@ -2737,6 +2737,569 @@ export function FigCompressionLoop() {
   );
 }
 
+/* 52. KYC pipeline stages ------------------------------------------------------------------------------------- */
+export function FigKycStages() {
+  const stages: [string, string, string][] = [
+    ["Capture", "Is the photo usable?", "glare, blur, cropping"],
+    ["Detect + classify", "Which document is this?", "rare or new versions"],
+    ["OCR + MRZ", "What does it say? Consistent?", "non-Latin scripts, worn cards"],
+    ["Authenticity", "Is the document genuine?", "good-quality forgeries"],
+    ["Face match", "Is it the same person?", "threshold, ageing, quality"],
+    ["Liveness", "Is a live person present?", "masks, replays, injected deepfakes"],
+  ];
+  return (
+    <Frame kicker="Online identity verification · six stages and a decision" title="What each KYC stage answers, and where it fails">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {stages.map(([t, q, f], i) => {
+          const x = (i % 3) * 400;
+          const y = Math.floor(i / 3) * 220;
+          return (
+            <g key={t}>
+              <rect x={x} y={y} width={370} height={190} rx={14} fill={color.surface} stroke={color.line} />
+              <text x={x + 20} y={y + 40} fill={color.muted} fontSize={20} fontFamily={mono}>
+                {i + 1}
+              </text>
+              <text x={x + 54} y={y + 40} fill={color.ink} fontSize={27} fontFamily={sans}>
+                {t}
+              </text>
+              <text x={x + 20} y={y + 92} fill={color.accent} fontSize={21} fontFamily={sans}>
+                {q}
+              </text>
+              <text x={x + 20} y={y + 134} fill={color.muted} fontSize={18} fontFamily={sans}>
+                fails on
+              </text>
+              <text x={x + 20} y={y + 162} fill={color.warm} fontSize={20} fontFamily={sans}>
+                {f}
+              </text>
+            </g>
+          );
+        })}
+        <rect x={1220} y={0} width={236} height={410} rx={14} fill={color.accentDim} stroke={color.accent} strokeWidth={2} />
+        <text x={1338} y={50} fill={color.accent} fontSize={27} fontFamily={sans} textAnchor="middle">
+          Decision
+        </text>
+        {["combines all six", "every rejection", "has a reason", "thresholds are", "business choices"].map((t, i) => (
+          <text
+            key={t}
+            x={1338}
+            y={110 + i * 40 + (i > 0 ? 20 : 0) + (i > 2 ? 20 : 0)}
+            fill={color.ink}
+            fontSize={21}
+            fontFamily={sans}
+            textAnchor="middle"
+          >
+            {t}
+          </text>
+        ))}
+        <text x={0} y={490} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Most failures start at capture: a bad photo makes every later stage less reliable.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 53. Hash chain ----------------------------------------------------------------------------------------------- */
+export function FigHashChain() {
+  const entries = ["entry 1", "entry 2", "entry 3", "entry 4"];
+  return (
+    <Frame
+      kicker="Tamper-evident audit log for AI agents · Cuttlefish TrustGraph"
+      title="Each entry hashes the one before; one edit breaks every link after"
+    >
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {entries.map((e, i) => {
+          const x = i * 360;
+          const bad = i === 1;
+          return (
+            <g key={e}>
+              <rect x={x} y={20} width={300} height={170} rx={12} fill={color.surface} stroke={bad ? color.warm : color.line} strokeWidth={2} />
+              <text x={x + 20} y={58} fill={bad ? color.warm : color.ink} fontSize={25} fontFamily={sans}>
+                {bad ? "entry 2 (edited)" : e}
+              </text>
+              <text x={x + 20} y={100} fill={color.muted} fontSize={18} fontFamily={mono}>
+                previous_hash
+              </text>
+              <text x={x + 20} y={130} fill={color.muted} fontSize={18} fontFamily={mono}>
+                action, recorded_at
+              </text>
+              <text x={x + 20} y={168} fill={bad ? color.warm : color.accent} fontSize={18} fontFamily={mono}>
+                current_hash
+              </text>
+              {i < entries.length - 1 && <Arrow x1={x + 300} y1={105} x2={x + 360} y2={105} tone={i >= 1 ? color.warm : color.faint} />}
+            </g>
+          );
+        })}
+        <text x={0} y={240} fill={color.ink} fontSize={23} fontFamily={sans}>
+          verify() recomputes every hash: it returns 2, the first line that doesn't match.
+        </text>
+        <text x={0} y={300} fill={color.ink} fontSize={24} fontFamily={sans}>
+          Three bugs found in review
+        </text>
+        {[
+          ["Hash included time.time(), never stored", "nothing could ever be verified", "hash exactly what you store"],
+          ["Parallel agents read the same head", "the chain forked", "lock read-head-and-append"],
+          ['"Most recent" stopped reading early', "returned the oldest entries", "keep the last N while reading all"],
+        ].map(([bug, effect, fix], i) => (
+          <g key={bug}>
+            <text x={0} y={344 + i * 46} fill={color.warm} fontSize={21} fontFamily={sans}>
+              {bug}
+            </text>
+            <text x={520} y={344 + i * 46} fill={color.muted} fontSize={21} fontFamily={sans}>
+              {effect}
+            </text>
+            <text x={900} y={344 + i * 46} fill={color.accent} fontSize={21} fontFamily={sans}>
+              fix: {fix}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={510} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Tested: 20 concurrent appends verify; editing one score makes the verifier report that exact line.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 54. ID photo preprocessing ----------------------------------------------------------------------------------- */
+export function FigIdPreprocess() {
+  return (
+    <Frame kicker="Before OCR on a phone photo of an ID card · OpenCV" title="Find the card, flatten it, then reject blur and glare">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <polygon points="40,90 300,50 330,220 60,250" fill={color.paper} opacity={0.9} />
+        <text x={185} y={290} fill={color.muted} fontSize={20} fontFamily={sans} textAnchor="middle">
+          tilted photo
+        </text>
+        {[
+          [40, 90],
+          [300, 50],
+          [330, 220],
+          [60, 250],
+        ].map(([x, y]) => (
+          <circle key={x} cx={x} cy={y} r={9} fill={color.accent} />
+        ))}
+        <Arrow x1={360} y1={150} x2={450} y2={150} label="4 corners" />
+        <rect x={470} y={60} width={340} height={214} rx={14} fill={color.paper} />
+        <text x={640} y={300} fill={color.muted} fontSize={20} fontFamily={sans} textAnchor="middle">
+          856 × 540 px (ID-1, 85.6 × 54 mm)
+        </text>
+        <Arrow x1={830} y1={150} x2={910} y2={150} />
+        <rect x={930} y={40} width={520} height={110} rx={12} fill={color.surface} stroke={color.accent} />
+        <text x={950} y={80} fill={color.accent} fontSize={23} fontFamily={sans}>
+          Sharpness: variance of the Laplacian
+        </text>
+        <text x={950} y={120} fill={color.ink} fontSize={21} fontFamily={mono}>
+          sharp card ≈ 237 · blurred ≈ 0.4
+        </text>
+        <rect x={930} y={170} width={520} height={110} rx={12} fill={color.surface} stroke={color.warm} />
+        <text x={950} y={210} fill={color.warm} fontSize={23} fontFamily={sans}>
+          Glare: share of near-white pixels
+        </text>
+        <text x={950} y={250} fill={color.ink} fontSize={21} fontFamily={sans}>
+          check it per field, not per card
+        </text>
+        <text x={0} y={380} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Finding the card: blur, Canny edges, approxPolyDP to four points, and at least 20% of the frame
+        </text>
+        <text x={0} y={420} fill={color.muted} fontSize={21} fontFamily={sans}>
+          (so the small photo printed on the card isn't mistaken for the card).
+        </text>
+        <text x={0} y={490} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Set the sharpness threshold from your own labelled captures: it depends on camera and resolution.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 55. Face match threshold (schematic) ------------------------------------------------------------------------ */
+export function FigFaceThreshold() {
+  const curve = (mu: number, sd: number) =>
+    Array.from({ length: 121 }, (_, i) => {
+      const x = i / 120;
+      const y = Math.exp(-((x - mu) ** 2) / (2 * sd * sd));
+      return [60 + x * 1300, 400 - y * 300];
+    });
+  const path = (pts: number[][]) => "M " + pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ");
+  const imp = curve(0.32, 0.1);
+  const gen = curve(0.72, 0.1);
+  const T = 60 + 0.56 * 1300;
+  const area = (pts: number[][], from: number, to: number) => {
+    const sel = pts.filter(([x]) => x >= from && x <= to);
+    return `M ${sel[0][0]} 400 L ` + sel.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ") + ` L ${sel[sel.length - 1][0]} 400 Z`;
+  };
+  return (
+    <Frame kicker="Face verification · schematic score distributions" title="Every threshold trades false matches for false non-matches">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <rect x={T - 90} y={80} width={90} height={320} fill={color.surface} opacity={0.9} />
+        <text x={T - 45} y={456} fill={color.muted} fontSize={18} fontFamily={sans} textAnchor="middle">
+          review band
+        </text>
+        <path d={area(imp, T, 1400)} fill={color.warm} opacity={0.55} />
+        <path d={area(gen, 0, T)} fill={color.warm} opacity={0.55} />
+        <path d={path(imp)} fill="none" stroke={color.muted} strokeWidth={3} />
+        <path d={path(gen)} fill="none" stroke={color.accent} strokeWidth={3} />
+        <line x1={T} x2={T} y1={60} y2={410} stroke={color.ink} strokeWidth={2} strokeDasharray="8 6" />
+        <text x={T + 12} y={60} fill={color.ink} fontSize={21} fontFamily={sans}>
+          threshold
+        </text>
+        <line x1={60} x2={1360} y1={400} y2={400} stroke={color.line} />
+        <text x={60 + 0.32 * 1300} y={430} fill={color.muted} fontSize={21} fontFamily={sans} textAnchor="middle">
+          impostor pairs
+        </text>
+        <text x={60 + 0.72 * 1300} y={430} fill={color.accent} fontSize={21} fontFamily={sans} textAnchor="middle">
+          genuine pairs
+        </text>
+        <text x={1360} y={430} fill={color.muted} fontSize={18} fontFamily={sans} textAnchor="end">
+          similarity →
+        </text>
+        <text x={60} y={490} fill={color.warm} fontSize={22} fontFamily={sans}>
+          Shaded right of the line: impostors accepted (FMR). Shaded left: real people rejected (FNMR).
+        </text>
+        <text x={60} y={530} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Fix the costly rate first (often FMR), from your own genuine and impostor pairs; a better model moves both curves apart.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 56. RRF ------------------------------------------------------------------------------------------------------ */
+export function FigRrf() {
+  const list = (x: number, title: string, items: string[], tone: string) => (
+    <g>
+      <text x={x} y={30} fill={tone} fontSize={23} fontFamily={sans}>
+        {title}
+      </text>
+      {items.map((d, i) => (
+        <g key={d}>
+          <rect
+            x={x}
+            y={50 + i * 62}
+            width={300}
+            height={50}
+            rx={8}
+            fill={d === "inv-20931" ? color.accentDim : color.surface}
+            stroke={d === "inv-20931" ? color.accent : color.line}
+          />
+          <text x={x + 16} y={82 + i * 62} fill={color.muted} fontSize={18} fontFamily={mono}>
+            {i + 1}
+          </text>
+          <text x={x + 48} y={82 + i * 62} fill={color.ink} fontSize={21} fontFamily={mono}>
+            {d}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+  const fused: [string, string][] = [
+    ["disputes", "1/62 + 1/61 = 0.0325"],
+    ["inv-20931", "1/61 + 1/64 = 0.0320"],
+    ["refunds", "1/62 = 0.0161"],
+    ["shipping", "1/63 = 0.0159"],
+  ];
+  return (
+    <Frame kicker='Hybrid search · query "INV-20931 dispute" · RRF, k = 60' title="Ranks, not scores: the exact invoice climbs from 4th to 2nd">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {list(0, "BM25", ["inv-20931", "disputes"], color.warm)}
+        {list(360, "Vectors", ["disputes", "refunds", "shipping", "inv-20931"], color.muted)}
+        <Arrow x1={690} y1={170} x2={760} y2={170} />
+        <text x={780} y={30} fill={color.accent} fontSize={23} fontFamily={sans}>
+          Fused: 1 / (60 + rank), summed per document
+        </text>
+        {fused.map(([d, sc], i) => (
+          <g key={d}>
+            <rect
+              x={780}
+              y={50 + i * 62}
+              width={660}
+              height={50}
+              rx={8}
+              fill={d === "inv-20931" ? color.accentDim : color.surface}
+              stroke={d === "inv-20931" ? color.accent : color.line}
+            />
+            <text x={796} y={82 + i * 62} fill={color.muted} fontSize={18} fontFamily={mono}>
+              {i + 1}
+            </text>
+            <text x={828} y={82 + i * 62} fill={color.ink} fontSize={21} fontFamily={mono}>
+              {d}
+            </text>
+            <text x={1424} y={82 + i * 62} fill={color.muted} fontSize={19} fontFamily={mono} textAnchor="end">
+              {sc}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={380} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Embeddings ranked the exact invoice last; BM25 found it first. Agreement wins: the dispute
+        </text>
+        <text x={0} y={414} fill={color.ink} fontSize={23} fontFamily={sans}>
+          guide ranked well in both lists, so it stays on top.
+        </text>
+        <text x={0} y={480} fill={color.muted} fontSize={21} fontFamily={sans}>
+          No score normalisation, no training. Retrieve 20–50 per retriever, fuse, then keep the top 5–10.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 57. Agent tool errors ---------------------------------------------------------------------------------------- */
+export function FigToolErrors() {
+  return (
+    <Frame kicker="NanoClaw · scheduled tasks across sessions (PR #3068)" title="An agent acts on what an error implies, so say where things are">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <text x={0} y={30} fill={color.warm} fontSize={23} fontFamily={sans}>
+          Before
+        </text>
+        <Box x={0} y={50} w={300} h={90} title='"task not found"' tone={color.warm} />
+        <Arrow x1={300} y1={95} x2={370} y2={95} />
+        <Box x={370} y={50} w={330} h={90} title="Agent concludes" sub="the task was deleted" />
+        <Arrow x1={700} y1={95} x2={770} y2={95} />
+        <Box x={770} y={50} w={330} h={90} title="Creates a duplicate" tone={color.warm} />
+        <text x={0} y={210} fill={color.accent} fontSize={23} fontFamily={sans}>
+          After
+        </text>
+        <rect x={0} y={230} width={700} height={110} rx={12} fill={color.accentDim} stroke={color.accent} strokeWidth={2} />
+        <text x={20} y={272} fill={color.ink} fontSize={22} fontFamily={sans}>
+          Not in this session: it's in another session,
+        </text>
+        <text x={20} y={308} fill={color.ink} fontSize={22} fontFamily={sans}>
+          names its messaging group and status
+        </text>
+        <Arrow x1={700} y1={285} x2={770} y2={285} />
+        <Box x={770} y={240} w={330} h={90} title="Agent uses it" sub="no duplicate" tone={color.accent} />
+        <text x={0} y={400} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Rules for tool errors an LLM reads
+        </text>
+        {[
+          "say why, not just what",
+          "say what to do next",
+          "close the believable wrong conclusion",
+          "tool failures ≠ protocol errors",
+          "don't leak internals",
+          "hide tools the role can't use",
+        ].map((t, i) => (
+          <text key={t} x={(i % 3) * 480} y={444 + Math.floor(i / 3) * 40} fill={color.muted} fontSize={21} fontFamily={sans}>
+            · {t}
+          </text>
+        ))}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 58. Canary tokens -------------------------------------------------------------------------------------------- */
+export function FigCanary() {
+  return (
+    <Frame kicker="Detecting system prompt leaks in LLM apps" title="A canary in the prompt, checked on every way out">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={60} w={300} h={120} title="System prompt" sub="cnry-3f9a1c0e7b2d4a61" />
+        <Arrow x1={300} y1={120} x2={360} y2={120} />
+        <Box x={360} y={60} w={220} h={120} title="Model" />
+        <Arrow x1={580} y1={100} x2={660} y2={50} />
+        <Arrow x1={580} y1={140} x2={660} y2={190} />
+        <Box x={660} y={10} w={280} h={80} title="Reply text" />
+        <Box x={660} y={150} w={280} h={80} title="Tool call arguments" tone={color.warm} />
+        <Arrow x1={940} y1={50} x2={1010} y2={100} />
+        <Arrow x1={940} y1={190} x2={1010} y2={140} />
+        <rect x={1010} y={50} width={440} height={140} rx={12} fill={color.surface} stroke={color.accent} strokeWidth={2} />
+        <text x={1030} y={90} fill={color.accent} fontSize={23} fontFamily={sans}>
+          Check before anything runs
+        </text>
+        <text x={1030} y={126} fill={color.ink} fontSize={20} fontFamily={sans}>
+          normalise case and punctuation,
+        </text>
+        <text x={1030} y={156} fill={color.ink} fontSize={20} fontFamily={sans}>
+          try simple encodings (base64)
+        </text>
+        <text x={1030} y={250} fill={color.warm} fontSize={22} fontFamily={sans}>
+          Hit: block · log · rotate
+        </text>
+        <text x={0} y={330} fill={color.ink} fontSize={23} fontFamily={sans}>
+          What it can't see
+        </text>
+        {["a paraphrase of the instructions", "the canary inside a larger encoded block", "data exfiltration that never mentions the prompt"].map(
+          (t, i) => (
+            <text key={t} x={0} y={372 + i * 38} fill={color.muted} fontSize={21} fontFamily={sans}>
+              · {t}
+            </text>
+          )
+        )}
+        <text x={0} y={520} fill={color.ink} fontSize={22} fontFamily={sans}>
+          A detector, not a defence: it tells you an injection worked.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 59. Free tiers (schematic) ----------------------------------------------------------------------------------- */
+export function FigFreeTiers() {
+  const blips = [40, 180, 200, 520, 860, 880, 900, 1150];
+  return (
+    <Frame
+      kicker="Why platforms can afford free tiers · schematic, one day of a small app"
+      title="Rent execution, not a machine, and idle costs almost nothing"
+    >
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <text x={0} y={36} fill={color.ink} fontSize={24} fontFamily={sans}>
+          A VPS
+        </text>
+        <text x={0} y={66} fill={color.muted} fontSize={19} fontFamily={sans}>
+          CPU and memory reserved
+        </text>
+        <text x={0} y={92} fill={color.muted} fontSize={19} fontFamily={sans}>
+          around the clock
+        </text>
+        <rect x={420} y={20} width={1030} height={56} rx={6} fill={color.warm} />
+        <text x={0} y={176} fill={color.ink} fontSize={24} fontFamily={sans}>
+          A modern platform
+        </text>
+        <text x={0} y={206} fill={color.muted} fontSize={19} fontFamily={sans}>
+          compute only while
+        </text>
+        <text x={0} y={232} fill={color.muted} fontSize={19} fontFamily={sans}>
+          handling a request
+        </text>
+        <rect x={420} y={160} width={1030} height={56} rx={6} fill={color.surface} stroke={color.line} />
+        {blips.map((x) => (
+          <rect key={x} x={420 + x * 0.88} y={160} width={14} height={56} fill={color.accent} />
+        ))}
+        <text x={420} y={262} fill={color.muted} fontSize={19} fontFamily={sans}>
+          shared machines · started on demand · reclaimed when idle · static pages served from the edge cache
+        </text>
+        <text x={0} y={340} fill={color.ink} fontSize={23} fontFamily={sans}>
+          The catch
+        </text>
+        {[
+          ["Cold starts", "when compute has to be created for a request"],
+          ["Usage limits", "execution time, bandwidth, invocations: where the money is"],
+          ["Less control", "over the machine your code runs on"],
+        ].map(([t, d], i) => (
+          <g key={t}>
+            <text x={0} y={384 + i * 42} fill={color.warm} fontSize={22} fontFamily={sans}>
+              {t}
+            </text>
+            <text x={220} y={384 + i * 42} fill={color.muted} fontSize={21} fontFamily={sans}>
+              {d}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 60. LLM retries ---------------------------------------------------------------------------------------------- */
+export function FigRetries() {
+  const rows: [string, boolean][] = [
+    ["429 rate limit", true],
+    ["500, 502, 503, 504", true],
+    ["529 overloaded", true],
+    ["408, timeouts, ECONNRESET", true],
+    ["400, 422 bad request", false],
+    ["401, 403 auth", false],
+  ];
+  return (
+    <Frame kicker="Calling LLM APIs under load" title="Retry what can recover, back off with jitter, then fall back">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {rows.map(([r, ok], i) => (
+          <g key={r}>
+            <text x={0} y={40 + i * 52} fill={ok ? color.accent : color.warm} fontSize={26} fontFamily={sans} fontWeight={700}>
+              {ok ? "✓" : "✗"}
+            </text>
+            <text x={40} y={40 + i * 52} fill={color.ink} fontSize={22} fontFamily={mono}>
+              {r}
+            </text>
+            <text x={440} y={40 + i * 52} fill={color.muted} fontSize={19} fontFamily={sans}>
+              {ok ? "retry" : "never retry: fails the same way"}
+            </text>
+          </g>
+        ))}
+        <text x={800} y={40} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Full jitter: wait a random time in a window
+        </text>
+        <text x={800} y={70} fill={color.ink} fontSize={23} fontFamily={sans}>
+          that doubles after each failure
+        </text>
+        {[1, 2, 4, 8].map((w, i) => (
+          <g key={w}>
+            <text x={800} y={128 + i * 52} fill={color.muted} fontSize={18} fontFamily={mono}>
+              retry {i + 1}
+            </text>
+            <rect x={900} y={108 + i * 52} width={w * 66} height={30} rx={5} fill={color.accentDim} stroke={color.accent} />
+          </g>
+        ))}
+        <text x={800} y={350} fill={color.muted} fontSize={19} fontFamily={sans}>
+          A longer Retry-After wins over the computed wait.
+        </text>
+        <text x={0} y={420} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Retry budget runs out
+        </text>
+        <Arrow x1={260} y1={413} x2={330} y2={413} />
+        <text x={344} y={420} fill={color.accent} fontSize={23} fontFamily={sans}>
+          fall back to a tested alternative model, and log which one answered
+        </text>
+        <text x={0} y={490} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Jitter keeps thousands of clients from retrying at the same moment after an outage.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 61. AI code detector ----------------------------------------------------------------------------------------- */
+export function FigDetectorBug() {
+  const data: [string, number, number][] = [
+    ["Python", 48, 78],
+    ["Java", 18, 18],
+    ["JavaScript", 21, 21],
+  ];
+  return (
+    <Frame kicker="Master the Interview · AI-written code detector review" title="Python and Java were scored with the JavaScript models">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {["Python code", "Java code", "JavaScript code"].map((t, i) => (
+          <g key={t}>
+            <Box x={0} y={20 + i * 100} w={260} h={70} title={t} tone={i < 2 ? color.warm : color.ink} />
+            <Arrow x1={260} y1={55 + i * 100} x2={460} y2={i < 2 ? 255 : 255} tone={i < 2 ? color.warm : color.faint} />
+          </g>
+        ))}
+        <Box x={460} y={210} w={330} h={90} title="model/*.pkl = JavaScript" sub="last language in the training loop" tone={color.warm} />
+        <text x={0} y={360} fill={color.muted} fontSize={20} fontFamily={sans}>
+          A leftover save after the loop; the API loads those files. No error, confident output.
+        </text>
+        <text x={860} y={36} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Training files per language
+        </text>
+        {data.map(([lang, ai, human], i) => (
+          <g key={lang}>
+            <text x={860} y={96 + i * 80} fill={color.ink} fontSize={21} fontFamily={sans}>
+              {lang}
+            </text>
+            <rect x={1010} y={76 + i * 80} width={ai * 4} height={26} rx={4} fill={color.warm} />
+            <text x={1018 + ai * 4} y={96 + i * 80} fill={color.warm} fontSize={18} fontFamily={mono}>
+              {ai} AI
+            </text>
+            <rect x={1010} y={106 + i * 80} width={human * 4} height={26} rx={4} fill={color.accent} />
+            <text x={1018 + human * 4} y={126 + i * 80} fill={color.accent} fontSize={18} fontFamily={mono}>
+              {human} human
+            </text>
+          </g>
+        ))}
+        <text x={860} y={360} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Too few for any accuracy figure to mean much.
+        </text>
+        <text x={0} y={470} fill={color.ink} fontSize={22} fontFamily={sans}>
+          To trust a number: hundreds of files per language, test authors unseen in training,
+        </text>
+        <text x={0} y={506} fill={color.ink} fontSize={22} fontFamily={sans}>
+          and per-language metrics with confidence intervals.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -2789,4 +3352,14 @@ export const figures = [
   { id: "fig-compliance-map", component: FigComplianceMap },
   { id: "fig-chunking", component: FigChunking },
   { id: "fig-compression-loop", component: FigCompressionLoop },
+  { id: "fig-kyc-stages", component: FigKycStages },
+  { id: "fig-hash-chain", component: FigHashChain },
+  { id: "fig-id-preprocess", component: FigIdPreprocess },
+  { id: "fig-face-threshold", component: FigFaceThreshold },
+  { id: "fig-rrf", component: FigRrf },
+  { id: "fig-tool-errors", component: FigToolErrors },
+  { id: "fig-canary", component: FigCanary },
+  { id: "fig-free-tiers", component: FigFreeTiers },
+  { id: "fig-retries", component: FigRetries },
+  { id: "fig-detector-bug", component: FigDetectorBug },
 ] as const;

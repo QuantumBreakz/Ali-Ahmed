@@ -7,6 +7,10 @@ tags: [KYC, Computer Vision, Machine Learning, Python]
 
 Face verification turns two face images into **embeddings** (vectors) and compares them. If their similarity is above a **threshold**, they're declared the same person. Every threshold makes two kinds of mistake: a **false match** (an impostor accepted, measured as **FMR**, also called FAR) and a **false non-match** (the real person rejected, **FNMR**, also called FRR). Raising the threshold lowers one and raises the other. The right threshold isn't a property of the model; it's a business decision, made from data, about which mistake costs more.
 
+![Schematic score distributions for face verification: impostor pairs on the left and genuine pairs on the right, overlapping in the middle. A threshold line splits them. Impostors scoring to the right of it are accepted (the false match rate, FMR); genuine pairs to its left are rejected (the false non-match rate, FNMR). A review band just below the threshold goes to a human. Fix the costly rate first, often FMR, from your own genuine and impostor pairs; a better model moves the two curves apart.](/figures/face-threshold.webp)
+
+_A schematic: real curves come from your own genuine and impostor pairs._
+
 ## How does face verification work?
 
 1. **Detect and align** the face in each image (the selfie and the document portrait), so eyes and mouth sit in standard positions.

@@ -7,6 +7,10 @@ tags: [LLMs, AI Engineering, Node.js, Reliability]
 
 LLM APIs fail in predictable ways under load: **429** when you exceed a rate limit, **5xx** when the provider has a problem, an "overloaded" response when capacity is short (Anthropic uses **529** for that), and timeouts. A good client **retries only those**, waits with **exponential backoff and full jitter** so thousands of clients don't retry in lockstep, **honours `Retry-After`** when the provider sends it, gives up when a **retry budget** runs out, and only then **falls back to another model**. It **never retries a 400**: a malformed request fails the same way every time and on every model. Below is a small, tested implementation.
 
+![Which LLM API errors to retry: 429 rate limits, 500 to 504, 529 overloaded, and 408, timeouts and ECONNRESET yes; 400 and 422 bad requests and 401 and 403 auth errors never, because they fail the same way. Full jitter waits a random time in a window that doubles after each failure, and a longer Retry-After wins over the computed wait. When the retry budget runs out, fall back to a tested alternative model and log which one answered. Jitter keeps thousands of clients from retrying at the same moment after an outage.](/figures/retries.webp)
+
+_Retry the recoverable, spread the retries out, then fall back._
+
 ## Which errors should you retry?
 
 | Response                    | Retry? | Why                                                     |

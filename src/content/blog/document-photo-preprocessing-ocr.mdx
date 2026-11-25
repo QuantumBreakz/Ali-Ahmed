@@ -7,6 +7,10 @@ tags: [Computer Vision, OCR, Python, KYC]
 
 OCR on a phone photo of an ID card fails mostly because of the **photo**: the card is tilted, so text is skewed; it's blurry; or glare washes out a field. Before running OCR, **find the card's four corners, warp it to a flat rectangle at the ID-1 aspect ratio (85.6 × 54 mm), and score sharpness and glare**, rejecting or re-capturing bad frames. The code below does that with OpenCV. It's tested on a synthetic image, and it's the classic approach; production systems usually replace corner detection with a trained model, but the steps after it stay the same.
 
+![Preparing a phone photo of an ID card for OCR. The tilted card's four corners are found with blur, Canny edges and approxPolyDP, requiring the shape to cover at least 20 percent of the frame so the small printed photo isn't mistaken for the card. A perspective transform flattens it to 856 by 540 pixels, the ID-1 proportions of 85.6 by 54 mm. Sharpness is scored as the variance of the Laplacian, about 237 for a sharp card and 0.4 for a blurred one, and glare as the share of near-white pixels, best checked per field.](/figures/id-preprocess.webp)
+
+_Corners, flatten, then score: the photo decides most OCR errors._
+
 ## Step 1: find the card
 
 On a reasonably contrasting background, the card is the largest four-sided contour:

@@ -7,6 +7,10 @@ tags: [RAG, AI Engineering, Python, LLMs]
 
 **Hybrid search** runs two retrievers on every query, **BM25** keyword search and **vector** (embedding) search, and merges their results. It fixes the best-known weakness of embeddings: they capture meaning but blur exact tokens, so a query for invoice `INV-20931`, error `ECONNRESET` or a person's name can return documents that are merely _about_ invoices, network errors or people. The usual way to merge the two rankings is **reciprocal rank fusion (RRF)**: each document scores `1 / (k + rank)` in each list, the scores are added, and `k = 60` is the common default. It needs no score normalisation and no training. Below is a complete, tested implementation in plain Python.
 
+![Reciprocal rank fusion for the query INV-20931 dispute with k = 60. BM25 ranks inv-20931 first and disputes second. Vector search ranks disputes, refunds, shipping, and inv-20931 last. Fused scores, 1 over 60 plus rank summed per document: disputes 0.0325, inv-20931 0.0320, refunds 0.0161, shipping 0.0159. The exact invoice climbs from fourth to second, while the dispute guide stays first because it ranked well in both lists.](/figures/rrf.webp)
+
+_RRF rewards agreement between the two retrievers._
+
 ## Why does vector search miss exact terms?
 
 An embedding model compresses a passage into a few hundred numbers that represent what it's about. Two passages about disputed invoices land close together whether the invoice number is `INV-20931` or `INV-55102`. That's what makes semantic search good at paraphrases, and bad at identifiers. I covered the mechanics in [embeddings and vector search, explained](/blog/embeddings-vector-search-explained/).

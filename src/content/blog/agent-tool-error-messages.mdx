@@ -7,6 +7,10 @@ tags: [AI Agents, AI Engineering, MCP, Open Source]
 
 A human reads "not found" and goes looking. An AI agent reads "not found", concludes the thing is gone, and **acts on that conclusion**: it recreates it, deletes something else, or tells the user their data was lost. In **NanoClaw**, an agent framework, a bare "task not found" across sessions led agents to decide their scheduled tasks had been deleted, so they created duplicates. The fix I proposed ([#3068](https://github.com/nanocoai/nanoclaw/pull/3068), in review) changed no logic. It made the errors and outputs tell the agent **where the task actually is and what to do next**.
 
+![How a tool error shapes an agent's next action in NanoClaw. Before: a bare task not found led the agent to conclude the task was deleted, so it created a duplicate. After PR 3068: the error says the task isn't in this session but in another one, naming its messaging group and status, and the agent uses it without duplicating. Rules for tool errors an LLM reads: say why, not just what; say what to do next; close the believable wrong conclusion; separate tool failures from protocol errors; don't leak internals; hide tools the role can't use.](/figures/tool-errors.webp)
+
+_The fix changed no logic, only what the errors told the agent._
+
 ## What went wrong?
 
 In NanoClaw, scheduled tasks are **scoped to the agent group, not the session**. A group can have several sessions (a broadcast channel and an operator console, for example), and a task created in one is visible from the others.

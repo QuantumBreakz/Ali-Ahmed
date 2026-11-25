@@ -7,6 +7,10 @@ tags: [Modern Deployments, Serverless, Cloud]
 
 Deployment platforms can offer generous free tiers because **they stopped renting you a machine and started renting you execution**. A VPS reserves CPU and memory for you around the clock. A modern platform shares compute across thousands of workloads and allocates it only while your code is actually handling a request. Idle apps, which is most apps, cost almost nothing.
 
+![A schematic day of a small app. A VPS reserves CPU and memory around the clock, shown as one solid bar. A modern platform uses compute only while handling requests, shown as a few short blips, on shared machines that start on demand and are reclaimed when idle, with static pages served from the edge cache. The catch: cold starts when compute has to be created for a request, usage limits on execution time, bandwidth and invocations, and less control over the machine your code runs on.](/figures/free-tiers.webp)
+
+_Renting execution instead of a machine is what makes free tiers possible._
+
 _This is part 1 of my Modern Deployments series._
 
 ## What did deployment look like before?

@@ -7,6 +7,10 @@ tags: [AI Engineering, Machine Learning, Hiring, Python]
 
 An AI-written code detector can look like it's working while it checks your code with the wrong model. **Master the Interview**, an AI technical interviewer I built ([source](https://github.com/QuantumBreakz/Master-the-Interview)), labels a candidate's code as AI- or human-written. Reviewing it later, I found its API scored **Python and Java with the models trained on JavaScript**. The cause was one block at the end of the training script. It raised no error, and the output still looked confident. Its line-by-line evidence was partly **made up by the code itself**, and the dataset was too small for any accuracy figure to mean much. Here is what went wrong and what I'd ship instead.
 
+![The bug in the AI-written code detector. Python, Java and JavaScript submissions were all scored by the top-level model files, which held the JavaScript models because JavaScript was the last language in the training loop; a leftover save after the loop wrote them, the API loaded them, and nothing raised an error. Training files per language: Python 48 AI and 78 human, Java 18 and 18, JavaScript 21 and 21, too few for any accuracy figure to mean much. Trusting a number needs hundreds of files per language, test authors unseen in training, and per-language metrics with confidence intervals.](/figures/detector-bug.webp)
+
+_Confident output, wrong model, and too little data to measure either._
+
 ## How does the detector work?
 
 The setup is a common one for text classification:
