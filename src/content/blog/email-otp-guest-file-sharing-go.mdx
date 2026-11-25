@@ -13,6 +13,12 @@ _Each rule closes one attack; the numbers on the right come from the tests below
 
 The rules come from the guest-sharing design of **PlantDocket**, a factory document control system I'm working on ([spec](https://github.com/QuantumBreakz/plantdocket-backend)): an employee shares one approved drawing with a contractor's email address, and the contractor proves they own that inbox before downloading.
 
+## How does the whole flow work?
+
+![The guest sharing flow. An employee shares one approved revision with one email address. The invite link carries a random token; only its digest is stored, and it expires in 7 days. The guest asks for a code, which is sent only to the invited address, with a 60-second resend cooldown. The guest enters it: 5 tries, 10 minutes, used once. That creates a 15-minute session in a secure, HTTP-only, same-origin cookie. Every download then checks that the share is still active, the revision still approved and the sharer still allowed. A forwarded link without the inbox, a reused or replaced code, the sixth guess and a code for another share all fail with the same invalid or expired message.](/figures/otp-flow.webp)
+
+_Six steps; the code only proves inbox access, and every download is authorised again._
+
 ## Why not a plain link?
 
 A link alone is a **bearer token**: anyone it's forwarded to, or who finds it in a proxy log, can download the file. Requiring a code sent to the invited address means a forwarded link is useless without access to that inbox. The link still matters: keep its token high-entropy, store only its digest, and redirect to a clean URL after the first visit so the token doesn't sit in browser history or referrer headers.
@@ -97,7 +103,43 @@ Seven tests pass under `go test -race` (the brute force above is one of them):
 
 ## In production
 
-- **Atomic consumption in the database:** `UPDATE challenges SET consumed = true WHERE id = $1 AND consumed = false AND expires_at > now() RETURNING ...`, in the same transaction that creates the session. One row back means you won; zero means someone else did or it expired.
+- **Atomic consumption in the database.** The attempt counter, the comparison, the consumption and the session belong in one transaction. I ran the race against SQLite (pure-Go `modernc.org/sqlite`, WAL mode):
+
+  ```go title="db.go: redeem"
+  func Redeem(db *sql.DB, key []byte, grant, code string, now time.Time) error {
+  	tx, err := db.Begin()
+  	if err != nil {
+  		return err
+  	}
+  	defer tx.Rollback()
+  	var digest []byte
+  	err = tx.QueryRow(`UPDATE challenges SET attempts = attempts + 1
+  		WHERE grant_id = ? AND consumed = 0 AND attempts < 5 AND expires_at > ?
+  		RETURNING digest`, grant, now.Unix()).Scan(&digest)
+  	if errors.Is(err, sql.ErrNoRows) {
+  		return ErrInvalid
+  	} else if err != nil {
+  		return err
+  	}
+  	if subtle.ConstantTimeCompare(digest, Digest(key, grant, code)) != 1 {
+  		return tx.Commit() // keep the attempt count
+  	}
+  	res, err := tx.Exec(`UPDATE challenges SET consumed = 1 WHERE grant_id = ? AND consumed = 0`, grant)
+  	if err != nil {
+  		return err
+  	}
+  	if n, _ := res.RowsAffected(); n == 0 {
+  		return ErrInvalid
+  	}
+  	if _, err := tx.Exec(`INSERT INTO sessions (grant_id) VALUES (?)`, grant); err != nil {
+  		return err
+  	}
+  	return tx.Commit()
+  }
+  ```
+
+  With 100 goroutines submitting the right code at once: **1 succeeded, 1 session row**, and the attempt counter read **1**. The other 99 found the code already consumed and never got as far as counting an attempt. A sixth attempt with the right code after five wrong ones failed, and so did the right code after 11 minutes.
+
 - **Recheck access on every download**, not only at sign-in: if the share was revoked or the employee who shared it lost access, the next request fails even with a valid session.
 - **Short sessions:** 15 minutes, in a secure, HTTP-only, same-origin cookie.
 - **Don't log codes or link tokens**, and keep the invite path out of access logs and analytics.

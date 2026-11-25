@@ -6,9 +6,9 @@ import { mkdirSync } from "node:fs";
 
 const out = new URL("../public/videos/", import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
-const all = ["kyc-pipeline", "mrz-check-digit", "slo-burn-rate"];
+const all = ["kyc-pipeline", "mrz-check-digit", "slo-burn-rate", "approval-flow", "ssrf-guard"];
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : all;
-const posterFrame = { "kyc-pipeline": 330, "mrz-check-digit": 420, "slo-burn-rate": 560 };
+const posterFrame = { "kyc-pipeline": 330, "mrz-check-digit": 420, "slo-burn-rate": 560, "approval-flow": 470, "ssrf-guard": 400 };
 
 for (const id of ids) {
   const run = (...args) => execFileSync("npx", ["remotion", ...args], { stdio: "inherit" });

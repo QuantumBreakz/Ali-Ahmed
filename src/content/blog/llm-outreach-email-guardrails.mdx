@@ -13,6 +13,12 @@ _Pattern checks are a floor, not a guarantee: they catch the phrasings you thoug
 
 The pipeline researches exhibitors at ADIPEC, an energy exhibition, and drafts first-contact emails for a sales team to review. Nobody on the team has met these companies, so any hint of an earlier meeting is a lie the model invented.
 
+## How does a draft get from facts to a sent email?
+
+![The outreach pipeline. Website facts, numbered F1, F2 and so on with source URLs, go to the LLM draft, which must return the fact IDs it cited. Rule checks then look for banned claims, numbers not in the facts, at least one real fact ID and a hedged hypothesis. A pass goes to human review (approve, edit or reject) and then to sending. A fail goes to one retry with the reasons listed, which produces a new draft; if that fails again, the draft is saved as insufficient evidence and never sent. In the test, the checks caught 7 of 7 obvious violations and missed 5 paraphrases, so the human step is not optional.](/figures/guardrail-pipeline.webp)
+
+_The checks sit between the model and a person, never between the model and the recipient._
+
 ## How is the prompt set up?
 
 The model gets only what the code collected, each fact with an ID and its source page:
@@ -94,6 +100,21 @@ function toValue(n) {
 ```
 
 With it, "3.5 million" is flagged, while "1200 square metre" and "1,200 square metre" still match the fact. The test also shows two softer spots: **one real citation is enough**, even next to an invented ID like F9, and the hypothesis check only looks for a hedge word anywhere, so "They struggle with manual inspections, which may slow audits" passes.
+
+## Can you just add more patterns?
+
+For the four missed phrasings, one more pattern each is easy:
+
+```js title="extended.test.mjs: four more patterns"
+const EXTRA = [
+  [/\badipec\b[^.]{0,40}\bmeet\b/i, "claims a meeting at ADIPEC"],
+  [/\b(stopping|stopped|dropping) by (our|the) (stand|booth)\b/i, "claims a visit"],
+  [/\bas per our (call|conversation|chat|meeting)\b/i, "claims an earlier conversation"],
+  [/\byou were interested\b/i, "claims they showed interest"],
+];
+```
+
+All four misses are caught with them. Then I ran both rule sets over six sentences a good email could contain. The original rules flagged **0 of 6**; the extended rules flagged **1 of 6**: "If you're at ADIPEC, we'd be glad to meet there or online", an honest invitation, now reads as "claims a meeting at ADIPEC". That's the pattern treadmill: every rule that catches a paraphrase also catches something legitimate that happens to use the same words. Keep adding rules for misses you see in real drafts, keep a list of legitimate sentences in the tests so you notice false positives, and let the reviewer decide the borderline cases.
 
 ## So what should the checks be?
 

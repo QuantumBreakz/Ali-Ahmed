@@ -46,6 +46,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 Two rows are worth knowing by heart. A range **past the end** is 416, but a range that merely **ends** past the end is clamped and served. And **`If-Range`** is what makes resuming safe: if the file changed since the client started, the client gets the whole new file instead of the new file's bytes glued onto the old file's beginning.
 
+## What does a resumed download look like?
+
+![A 1,000-byte drawing downloaded over a bad connection. The first attempt gets bytes 0 to 299 and 300 to 599, then the connection drops. The resume, with the same ETag, asks for Range 600-899 and then 900 to the end. The result is 4 parts whose SHA-256 matches the original. Without If-Range, a file that changed in between would give the old file's bytes 0 to 599 followed by the new file's 600 to 999. With If-Range, the server sees the file changed and sends all of it again with a 200.](/figures/range-resume.webp)
+
+_If-Range is the difference between a resumed file and a corrupted one._
+
 ## Does resuming reassemble the exact file?
 
 ```go title="ranges_test.go: resume"

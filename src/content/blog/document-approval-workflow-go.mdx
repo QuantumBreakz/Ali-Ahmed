@@ -3,6 +3,12 @@ title: "Multi-step document approval in Go: keep the old revision effective unti
 description: "How to build ordered, department-by-department approval of document revisions: snapshot the approval template, move the effective pointer only on the final approval, refuse self-approval and out-of-order decisions, and use an expected version plus idempotency keys so retries and races are safe. Tested Go, with 50 concurrent approvers producing exactly one winner."
 publishedAt: 2026-11-25
 tags: [Go, Reliability, Distributed Systems, Databases]
+video:
+  src: /videos/approval-flow.mp4
+  poster: /videos/approval-flow.jpg
+  title: "A two-step approval, a race and a return"
+  duration: PT26S
+  transcript: "Four boxes: Draft, Step 1 Engineering, Step 2 Maintenance and Approved, with a badge in the corner saying readers get rev-1. A rev-2 card moves from Draft into Step 1, Engineering approves, and it moves to Step 2: the badge still says rev-1. Three approvals of step 2 arrive at once; the middle one commits with 200 and the other two bounce back with 409. Maintenance's approval moves rev-2 into Approved and the badge flips to rev-2. A rev-3 card then goes through Step 1 and Step 2 and is returned at step 2 with a reason; readers still get rev-2. The closing card: 50 concurrent approvals of one step, 1 succeeds, 49 get 409, and the effective pointer moves only on the last approval, in the same transaction."
 ---
 
 In a factory, the drawing on the shop floor has to be the **approved** one, even while a new revision is being reviewed. The pattern that guarantees it: keep an **effective revision pointer** for each document, run each new revision through an **ordered list of approval steps** (Engineering, then Maintenance), and move the pointer **only when the last required step approves**, in the same transaction as that decision. Every decision names the step and the **review version** it saw, so a stale, duplicate or out-of-order decision is refused with **409 Conflict** instead of being applied twice. The approver's eligibility is checked when they decide, the submitter can't approve their own revision, and the steps are **copied from the template at submission**, so an admin editing the template mid-review can't change the rules under it. Below is a tested Go implementation: in the race test, **50 approvers deciding the same step at once produce exactly one approval and 49 conflicts**.
@@ -26,6 +32,10 @@ This comes from the design of **PlantDocket**, a document control system for fac
 Two rules do most of the work: **one active review per document**, and **only the final approval moves the effective pointer**. A return at any step ends the review; the old drawing never stops being available.
 
 ## The model
+
+![The approval state machine. A draft (rev-2, scanned) is submitted into review, where the template is copied: step 1 Engineering, then step 2 Maintenance. Approving step 2 makes the revision Approved with effective set to rev-2. A return at any step, with a reason, ends the review as Returned with its history kept. Readers get rev-1 throughout draft, review, return or retry, and rev-2 only after the final approval. Each decision sends the review, step and version: a wrong step or stale version gets 409, a wrong department or the submitter gets 403.](/figures/approval-states.webp)
+
+_The whole lifecycle on one page: the bottom bar is what the shop floor sees._
 
 ```go title="approval.go: types"
 type Review struct {
@@ -147,10 +157,42 @@ All five tests pass under `go test -race`:
 
 ## In a real database
 
-The mutex stands in for what the database does in production. Two ways to get the same guarantees:
+The mutex stands in for what the database does in production. The simplest replacement is a **conditional update**: the `WHERE` clause carries the step and version the approver saw, and zero rows updated means someone else got there first. I ran the same race against SQLite (the pure-Go `modernc.org/sqlite` driver, WAL mode):
 
-- **Conditional update:** `UPDATE reviews SET current_step = $1, version = version + 1 WHERE id = $2 AND version = $3`. Zero rows updated means someone else got there first: return 409.
-- **Row lock:** `SELECT ... FROM documents WHERE id = $1 FOR UPDATE` at the start of the decision transaction, which serialises decisions per document.
+```go title="db.go: approve with a conditional update"
+func Approve(db *sql.DB, reviewID, step, expectedVersion int, approver string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE reviews
+		SET current_step = current_step + 1, version = version + 1,
+		    state = CASE WHEN current_step + 1 = total_steps THEN 'approved' ELSE state END
+		WHERE id = ? AND current_step = ? AND version = ? AND state = 'in_review'`, reviewID, step, expectedVersion)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrConflict
+	}
+	if _, err := tx.Exec(`INSERT INTO decisions VALUES (?, ?, ?, 1, ?)`, reviewID, step, approver, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	// Only the final approval moves the effective pointer, in the same transaction.
+	if _, err := tx.Exec(`UPDATE documents SET effective = (SELECT revision FROM reviews WHERE id = ?)
+		WHERE id = (SELECT document_id FROM reviews WHERE id = ? AND state = 'approved')`, reviewID, reviewID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+```
+
+```text title="go test -race (three runs, same result)"
+SQLite, 50 goroutines: 1 committed, 49 conflicts, 0 other errors; effective=rev-2, decisions=2
+```
+
+Exactly one approval committed, the other 49 got the conflict, the effective pointer moved once, and the decisions table has exactly two rows (one per step). In PostgreSQL the same `UPDATE ... WHERE version = $3` works unchanged; the alternative is a row lock, `SELECT ... FROM documents WHERE id = $1 FOR UPDATE`, at the start of the decision transaction.
 
 Either way, the **decision, the audit record and the effective-pointer change commit in one transaction**. If the pointer moved but the audit event didn't commit, you couldn't prove who approved the drawing on the shop floor. For an audit log that can't be quietly edited later, see [hash-chained audit logs](/blog/ai-agent-audit-log-hash-chain/).
 

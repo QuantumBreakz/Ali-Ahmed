@@ -3,6 +3,12 @@ title: "SSRF protection for server-side fetch in Node.js: block private addresse
 description: "How to fetch user-supplied URLs from Node.js without letting them reach localhost, cloud metadata or your internal network: parse first, block private and IPv4-mapped addresses, check DNS results at connect time to stop rebinding, and follow redirects manually so every hop is checked. Tested with undici, including five spellings of 127.0.0.1 and the BlockList rule that blocks every public IPv4 address."
 publishedAt: 2026-11-25
 tags: [Node.js, Security, AI Engineering]
+video:
+  src: /videos/ssrf-guard.mp4
+  poster: /videos/ssrf-guard.jpg
+  title: "Three ways a URL reaches your internal network, and the guard that stops each"
+  duration: PT27S
+  transcript: "Four URLs appear one by one: http://2130706433/, http://0x7f.0.0.1/, http://127.1/ and http://0177.0.0.1/. Each one, parsed with new URL(), becomes 127.0.0.1, and all four are refused. Next, three boxes: your server, a public site that answers with a 302 redirect to 127.0.0.1, and an internal service on 127.0.0.1:8080. With a plain fetch, the request goes to the public site, follows the redirect to the internal service, and a SECRET comes back. With the guard, the redirect is checked before it is followed: Refused, private address 127.0.0.1. Then the hostname localhost resolves to ::1 and 127.0.0.1; the lookup hook sees the private address and refuses the connection, which also stops DNS rebinding. The closing card: parse, check literals, check DNS at connect, and with redirect set to manual, repeat for every hop."
 ---
 
 **Server-side request forgery (SSRF)** happens when your server fetches a URL someone else chose, and that URL points somewhere only your server can reach: `localhost`, a database, the cloud metadata service at `169.254.169.254`, or another machine on the internal network. Checking the URL string isn't enough, because `2130706433`, `0x7f.0.0.1`, `127.1` and `0177.0.0.1` are all `127.0.0.1`, and a harmless-looking hostname can resolve to a private address. The fix that holds up: **parse the URL first**, refuse private and reserved addresses **including IPv4-mapped IPv6**, check **the address DNS actually returned at connect time** (which also stops DNS rebinding), and set **`redirect: "manual"`** so every redirect hop goes through the same checks. In my test, a plain `fetch` followed a public page's redirect and read **"SECRET from 127.0.0.1"**; the guarded version refused it. One trap along the way: adding `::ffff:0:0/96` to Node's `BlockList` **blocks every IPv4 address**, including `8.8.8.8`.
@@ -23,6 +29,12 @@ This is the guard from a lead-research pipeline I built, which reads exhibitor w
 | `100.64.0.0/10`                                               | Carrier-grade NAT, used inside some clouds     |
 | `0.0.0.0/8`, `::`                                             | "This host": often reaches localhost           |
 | `192.0.0.0/24`, `198.18.0.0/15`, `224.0.0.0/4`, `240.0.0.0/4` | Reserved, benchmarking, multicast              |
+
+## Where does each check run?
+
+![The SSRF guard's three checkpoints. The user's untrusted URL goes through 1, parse with new URL() allowing only http and https, which catches file: and gopher: and turns 0x7f.1 into 127.0.0.1; 2, an IP literal check that runs immediately and catches 127.0.0.1, 169.254.169.254 and ::ffff:7f00:1; 3, connect, where every DNS answer is checked, catching localhost, internal names and DNS rebinding. A 3xx response with a Location header starts again at step 1, with redirect set to manual and at most 5 hops. IP literals never reach DNS, so check 2 is not optional; DNS answers can change, so check 3 runs at connect time.](/figures/ssrf-pipeline.webp)
+
+_Each checkpoint catches what the one before can't see._
 
 ## The guard
 
