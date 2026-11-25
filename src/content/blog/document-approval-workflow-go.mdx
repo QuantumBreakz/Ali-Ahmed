@@ -1,0 +1,167 @@
+---
+title: "Multi-step document approval in Go: keep the old revision effective until the last step approves"
+description: "How to build ordered, department-by-department approval of document revisions: snapshot the approval template, move the effective pointer only on the final approval, refuse self-approval and out-of-order decisions, and use an expected version plus idempotency keys so retries and races are safe. Tested Go, with 50 concurrent approvers producing exactly one winner."
+publishedAt: 2026-11-25
+tags: [Go, Reliability, Distributed Systems, Databases]
+---
+
+In a factory, the drawing on the shop floor has to be the **approved** one, even while a new revision is being reviewed. The pattern that guarantees it: keep an **effective revision pointer** for each document, run each new revision through an **ordered list of approval steps** (Engineering, then Maintenance), and move the pointer **only when the last required step approves**, in the same transaction as that decision. Every decision names the step and the **review version** it saw, so a stale, duplicate or out-of-order decision is refused with **409 Conflict** instead of being applied twice. The approver's eligibility is checked when they decide, the submitter can't approve their own revision, and the steps are **copied from the template at submission**, so an admin editing the template mid-review can't change the rules under it. Below is a tested Go implementation: in the race test, **50 approvers deciding the same step at once produce exactly one approval and 49 conflicts**.
+
+![A two-step approval in the test. Sara submits rev-2: the review is at step 1 of 2 and readers still get rev-1. Engineering approves step 1: step 2 of 2, readers still get rev-1. Maintenance approves step 2: approved, readers now get rev-2. Refused with nothing changed: Sara approving her own revision (403), Maintenance deciding step 1 (403), step 2 decided before step 1 (409), a decision with a stale version (409), and 50 approvers racing on one step (one 200, 49 conflicts).](/figures/approval-flow.webp)
+
+_The effective revision moves once, on the last approval. Everything else is refused without side effects._
+
+This comes from the design of **PlantDocket**, a document control system for factory drawings and policies that I'm working on ([spec on GitHub](https://github.com/QuantumBreakz/plantdocket-backend)). The Go below implements its approval rules as a self-contained model.
+
+## What are the states?
+
+| State                  | What readers see                    | What can happen next                                            |
+| ---------------------- | ----------------------------------- | --------------------------------------------------------------- |
+| Draft                  | The previous effective revision     | An authorised contributor submits it                            |
+| In review              | The previous effective revision     | The current step approves (advance) or returns it with a reason |
+| Returned               | The previous effective revision     | Nothing: a resubmission is a new draft with a fresh review      |
+| Approved and effective | This revision                       | A later revision can supersede it                               |
+| Approved, superseded   | The newer revision; this in history | Nothing: it keeps its approval record                           |
+
+Two rules do most of the work: **one active review per document**, and **only the final approval moves the effective pointer**. A return at any step ends the review; the old drawing never stops being available.
+
+## The model
+
+```go title="approval.go: types"
+type Review struct {
+	ID        int
+	Revision  string // exact revision under review (e.g. its SHA-256)
+	Submitter string
+	Steps     []Step // snapshot of the template at submission time
+	Current   int    // index of the active step
+	Version   int    // bumped on every decision; callers send it back
+	State     string // "in_review", "returned", "approved"
+	Decisions []Decision
+	idem      map[string]Result
+}
+
+type Document struct {
+	mu        sync.Mutex // serialize decisions on one document
+	Effective string     // what ordinary readers get
+	Template  []Step
+	Active    *Review
+	History   []*Review
+	nextID    int
+}
+```
+
+Submitting copies the template, so later edits only affect later reviews:
+
+```go title="approval.go: submit"
+func (d *Document) Submit(revision, submitter string) (*Review, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.Template) == 0 {
+		return nil, ErrNoTemplate
+	}
+	if d.Active != nil {
+		return nil, ErrActive
+	}
+	d.nextID++
+	steps := append([]Step(nil), d.Template...) // later template edits don't touch this review
+	d.Active = &Review{ID: d.nextID, Revision: revision, Submitter: submitter, Steps: steps, State: "in_review", idem: map[string]Result{}}
+	return d.Active, nil
+}
+```
+
+## Deciding a step
+
+```go title="approval.go: decide"
+func (d *Document) Decide(reviewID, step, expectedVersion int, approver, dept string, approve bool, reason, idemKey string) (Result, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.Active
+	if r != nil && r.ID == reviewID {
+		if res, ok := r.idem[idemKey]; ok { // lost response, same request retried
+			return res, nil
+		}
+	}
+	for _, h := range d.History { // retry of a request that finished the review
+		if h.ID == reviewID {
+			if res, ok := h.idem[idemKey]; ok {
+				return res, nil
+			}
+			return Result{}, ErrConflict
+		}
+	}
+	if r == nil || r.ID != reviewID || step != r.Current || expectedVersion != r.Version {
+		return Result{}, ErrConflict
+	}
+	if approver == r.Submitter || dept != r.Steps[step].Department {
+		return Result{}, ErrForbidden
+	}
+	if !approve && reason == "" {
+		return Result{}, errors.New("a return needs a reason")
+	}
+	r.Decisions = append(r.Decisions, Decision{step, approver, approve, reason})
+	r.Version++
+	switch {
+	case !approve:
+		r.State = "returned"
+	case r.Current == len(r.Steps)-1:
+		r.State = "approved"
+		d.Effective = r.Revision // the only place the effective pointer moves
+	default:
+		r.Current++
+	}
+	res := Result{r.State, d.Effective}
+	r.idem[idemKey] = res
+	if r.State != "in_review" {
+		d.History = append(d.History, r)
+		d.Active = nil
+	}
+	return res, nil
+}
+```
+
+The order of the checks matters. **Idempotency first**: if the client's previous request succeeded but the response was lost, the retry gets the original result, even if that request finished the review. **Then the state**: wrong review, wrong step or a stale version means someone else already acted, so 409. **Then permission**: self-approval or the wrong department is 403. Only then does anything change.
+
+## What the tests show
+
+```go title="approval_test.go: race"
+// 50 Maintenance approvers race on step 2 with the same expected version: exactly one wins.
+for i := 0; i < 50; i++ {
+	wg.Add(1)
+	go func(i int) {
+		defer wg.Done()
+		_, err := d.Decide(r.ID, 1, 1, approverName(i), "Maintenance", true, "", raceKey(i))
+		// count wins and ErrConflict
+	}(i)
+}
+wg.Wait()
+// race: 1 win, 49 get 409
+```
+
+All five tests pass under `go test -race`:
+
+- **Two steps:** after Engineering approves, readers still get `rev-1`. Only Maintenance's approval switches them to `rev-2`.
+- **Return at step 2:** the review ends as `returned` with both decisions recorded, `rev-1` stays effective, and a later decision on that review gets 409.
+- **Refusals:** self-approval and the wrong department get 403; deciding step 2 first and a stale version get 409. None of them changes the review or the effective revision.
+- **Retry and race:** the same idempotency key returns the first result without a second decision. 50 concurrent approvals of one step give **1 success and 49 conflicts**.
+- **Template edits:** changing the template during a review doesn't affect it; a second submission while one is active is refused; a document with no template can't be submitted.
+
+## In a real database
+
+The mutex stands in for what the database does in production. Two ways to get the same guarantees:
+
+- **Conditional update:** `UPDATE reviews SET current_step = $1, version = version + 1 WHERE id = $2 AND version = $3`. Zero rows updated means someone else got there first: return 409.
+- **Row lock:** `SELECT ... FROM documents WHERE id = $1 FOR UPDATE` at the start of the decision transaction, which serialises decisions per document.
+
+Either way, the **decision, the audit record and the effective-pointer change commit in one transaction**. If the pointer moved but the audit event didn't commit, you couldn't prove who approved the drawing on the shop floor. For an audit log that can't be quietly edited later, see [hash-chained audit logs](/blog/ai-agent-audit-log-hash-chain/).
+
+The idempotency keys need the same care as in any API: store them with the result, scoped to the review, and keep them long enough to cover client retries. [Idempotency keys for POST APIs](/blog/idempotency-keys-post-api-nodejs/) covers the details.
+
+## Summary
+
+- Keep an **effective revision pointer** and move it **only on the final approval**, in the same transaction as that decision.
+- **Snapshot the template** at submission; check the approver's **eligibility at decision time**.
+- Every decision carries the **step and expected version**: stale, duplicate and out-of-order decisions get **409**, ineligible ones **403**.
+- **Idempotency keys** make lost responses safe to retry, even after the review has finished.
+- In the test, **50 concurrent approvals produced 1 success and 49 conflicts**, and the old revision stayed effective through every return and refusal.
+
+For sharing an approved revision with someone outside the company, see [email one-time codes for guest file sharing](/blog/email-otp-guest-file-sharing-go/), and for serving the file itself, [HTTP Range requests in Go](/blog/http-range-requests-go/).

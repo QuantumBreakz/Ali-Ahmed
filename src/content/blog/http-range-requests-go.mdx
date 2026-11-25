@@ -1,0 +1,96 @@
+---
+title: "HTTP Range requests in Go: resumable downloads, 206 and 416, If-Range, and capping multipart ranges"
+description: "How resumable downloads work and what Go's http.ServeContent answers for each Range header: 206 with Content-Range, suffix ranges, clamped ends, 416 for unsatisfiable ranges, If-Range with an ETag, and multipart responses. Tested on a 1,000-byte file, including 200 one-byte ranges returning 26,846 bytes and a cap that stops it."
+publishedAt: 2026-11-25
+tags: [Go, Performance, Reliability]
+---
+
+A **Range request** asks for part of a file: `Range: bytes=900-` means "from byte 900 to the end", which is how browsers and download managers **resume** a broken download of a large file. The server answers **206 Partial Content** with a `Content-Range: bytes 900-999/1000` header, **416 Range Not Satisfiable** when the range starts past the end of the file, and a plain **200** with the whole file when there's no range, or when an **`If-Range`** header shows the client's copy is out of date. In Go, **`http.ServeContent`** handles all of this correctly, as the tests below show on a 1,000-byte file, as long as you give it an **ETag** or modification time. The part worth adding yourself is a **cap on the number of ranges**: in my test, a request for **200 one-byte ranges returned 26,846 bytes**, about 134 times the data asked for, because each part of a multipart response carries its own headers.
+
+![How Go's http.ServeContent answers Range requests on a 1,000-byte file. bytes=0-99: 206, bytes 0-99/1000. bytes=900- (resume): 206, bytes 900-999/1000. bytes=-50 (last 50): 206, bytes 950-999/1000. bytes=950-5000: 206, bytes 950-999/1000. bytes=1000-1100: 416, bytes */1000. If-Range with an old ETag: 200, whole file. 26,846 bytes sent for 200 one-byte ranges, 134 times the data asked for, in multipart headers. Cap the ranges at 5; above that, serve the plain file.](/figures/http-ranges.webp)
+
+_Every row comes from the test below; the right side is the case the standard library leaves to you._
+
+The download path is part of **PlantDocket**, a document control system for factory drawings I'm working on ([spec](https://github.com/QuantumBreakz/plantdocket-backend)): drawings can be hundreds of megabytes, and a contractor on a site connection needs to resume rather than restart.
+
+## The handler
+
+```go title="ranges_test.go: handler"
+var data = bytes.Repeat([]byte("0123456789"), 100) // 1,000 bytes
+var modified = time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+var etag = fmt.Sprintf(`"%x"`, sha256.Sum256(data))
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, "drawing.pdf", modified, bytes.NewReader(data))
+}
+```
+
+`ServeContent` needs an `io.ReadSeeker` (an `*os.File` works, and so does a reader over object storage that supports seeking). It reads the `ETag` you set to answer `If-Range` and `If-None-Match`, sets `Accept-Ranges: bytes`, and picks the content type from the file name.
+
+## What does each Range header get?
+
+| Request header                     | Status | Content-Range        | Body                              |
+| ---------------------------------- | ------ | -------------------- | --------------------------------- |
+| none                               | 200    | none                 | 1,000 bytes                       |
+| `bytes=0-99`                       | 206    | `bytes 0-99/1000`    | 100 bytes                         |
+| `bytes=900-` (resume)              | 206    | `bytes 900-999/1000` | 100 bytes                         |
+| `bytes=-50` (last 50)              | 206    | `bytes 950-999/1000` | 50 bytes                          |
+| `bytes=950-5000`                   | 206    | `bytes 950-999/1000` | 50 bytes: the end is clamped      |
+| `bytes=1000-1100`                  | 416    | `bytes */1000`       | short error text                  |
+| `bytes=abc`                        | 416    | none                 | short error text                  |
+| `bytes=0-9,20-29`                  | 206    | per part             | `multipart/byteranges`, 348 bytes |
+| `bytes=0-99` + matching `If-Range` | 206    | `bytes 0-99/1000`    | 100 bytes                         |
+| `bytes=0-99` + old `If-Range`      | 200    | none                 | the whole file, 1,000 bytes       |
+
+Two rows are worth knowing by heart. A range **past the end** is 416, but a range that merely **ends** past the end is clamped and served. And **`If-Range`** is what makes resuming safe: if the file changed since the client started, the client gets the whole new file instead of the new file's bytes glued onto the old file's beginning.
+
+## Does resuming reassemble the exact file?
+
+```go title="ranges_test.go: resume"
+for start := 0; start < len(data); start += 300 {
+	res := get(t, map[string]string{"Range": fmt.Sprintf("bytes=%d-%d", start, start+299), "If-Range": etag})
+	b, _ := io.ReadAll(res.Body)
+	out = append(out, b...)
+}
+// 4 range requests reassembled 1000 bytes, SHA-256 matches
+```
+
+Four requests (0–299, 300–599, 600–899, 900–999; the last end is clamped) rebuild the file, and its SHA-256 matches. For controlled documents, publish that digest so the person downloading can check it too.
+
+## Capping the number of ranges
+
+```go title="cap.go"
+// LimitRanges drops a Range header with more than max ranges, so the client gets the plain file (200).
+func LimitRanges(max int, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Count(r.Header.Get("Range"), ",")+1 > max {
+			r.Header.Del("Range")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+Without it, 200 one-byte ranges produced a 206 with **26,846 bytes** for 200 bytes of content. With `LimitRanges(5, …)`, 2 ranges still get their 206 (328 bytes), and 200 ranges get the plain file: 200 OK, 1,000 bytes. Go already ignores the ranges and sends the whole file when they add up to more than the file's size, but many small ranges stay under that limit. Download managers use one range at a time, and very few real clients need more than a handful.
+
+## Before you call ServeContent
+
+`ServeContent` handles bytes, not permissions. For a file shared with someone outside the company:
+
+- **Check access on every request**, including each range. A download resumed after access was revoked must fail, even though the first part succeeded.
+- **Pin the exact revision.** Serve the version that was shared, not whatever is current: a resumed download must never mix two revisions, and `If-Range` with that revision's ETag enforces it.
+- **`Cache-Control: private, no-store`** so shared files don't end up in proxies.
+
+How the guest proves who they are is in [email one-time codes for guest file sharing](/blog/email-otp-guest-file-sharing-go/), and how a revision becomes shareable in [multi-step document approval in Go](/blog/document-approval-workflow-go/).
+
+## Summary
+
+- `Range: bytes=900-` resumes a download; the answer is **206** with **`Content-Range`**.
+- A range starting past the end is **416**; a range ending past it is **clamped**.
+- Set an **ETag** so **`If-Range`** works: a changed file comes back whole (200), never spliced.
+- Go's **`http.ServeContent`** got every case right in the test; four ranges reassembled the file with a matching SHA-256.
+- **Cap multipart ranges**: 200 one-byte ranges returned **26,846 bytes**. Above 5, serve the plain file.
+
+For streaming large responses without exhausting memory on the Node.js side, see [Node HTTP back-pressure counts bytes](/blog/node-http-backpressure-bytes/).

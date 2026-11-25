@@ -1,0 +1,115 @@
+---
+title: "Email one-time codes for guest file sharing in Go: hashing, attempt limits, expiry and races"
+description: "How to let an outside contractor download a shared file with a 6-digit email code without making the code the weak point: store a keyed HMAC digest, bind it to the share, expire it in 10 minutes, allow 5 attempts counted before comparison, invalidate it on resend and consume it atomically. Tested Go, including a 62 ms brute force of an unkeyed hash and 100 concurrent correct submissions creating exactly one session."
+publishedAt: 2026-11-25
+tags: [Go, Security, Reliability]
+---
+
+A 6-digit email code is only a million possibilities, so the code itself isn't what protects a shared file: the **rules around it** are. Store it as a **keyed digest** (HMAC-SHA256 with a server secret), never as the code or a plain hash: in my test, a plain SHA-256 of a 6-digit code was reversed by trying every value in **62 milliseconds**. **Bind the digest to the share** so a code for one file can't open another. **Expire it after 10 minutes**, allow **5 attempts, counted before comparing**, invalidate the old code when a new one is sent, and limit resends with a **60-second cooldown**. Finally, **consume the code and create the session in one atomic step**: in the test, **100 concurrent submissions of the correct code created exactly one session**. With those limits, an attacker gets at most about 300 guesses an hour, a **0.03%** chance of hitting the right code.
+
+![Rules for guest one-time codes: stored as HMAC-SHA256 of the key with the grant and code; expires in 10 minutes; 5 attempts per code, counted before comparing; resend has a 60-second cooldown and kills the old code; used once, consumed with the session. Measured: 62 ms to reverse a plain SHA-256 of a 6-digit code; 1 of 100 concurrent correct submissions gets a session; 0.03% chance per hour of guessing at 300 tries an hour.](/figures/guest-otp.webp)
+
+_Each rule closes one attack; the numbers on the right come from the tests below._
+
+The rules come from the guest-sharing design of **PlantDocket**, a factory document control system I'm working on ([spec](https://github.com/QuantumBreakz/plantdocket-backend)): an employee shares one approved drawing with a contractor's email address, and the contractor proves they own that inbox before downloading.
+
+## Why not a plain link?
+
+A link alone is a **bearer token**: anyone it's forwarded to, or who finds it in a proxy log, can download the file. Requiring a code sent to the invited address means a forwarded link is useless without access to that inbox. The link still matters: keep its token high-entropy, store only its digest, and redirect to a clean URL after the first visit so the token doesn't sit in browser history or referrer headers.
+
+## The store
+
+```go title="otp.go: issue"
+func (s *Store) digest(grant, code string) []byte {
+	m := hmac.New(sha256.New, s.key)
+	fmt.Fprintf(m, "%s:%s", grant, code) // bound to the grant: a code for one share is useless for another
+	return m.Sum(nil)
+}
+
+// Issue creates a new 6-digit code for the grant, replacing (and invalidating) any earlier one.
+func (s *Store) Issue(grant string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.Now()
+	if c := s.active[grant]; c != nil && now.Sub(c.createdAt) < Cooldown {
+		return "", ErrCooldown
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "", err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
+	s.active[grant] = &challenge{digest: s.digest(grant, code), expires: now.Add(TTL), createdAt: now}
+	return code, nil // send by email; never log or store it
+}
+```
+
+`crypto/rand` with `rand.Int` gives a uniform code; `math/rand` or a modulo of random bytes would not. `%06d` keeps leading zeros, so `004213` stays six digits.
+
+```go title="otp.go: verify"
+func (s *Store) Verify(grant, code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.active[grant]
+	if c == nil || c.consumed || s.Now().After(c.expires) || c.attempts >= MaxAttempts {
+		return ErrInvalid
+	}
+	c.attempts++ // count before comparing, so a burst can't exceed the limit
+	if subtle.ConstantTimeCompare(c.digest, s.digest(grant, code)) != 1 {
+		return ErrInvalid
+	}
+	c.consumed = true
+	s.sessions++
+	return nil
+}
+```
+
+Every failure returns the same `ErrInvalid`: expired, used, wrong and over-limit all look identical, so the response doesn't tell an attacker which case they hit.
+
+## Why a keyed digest?
+
+If the codes table leaks (a backup, a log, a SQL injection elsewhere), a plain hash gives the codes away:
+
+```go title="brute_test.go"
+leaked := sha256.Sum256([]byte("g:482913")) // an unkeyed digest from a leaked table
+for i := 0; i < 1_000_000; i++ {
+	c := fmt.Sprintf("%06d", i)
+	if sha256.Sum256([]byte("g:"+c)) == leaked {
+		found = c
+		break
+	}
+}
+// recovered 482913 from a plain SHA-256 in 62ms
+```
+
+Three runs, 62 ms each, on a laptop. A slow password hash like bcrypt raises the cost of each guess, but a million candidates is still a small search. An **HMAC with a secret key** that isn't stored with the data does help: without the key, the digests can't be checked offline at all.
+
+## What the tests show
+
+Seven tests pass under `go test -race` (the brute force above is one of them):
+
+- **Happy path and reuse:** the right code works once; the second use fails, and the same code fails against a different grant.
+- **Expiry:** at 10 minutes and 1 second, the right code is refused.
+- **Attempt limit:** after 5 wrong guesses, even the **correct** code fails. Counting before the comparison is what makes this hold under concurrent requests.
+- **Resend:** a second request within 60 seconds is refused; after it, the new code works and the old one doesn't.
+- **Race:** 100 goroutines submit the correct code at once; **exactly 1** creates a session.
+- **Odds:** 60 codes an hour × 5 attempts = 300 guesses against 1,000,000 codes, **0.03%** per hour. Add a per-IP limit and an hourly cap per share to keep it there.
+
+## In production
+
+- **Atomic consumption in the database:** `UPDATE challenges SET consumed = true WHERE id = $1 AND consumed = false AND expires_at > now() RETURNING ...`, in the same transaction that creates the session. One row back means you won; zero means someone else did or it expired.
+- **Recheck access on every download**, not only at sign-in: if the share was revoked or the employee who shared it lost access, the next request fails even with a valid session.
+- **Short sessions:** 15 minutes, in a secure, HTTP-only, same-origin cookie.
+- **Don't log codes or link tokens**, and keep the invite path out of access logs and analytics.
+
+The file is then served with byte ranges so large drawings can resume: [HTTP Range requests in Go](/blog/http-range-requests-go/). For the approval that has to happen before anything can be shared, see [multi-step document approval in Go](/blog/document-approval-workflow-go/).
+
+## Summary
+
+- Six digits are safe only with **keyed digests, binding, expiry, attempt limits, resend limits and atomic use**.
+- A plain SHA-256 of a 6-digit code was reversed in **62 ms**; use **HMAC with a server-side key**.
+- **Count attempts before comparing** and return **one error** for every failure.
+- **Consume the code and create the session together**: 100 concurrent correct submissions gave **one** session.
+- The limits cap guessing at about **0.03% per hour**.
+
+For other places where comparing secrets safely matters, see [verifying webhook signatures in Node.js](/blog/verify-webhook-signatures-nodejs/) and [JWT verification pitfalls](/blog/jwt-verification-pitfalls-nodejs/).

@@ -1511,6 +1511,271 @@ export function FigVapiHmac() {
   );
 }
 
+/* 30. Document approval ------------------------------------------------------------------------------------ */
+export function FigApprovalFlow() {
+  const rows: [string, string, string][] = [
+    ["Sara submits rev-2", "in review · step 1 of 2", "rev-1"],
+    ["Engineering approves step 1", "in review · step 2 of 2", "rev-1"],
+    ["Maintenance approves step 2", "approved", "rev-2"],
+  ];
+  const refused: [string, string][] = [
+    ["Sara approves her own revision", "403"],
+    ["Maintenance decides step 1", "403"],
+    ["Step 2 decided before step 1", "409"],
+    ["Decision with a stale version", "409"],
+    ["50 approvers race on one step", "1 × 200, 49 × 409"],
+  ];
+  return (
+    <Frame kicker="Multi-step approval · Go · 5 tests, race detector on" title="The old revision stays effective until the last step approves">
+      <div style={{ display: "grid", gridTemplateColumns: "1.25fr 1fr", gap: 48, fontFamily: sans }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 250px 120px" }}>
+          <div style={{ fontSize: 20, color: color.muted, paddingBottom: 10 }}>Event</div>
+          <div style={{ fontSize: 20, color: color.muted, paddingBottom: 10 }}>Review</div>
+          <div style={{ fontSize: 20, color: color.accent, paddingBottom: 10 }}>Readers get</div>
+          {rows.map(([e, r, eff]) => (
+            <div key={e} style={{ display: "contents" }}>
+              <div style={{ fontSize: 25, color: color.ink, padding: "16px 0", borderTop: `1px solid ${color.line}` }}>{e}</div>
+              <div style={{ fontSize: 22, color: color.muted, padding: "18px 0", borderTop: `1px solid ${color.line}` }}>{r}</div>
+              <div
+                style={{
+                  fontFamily: mono,
+                  fontSize: 24,
+                  color: eff === "rev-2" ? color.accent : color.ink,
+                  padding: "17px 0",
+                  borderTop: `1px solid ${color.line}`,
+                }}
+              >
+                {eff}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ fontSize: 20, color: color.muted, paddingBottom: 10 }}>Refused, with nothing changed</div>
+          {refused.map(([what, code]) => (
+            <div
+              key={what}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 23,
+                color: color.ink,
+                padding: "13px 0",
+                borderTop: `1px solid ${color.line}`,
+              }}
+            >
+              <span>{what}</span>
+              <span style={{ fontFamily: mono, color: color.warm }}>{code}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* 31. Guest OTP ---------------------------------------------------------------------------------------------- */
+export function FigGuestOtp() {
+  const rules: [string, string][] = [
+    ["Stored as", "HMAC-SHA256(key, grant:code)"],
+    ["Expires", "10 minutes"],
+    ["Attempts per code", "5, counted before comparing"],
+    ["Resend", "60 s cooldown, old code dies"],
+    ["Use", "once: consumed with the session"],
+  ];
+  const stat = (n: string, label: string, tone: string) => (
+    <div style={{ padding: "16px 0", borderTop: `1px solid ${color.line}` }}>
+      <div style={{ fontFamily: mono, fontSize: 40, color: tone }}>{n}</div>
+      <div style={{ fontFamily: sans, fontSize: 21, color: color.muted, marginTop: 4 }}>{label}</div>
+    </div>
+  );
+  return (
+    <Frame kicker="Guest file sharing · email one-time codes · Go" title="Six digits are safe only with these rules around them">
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 56, fontFamily: sans }}>
+        <div>
+          {rules.map(([k, v]) => (
+            <div
+              key={k}
+              style={{ display: "grid", gridTemplateColumns: "230px 1fr", fontSize: 24, padding: "15px 0", borderTop: `1px solid ${color.line}` }}
+            >
+              <span style={{ color: color.muted }}>{k}</span>
+              <span style={{ color: color.ink, fontFamily: mono, fontSize: 22 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          {stat("62 ms", "to reverse a plain SHA-256 of a 6-digit code", color.warm)}
+          {stat("1 of 100", "concurrent correct submissions get a session", color.accent)}
+          {stat("0.03%", "chance per hour of guessing, at 300 tries an hour", color.accent)}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* 32. SSRF guard --------------------------------------------------------------------------------------------- */
+export function FigSsrfGuard() {
+  const spellings = ["2130706433", "0x7f.0.0.1", "127.1", "0177.0.0.1", "[::ffff:7f00:1]"];
+  return (
+    <Frame kicker="Server-side fetch of untrusted URLs · Node.js · 6 tests" title="Check the address you connect to, on every redirect">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.15fr", gap: 56, fontFamily: sans }}>
+        <div>
+          <div style={{ fontSize: 20, color: color.muted, paddingBottom: 10 }}>All of these are 127.0.0.1</div>
+          {spellings.map((s) => (
+            <div key={s} style={{ fontFamily: mono, fontSize: 25, color: color.warm, padding: "11px 0", borderTop: `1px solid ${color.line}` }}>
+              http://{s}/
+            </div>
+          ))}
+          <div style={{ fontSize: 21, color: color.muted, marginTop: 14 }}>
+            new URL() turns the first four into 127.0.0.1; the last needs unmapping. Check after parsing.
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 20, color: color.muted, paddingBottom: 10 }}>Public page redirects to http://127.0.0.1/</div>
+          <div style={{ padding: "16px 0", borderTop: `1px solid ${color.line}` }}>
+            <div style={{ fontSize: 24, color: color.ink }}>Plain fetch (follows redirects)</div>
+            <div style={{ fontFamily: mono, fontSize: 23, color: color.warm, marginTop: 6 }}>"SECRET from 127.0.0.1"</div>
+          </div>
+          <div style={{ padding: "16px 0", borderTop: `1px solid ${color.line}` }}>
+            <div style={{ fontSize: 24, color: color.ink }}>Guarded: manual redirects, DNS checked at connect</div>
+            <div style={{ fontFamily: mono, fontSize: 23, color: color.accent, marginTop: 6 }}>Refused: private address 127.0.0.1</div>
+          </div>
+          <div style={{ fontSize: 21, color: color.muted, marginTop: 14, lineHeight: 1.4 }}>
+            Trap: adding ::ffff:0:0/96 to Node's BlockList blocks 8.8.8.8 and every other IPv4 address.
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* 33. CSV injection ------------------------------------------------------------------------------------------ */
+export function FigCsvInjection() {
+  const rows: [string, string, string, boolean][] = [
+    ["=HYPERLINK(…)", "'=HYPERLINK(…)", "'=HYPERLINK(…)", true],
+    ["\\n=1+1 (line feed first)", "unchanged", "'\\n=1+1", false],
+    ["＝1+1 (full-width)", "unchanged", "'＝1+1", false],
+    ["-42 (a real number)", "'-42 (now text)", "-42", false],
+    ["-2+3", "'-2+3", "'-2+3", true],
+  ];
+  return (
+    <Frame kicker="Spreadsheet exports · OWASP CSV injection · Node.js" title="Neutralise formulas without breaking the numbers">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px 360px", fontFamily: sans }}>
+        <div style={{ fontSize: 20, color: color.muted, paddingBottom: 12 }}>Cell value</div>
+        <div style={{ fontSize: 20, color: color.muted, paddingBottom: 12 }}>First version</div>
+        <div style={{ fontSize: 20, color: color.accent, paddingBottom: 12 }}>Fixed</div>
+        {rows.map(([v, a, b, same]) => (
+          <div key={v} style={{ display: "contents" }}>
+            <div style={{ fontFamily: mono, fontSize: 23, color: color.ink, padding: "17px 0", borderTop: `1px solid ${color.line}` }}>{v}</div>
+            <div
+              style={{
+                fontFamily: mono,
+                fontSize: 23,
+                color: same ? color.ink : color.warm,
+                padding: "17px 0",
+                borderTop: `1px solid ${color.line}`,
+              }}
+            >
+              {a}
+            </div>
+            <div
+              style={{
+                fontFamily: mono,
+                fontSize: 23,
+                color: color.accent,
+                padding: "17px 12px",
+                borderTop: `1px solid ${color.line}`,
+                background: color.accentDim,
+              }}
+            >
+              {b}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 24, fontFamily: sans, fontSize: 22, color: color.muted }}>
+        Every prefixed cell is also quoted. Plain numbers like -42 or -3.5 are data, so they pass unchanged.
+      </div>
+    </Frame>
+  );
+}
+
+/* 34. LLM outreach guardrails -------------------------------------------------------------------------------- */
+export function FigOutreachGuardrails() {
+  const caught = [
+    "Great meeting you at ADIPEC last week.",
+    "As discussed, here is our proposal.",
+    "We value our existing partnership.",
+    "…grew revenue 40% last year.",
+  ];
+  const missed = [
+    "At ADIPEC, let's meet to talk valves.",
+    "Thanks for stopping by our stand.",
+    "As per our call, sharing the deck.",
+    "…has 3.5 million customers.",
+  ];
+  const col = (title: string, items: string[], tone: string, mark: string) => (
+    <div>
+      <div style={{ fontSize: 21, color: tone, paddingBottom: 10 }}>{title}</div>
+      {items.map((t) => (
+        <div key={t} style={{ display: "flex", gap: 12, fontSize: 24, color: color.ink, padding: "15px 0", borderTop: `1px solid ${color.line}` }}>
+          <span style={{ color: tone, fontWeight: 700 }}>{mark}</span>
+          {t}
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <Frame kicker="Rule checks on LLM-written sales emails · 12 test sentences" title="Regex guardrails catch the obvious and miss the paraphrase">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, fontFamily: sans }}>
+        {col("Caught (7 of 7 tested)", caught, color.accent, "✓")}
+        {col("Missed (5 phrasings)", missed, color.warm, "✗")}
+      </div>
+      <div style={{ marginTop: 22, fontFamily: sans, fontSize: 22, color: color.muted }}>
+        3.5 million slipped through because the facts say 35 engineers: the number check stripped the dot. Comparing values fixes it.
+      </div>
+    </Frame>
+  );
+}
+
+/* 35. HTTP Range requests ------------------------------------------------------------------------------------ */
+export function FigHttpRanges() {
+  const rows: [string, string, string][] = [
+    ["bytes=0-99", "206", "bytes 0-99/1000"],
+    ["bytes=900-  (resume)", "206", "bytes 900-999/1000"],
+    ["bytes=-50  (last 50)", "206", "bytes 950-999/1000"],
+    ["bytes=950-5000", "206", "bytes 950-999/1000"],
+    ["bytes=1000-1100", "416", "bytes */1000"],
+    ["If-Range with an old ETag", "200", "whole file"],
+  ];
+  return (
+    <Frame kicker="Resumable downloads · Go http.ServeContent · 1,000-byte file" title="Range requests: what the server answers">
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 48 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 280px", fontFamily: mono }}>
+          {rows.map(([r, s, c]) => (
+            <div key={r} style={{ display: "contents" }}>
+              <div style={{ fontSize: 23, color: color.ink, padding: "15px 0", borderTop: `1px solid ${color.line}` }}>{r}</div>
+              <div style={{ fontSize: 23, color: s === "416" ? color.warm : color.accent, padding: "15px 0", borderTop: `1px solid ${color.line}` }}>
+                {s}
+              </div>
+              <div style={{ fontSize: 21, color: color.muted, padding: "16px 0", borderTop: `1px solid ${color.line}` }}>{c}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontFamily: sans }}>
+          <div style={{ fontFamily: mono, fontSize: 44, color: color.warm }}>26,846 bytes</div>
+          <div style={{ fontSize: 23, color: color.ink, marginTop: 8, lineHeight: 1.4 }}>
+            sent for 200 one-byte ranges: 134× the data asked for, in multipart headers.
+          </div>
+          <div style={{ fontSize: 22, color: color.muted, marginTop: 22, lineHeight: 1.4 }}>
+            Cap the ranges (5 here); above that, serve the plain file.
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -1541,4 +1806,10 @@ export const figures = [
   { id: "fig-similarity-metrics", component: FigSimilarityMetrics },
   { id: "fig-passive-auth", component: FigPassiveAuth },
   { id: "fig-vapi-hmac", component: FigVapiHmac },
+  { id: "fig-approval-flow", component: FigApprovalFlow },
+  { id: "fig-guest-otp", component: FigGuestOtp },
+  { id: "fig-ssrf-guard", component: FigSsrfGuard },
+  { id: "fig-csv-injection", component: FigCsvInjection },
+  { id: "fig-outreach-guardrails", component: FigOutreachGuardrails },
+  { id: "fig-http-ranges", component: FigHttpRanges },
 ] as const;

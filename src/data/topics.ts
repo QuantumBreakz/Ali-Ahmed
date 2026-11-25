@@ -166,7 +166,7 @@ export const topics: Topic[] = [
       },
       {
         heading: "Quality and evaluation",
-        posts: ["stop-llm-inventing-numbers", "llm-judge-agreement-cohen-kappa"],
+        posts: ["stop-llm-inventing-numbers", "llm-outreach-email-guardrails", "llm-judge-agreement-cohen-kappa"],
       },
     ],
     faq: [
@@ -303,13 +303,13 @@ export const topics: Topic[] = [
   },
   {
     slug: "reliable-backends",
-    title: "Reliable backends in Node.js and Python",
+    title: "Reliable backends in Node.js, Python and Go",
     shortTitle: "Reliable backends",
     description:
-      "A guide to backend reliability patterns: idempotent webhooks and idempotency keys, the transactional outbox, graceful shutdown, request IDs, back-pressure, JWT verification, DST-safe scheduling, SLOs and latency percentiles.",
+      "A guide to backend reliability patterns: idempotent webhooks and idempotency keys, the transactional outbox, multi-step approvals, one-time codes, resumable downloads, SSRF and CSV injection defences, graceful shutdown, request IDs, back-pressure, JWT verification, DST-safe scheduling, SLOs and latency percentiles.",
     intro: [
       "Most production incidents aren't exotic. A webhook arrives twice, a retry charges a card again, an event is lost between a database commit and a queue, a deploy drops requests, or a dashboard averages percentiles. Each has a well-known fix.",
-      "These articles implement those fixes in Node.js and Python, each with tests that reproduce the failure first.",
+      "These articles implement those fixes in Node.js, Python and Go, each with tests that reproduce the failure first.",
     ],
     sections: [
       {
@@ -320,6 +320,14 @@ export const topics: Topic[] = [
           "idempotency-keys-post-api-nodejs",
           "transactional-outbox-nodejs-sqlite",
         ],
+      },
+      {
+        heading: "Approvals, sharing and downloads",
+        posts: ["document-approval-workflow-go", "email-otp-guest-file-sharing-go", "http-range-requests-go"],
+      },
+      {
+        heading: "Security at the edges",
+        posts: ["ssrf-protection-nodejs-fetch", "csv-injection-excel-exports-nodejs"],
       },
       {
         heading: "Running servers",
@@ -351,6 +359,16 @@ export const topics: Topic[] = [
         question: "What is the transactional outbox pattern?",
         answer:
           "Write a state change and the event announcing it into the same database transaction, using an outbox table, so both are saved or neither is. A relay then publishes events from the table in order, retrying until they succeed. Delivery is at least once, so consumers must be idempotent.",
+      },
+      {
+        question: "How do you protect a server-side fetch against SSRF?",
+        answer:
+          "Parse the URL first, refuse private, loopback, link-local and reserved addresses (unwrapping IPv4-mapped IPv6), check the addresses DNS returns at connect time to stop rebinding, and follow redirects manually so every hop is checked again.",
+      },
+      {
+        question: "How should email one-time codes be stored?",
+        answer:
+          "As a keyed digest (HMAC with a server-side secret) bound to the session or share, never as the code or a plain hash: a plain SHA-256 of a 6-digit code can be reversed by trying every value in well under a second. Expire codes after about 10 minutes, count attempts before comparing, and consume the code atomically.",
       },
       {
         question: "Why can't you average p95 latencies?",

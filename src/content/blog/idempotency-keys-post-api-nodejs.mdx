@@ -106,3 +106,5 @@ All pass on Node.js 24, along with the exception case (the key is deleted) and r
 - 422 for a reused key with a different body, 409 while the first attempt is running.
 - Store final answers (2xx, 4xx); release the key on 5xx and exceptions.
 - Scope keys per client, expire them, and recover crashed claims.
+
+Idempotency keys combined with an expected version, for decisions that move a document through approval steps: [multi-step document approval in Go](/blog/document-approval-workflow-go/).

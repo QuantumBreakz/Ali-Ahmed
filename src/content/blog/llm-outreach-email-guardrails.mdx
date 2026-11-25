@@ -1,0 +1,114 @@
+---
+title: "Guardrails for LLM-written sales emails: cited facts, banned claims, and what regex checks miss"
+description: "How a lead-research pipeline keeps an LLM from inventing meetings, relationships and numbers in outreach drafts: numbered facts the model must cite, banned-claim patterns, a number check, a hedged hypothesis, one retry with the reasons, then 'insufficient evidence'. Tested against 12 sentences: 7 caught, 5 missed, including a number bug where 3.5 million passed because a fact said 35."
+publishedAt: 2026-11-25
+tags: [LLMs, AI Engineering, Evaluation]
+---
+
+When an LLM drafts sales emails from scraped company data, the dangerous mistakes aren't typos: they're **claims that aren't true**. "Great meeting you at the expo", "as discussed", "our existing partnership", "you grew 40% last year". In a lead-research pipeline I built, the model sees only **numbered facts** from the company's own website (F1, F2…) and must return the IDs it relied on; then code checks every draft for **banned claims** (meetings, earlier conversations, relationships, shown interest), **numbers that aren't in the facts**, at least **one real citation**, and a hypothesis written as a **possibility** rather than a fact. A failing draft gets **one retry with the reasons**; if it fails again, it's saved as **"insufficient evidence"**, not sent to a person to approve. I tested those checks against 12 sentences: they **caught all 7 obvious violations** and **missed 5 paraphrases**, including a real bug where **"3.5 million customers" passed** because a fact said "35 engineers".
+
+![Rule checks on LLM-written sales emails, 12 test sentences. Caught: Great meeting you at ADIPEC last week; As discussed, here is our proposal; We value our existing partnership; grew revenue 40% last year. Missed: At ADIPEC, let's meet to talk valves; Thanks for stopping by our stand; As per our call, sharing the deck; has 3.5 million customers. 3.5 million slipped through because the facts say 35 engineers: the number check stripped the dot. Comparing values fixes it.](/figures/outreach-guardrails.webp)
+
+_Pattern checks are a floor, not a guarantee: they catch the phrasings you thought of._
+
+The pipeline researches exhibitors at ADIPEC, an energy exhibition, and drafts first-contact emails for a sales team to review. Nobody on the team has met these companies, so any hint of an earlier meeting is a lie the model invented.
+
+## How is the prompt set up?
+
+The model gets only what the code collected, each fact with an ID and its source page:
+
+```json title="Input to the model (abridged)"
+{
+  "company": "Gulf Valve Co.",
+  "facts": [
+    { "id": "F1", "text": "Gulf Valve Co. has supplied pipeline valves since 1998.", "url": "https://example.com/about" },
+    { "id": "F2", "text": "The company employs 35 engineers in Abu Dhabi.", "url": "https://example.com/team" }
+  ]
+}
+```
+
+The system prompt says to use only these facts, never to claim a meeting, earlier conversation, relationship or interest, never to add numbers that aren't in the facts, and to return `citedFactIds`. The source link shown to reviewers always comes from the stored fact, never from the model, so the model can't invent a source.
+
+## The checks
+
+```js title="checks.mjs"
+export const BANNED = [
+  [/\b(met|meet|meeting|spoke|speaking|chatted|see you|catch up)\b[^.]{0,40}\badipec\b/i, "claims a meeting at ADIPEC"],
+  [/\badipec\b[^.]{0,40}\b(met|meeting|spoke|conversation|chat)\b/i, "claims a meeting at ADIPEC"],
+  [
+    /\b(as (we )?discussed|following (up on )?our (call|conversation|chat|meeting)|great (to|meeting) (meet|you|speak))/i,
+    "claims an earlier conversation",
+  ],
+  [/\bour (existing |ongoing |long-standing )?(partnership|collaboration|relationship)\b/i, "claims an existing relationship"],
+  [/\byou(r team)? (expressed|showed|shared|mentioned) (an )?interest\b/i, "claims they showed interest"],
+];
+
+const NUMBER = /\d(?:[\d,.]*\d)?/g;
+const digitsOnly = (n) => n.replace(/[,.]/g, "");
+
+export function checkDraft(texts, cited, pack, { hypothesis, known = "", numbers = "original" } = {}) {
+  const problems = new Set();
+  for (const t of texts) for (const [re, why] of BANNED) if (re.test(t)) problems.add(why);
+  const norm = numbers === "fixed" ? toValue : digitsOnly;
+  const knownSet = new Set((`${known} ${pack.map((f) => f.text).join(" ")}`.match(NUMBER) ?? []).map(norm));
+  const invented = texts.flatMap((t) => t.match(NUMBER) ?? []).filter((n) => !knownSet.has(norm(n)));
+  if (invented.length) problems.add(`uses numbers that aren't in the facts (${[...new Set(invented)].join(", ")})`);
+  const ids = new Set(pack.map((f) => f.id));
+  if (!cited.some((c) => ids.has(c))) problems.add("cites none of the provided facts");
+  if (hypothesis !== undefined && !/\b(may|might|could|possibly|perhaps|likely)\b/i.test(hypothesis)) problems.add("states the hypothesis as a fact");
+  return [...problems];
+}
+```
+
+A draft with problems goes back to the model once, with the problems listed ("Your previous answer broke these rules: claims an earlier conversation. Write it again following every rule."). A second failure stops there.
+
+## What the tests show
+
+Five tests, 12 sentences. **Caught**, each with the reason the reviewer would see:
+
+- "Great meeting you at ADIPEC last week." → claims a meeting at ADIPEC; claims an earlier conversation
+- "See you at ADIPEC!" → claims a meeting at ADIPEC
+- "As discussed, here is our proposal." and "Following up on our call about valves." → claims an earlier conversation
+- "We value our existing partnership." → claims an existing relationship
+- "Your team showed interest in automation." → claims they showed interest
+- "…grew revenue 40% last year." → uses numbers that aren't in the facts (40)
+
+**Missed**, all passing every check:
+
+- "At ADIPEC, let's meet to talk valves." The second pattern has "meeting" but not "meet".
+- "Thanks for stopping by our stand." Implies a visit with none of the keywords.
+- "As per our call, sharing the deck." "As per" isn't "as discussed".
+- "You were interested in predictive maintenance." "Were interested" isn't "showed interest".
+- "Gulf Valve Co. has 3.5 million customers." **A bug, not a phrasing gap.**
+
+## The number bug
+
+The number check removes commas and dots so that "1,200" in a draft matches "1200" in a fact. But it also turns "3.5" into "35", and the facts say "35 engineers", so an invented **3.5 million** passes. Comparing values instead fixes it:
+
+```js title="checks.mjs: fixed number check"
+// Fixed: "1,200" and "1200" are the same number, but "3.5" and "35" are not.
+function toValue(n) {
+  const plain = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(n) ? n.replace(/,/g, "") : n;
+  return String(Number(plain.replace(/,/g, ".")));
+}
+```
+
+With it, "3.5 million" is flagged, while "1200 square metre" and "1,200 square metre" still match the fact. The test also shows two softer spots: **one real citation is enough**, even next to an invented ID like F9, and the hypothesis check only looks for a hedge word anywhere, so "They struggle with manual inspections, which may slow audits" passes.
+
+## So what should the checks be?
+
+- **Keep the regexes**, and add every miss you find to a test file. They're cheap, fast and explainable to the reviewer.
+- **Fix numbers by value**, as above, and treat units ("million", "%") as part of the match if you need to be stricter.
+- **Add a second model as a judge** for the claim categories, asking one narrow question per category ("Does this text say or imply the sender has met or spoken to the recipient? yes/no"). Measure the judge against labelled examples before trusting it; [LLM judge agreement with Cohen's kappa](/blog/llm-judge-agreement-cohen-kappa/) shows how.
+- **Keep a person in the loop.** In this pipeline, drafts are reviewed and approved before anything is sent, and an approved draft never changes unless someone approves again. The checks reduce what reviewers have to catch; they don't replace them.
+- **Treat scraped text as untrusted.** Website copy can contain instructions aimed at the model: see [prompt injection in scraped data](/blog/prompt-injection-scraped-data-llm-outreach/).
+
+## Summary
+
+- Give the model **numbered facts** and make it **cite IDs**; take source links from your data, not the model.
+- Check drafts for **banned claims, invented numbers, missing citations** and an **unhedged hypothesis**; retry **once**, then mark **insufficient evidence**.
+- In the test, the checks caught **7 of 7** obvious violations and missed **5** paraphrases.
+- Stripping dots in numbers let **3.5 million** pass against **35 engineers**; compare **values**.
+- Regexes are a floor: add a **narrow LLM judge** and keep **human approval**.
+
+The same approach applied to research summaries, where every numeral is traced back to the paper, is in [how to stop an LLM from inventing numbers](/blog/stop-llm-inventing-numbers/). For validating the structure of model output, see [LLM structured output validation](/blog/llm-structured-output-validation/).
