@@ -49,7 +49,7 @@ export function summary(post) {
   const body = readFileSync(new URL(`${post.slug}.mdx`, folder), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "");
   const lead = body.split(/\n\n+/).find((p) => /^[A-Za-z*]/.test(p.trim()));
   const headings = [...body.matchAll(/^## (.+)$/gm)].map((m) => m[1]).filter((h) => !/^(Related|Summary|Further reading)/.test(h));
-  const fig = body.match(/^!\[([^\]]*)\]\((\/figures\/[^)\s]+)\.webp\)\s*\n+_(.+)_\s*$/m);
+  const fig = body.match(/^!\[(.+)\]\((\/figures\/[^)\s]+)\.webp\)\s*\n+_(.+)_\s*$/m); // greedy: alt text may contain ]
   const points = (body.split(/^## Summary\s*$/m)[1] ?? "")
     .split(/\n## /)[0]
     .split("\n")
