@@ -7,6 +7,10 @@ tags: [Monitoring, SRE, TypeScript, LLMs]
 
 **You can't average percentiles.** If one server's p95 latency is 2,000 ms and another's is 100 ms, the combined p95 is **not** 1,050 ms. A percentile depends on the whole distribution, and averaging two of them throws away how many requests each server handled and how slow the slow ones were. To combine latency correctly, merge the **raw samples**, merge **histograms with shared buckets**, or use a mergeable **sketch** such as t-digest or DDSketch. Here's a worked example, and the percentile code from **Kestrel**, the monitoring console I built ([source](https://github.com/QuantumBreakz/Kestrel)).
 
+![The worked example as bars. Server A, with 1,000 requests of which 100 take 2 seconds, has a p95 of 2,000 ms. Server B, with 100 requests all at 100 ms, has a p95 of 100 ms. The average of the two p95s is 1,050 ms, which is wrong because it ignores how many requests each server handled. The real p95 across all 1,100 requests, 9 percent of them slow, is 2,000 ms: merge raw samples, histogram buckets or a sketch.](/figures/averaged-p95.webp)
+
+_The average looks reasonable and is half the real value._
+
 ## A worked example
 
 Two servers, one minute:

@@ -7,6 +7,10 @@ tags: [Hardware, GPU, AI Engineering]
 
 A modern GPU is not one very powerful processor. It is **thousands of simple arithmetic cores** grouped into **streaming multiprocessors**, plus specialised **tensor cores** for matrix maths and **ray-tracing cores** for light simulation, all surrounded by schedulers, caches and a very wide memory system. The hard engineering problem isn't the maths. It's moving data fast enough to keep all those cores busy.
 
+![A simplified GPU. A processing cluster holds streaming multiprocessors (SMs), each with many small arithmetic cores plus tensor cores and ray-tracing cores, and its own schedulers, registers, shared memory and L1 cache. All SMs share an L2 cache and memory controllers, which connect to VRAM: GDDR at over 1 TB/s on high-end cards or HBM at several TB/s. Tensor cores do matrix multiply-and-accumulate for AI. For LLM inference, memory bandwidth rather than compute often limits tokens per second.](/figures/gpu-layout.webp)
+
+_Cores do the maths; the memory system decides whether they're kept busy._
+
 ## What are CUDA cores?
 
 Most of the work runs on simple parallel arithmetic units. NVIDIA calls them **CUDA cores**, AMD calls them **stream processors** (inside its compute units), and Apple simply counts **GPU cores**. Each is much simpler than a CPU core, but there are thousands of them running the same instruction across different data at once.

@@ -7,6 +7,10 @@ tags: [KYC, Computer Vision, Security, AI Engineering]
 
 **Liveness detection** checks that the face in front of the camera belongs to a **live person who is present right now**, rather than a printed photo, a video replayed on a screen, or a mask. In the standards it's called **presentation attack detection (PAD)**, and it's measured with two error rates from **ISO/IEC 30107-3**: **APCER** (attacks wrongly accepted) and **BPCER** (real people wrongly rejected). There's a second, newer threat that PAD alone doesn't cover: **injection attacks**, where a deepfake video is fed straight into the app through a virtual camera, so nothing is ever "presented" to a lens. A KYC system needs a defence against both.
 
+![Two threats to face liveness and their defences. Presentation attacks hold something up to a real camera: a printed photo with the eyes cut out, a screen replaying a video, a paper, cloth or 3D mask. They are stopped by presentation attack detection, a vision model looking at screen moiré, paper texture, depth, reflections and mask edges, measured as APCER per attack type and BPCER. Injection attacks skip the camera: a virtual camera driver or emulator, a hooked or modified app, or a deepfake stream swapped in transit. They are stopped by capture-path security: device integrity and attestation, virtual-camera detection, and a server challenge bound to the session, evaluated separately from PAD under CEN/TS 18099.](/figures/liveness-threats.webp)
+
+_Presentation attacks are a vision problem; injection attacks are a device and transport problem._
+
 ## Why does face matching need liveness?
 
 [Face matching](/blog/face-match-threshold-far-frr/) answers "is this the same person as the document photo?" A fraudster with someone's ID card often also has their photo, from social media or from the card itself. Without liveness, holding that photo up to the camera would pass the face match. Liveness is the step in the [KYC pipeline](/blog/how-kyc-identity-verification-works/) that makes the face match mean something.

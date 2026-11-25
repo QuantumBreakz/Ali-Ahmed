@@ -7,6 +7,10 @@ tags: [Open Source, Linux, Android, Bluetooth]
 
 **LibrePods** is an open-source app that brings AirPods features (battery levels, ear detection, noise-control modes, Conversational Awareness) to **Linux and Android**. On Linux, if you connected more than one pair of AirPods, the tray tooltip showed **only whichever device sent the latest update**. My change ([#676](https://github.com/librepods-org/librepods/pull/676), in review) keeps a per-device registry so every connected pair's battery shows on hover. A second change ([#675](https://github.com/librepods-org/librepods/pull/675), in review) adds an Android option so volume only ducks for Conversational Awareness when **both** AirPods are in.
 
+![The LibrePods tray tooltip with two pairs of AirPods connected. Before, it showed only the battery status of whichever pair sent the latest update, so pair 1 disappeared whenever pair 2 reported. After PR 676, a per-device registry shows one line per pair, the active pair first. With one pair connected the tooltip keeps its original format. On Android, PR 675 adds an option so Conversational Awareness only lowers the volume when both AirPods are in.](/figures/librepods-tray.webp)
+
+_Before and after the per-device registry._
+
 ## How do you check AirPods battery on Linux?
 
 Out of the box, Linux shows Bluetooth headphones as a generic audio device. Apple's battery and ear-detection data comes over Apple's own accessory protocol (AACP) on an L2CAP connection, which the desktop doesn't speak. LibrePods does: install it, pair your AirPods through your normal Bluetooth settings, and its tray icon shows battery levels and lets you change modes.

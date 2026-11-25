@@ -7,6 +7,10 @@ tags: [AI Engineering, LLMs, Open Source, Debugging]
 
 An LLM gateway that compresses context has to remember one thing: **content the agent just asked to retrieve must never be compressed again.** In LiteLLM's Headroom compression, it was. For clients that run their own tool loop, such as Claude Code, the retrieved text went back through compression, was swapped for the same placeholder, and the agent either looped on the same hash forever or answered without the content. My fix, [LiteLLM PR #38591](https://github.com/BerriAI/litellm/pull/38591), was merged in September 2026.
 
+![The bug in five steps. A tool returns a JIRA issue; the gateway compresses it to a ccr hash placeholder; the model calls headroom_retrieve and gets the original back; the retrieved text is then compressed again to the same hash; and the model retrieves again, looping or answering from an empty skeleton. The fix recognises retrieve results by name, as headroom_retrieve or mcp__server__headroom_retrieve, falls back to the tool-call id when a long name was truncated, and reuses the protected-row path so everything else still compresses. It only happened when the client, such as Claude Code, runs the tool loop, because each request looks new to the gateway.](/figures/compression-loop.webp)
+
+_Steps 4 and 5 are the loop; the fix stops step 4._
+
 _This is the technical deep dive. The story of making the contribution is in [how I got my first PR merged into LiteLLM](/blog/first-litellm-contribution/)._
 
 ## How does context compression in an LLM gateway work?

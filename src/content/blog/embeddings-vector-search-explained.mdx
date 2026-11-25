@@ -7,6 +7,10 @@ tags: [RAG, LLMs, AI Engineering, Python]
 
 An **embedding** is a list of numbers (a vector) that a model produces for a piece of text, such that texts with **similar meaning get nearby vectors**. **Vector search** finds the stored vectors closest to a query's vector, usually by **cosine similarity**. Comparing against every vector is too slow at scale, so databases use **approximate nearest-neighbour (ANN)** indexes such as **HNSW**, trading a little recall for a lot of speed. Embeddings are weak at **exact terms**, such as names, IDs and error codes, so most production RAG systems add keyword search (**BM25**) and combine the two: **hybrid search**.
 
+![How vector and hybrid search fit together. Documents are chunked and passed through an embedding model, the same model used for queries, into a vector index: exact search at first, HNSW at scale. A query is embedded and the nearest vectors are found by cosine similarity or dot product. The same query also goes to BM25 keyword search for names, IDs and error codes. A hybrid step combines both lists into the top k results.](/figures/vector-search-pipeline.webp)
+
+_Embeddings find similar meaning; keyword search finds the exact terms embeddings miss._
+
 ## What is an embedding?
 
 An embedding model maps text to a fixed-length vector, often 384 to 3,072 numbers. Training pushes related texts together: "How do I reset my password?" and "I forgot my login" end up close, even with no words in common. That's the advantage over keyword search, which needs shared words.

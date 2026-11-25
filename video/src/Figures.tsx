@@ -2170,6 +2170,573 @@ export function FigRangeResume() {
   );
 }
 
+/* 42. Liveness: two threats ----------------------------------------------------------------------------------- */
+export function FigLivenessThreats() {
+  const col = (x: number, title: string, path: string, items: string[], defence: string[], measure: string, tone: string) => (
+    <g>
+      <text x={x} y={30} fill={tone} fontSize={28} fontFamily={sans}>
+        {title}
+      </text>
+      <text x={x} y={66} fill={color.muted} fontSize={20} fontFamily={sans}>
+        {path}
+      </text>
+      {items.map((t, i) => (
+        <text key={t} x={x} y={112 + i * 36} fill={color.ink} fontSize={22} fontFamily={sans}>
+          · {t}
+        </text>
+      ))}
+      <rect x={x} y={280} width={640} height={190} rx={14} fill={color.surface} stroke={tone} strokeWidth={2} />
+      <text x={x + 20} y={318} fill={tone} fontSize={22} fontFamily={sans}>
+        Defence
+      </text>
+      {defence.map((t, i) => (
+        <text key={t} x={x + 20} y={356 + i * 32} fill={color.ink} fontSize={21} fontFamily={sans}>
+          {t}
+        </text>
+      ))}
+      <text x={x} y={512} fill={color.muted} fontSize={20} fontFamily={sans}>
+        {measure}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="Face liveness in KYC · ISO/IEC 30107-3 and CEN/TS 18099" title="Two different attacks, two different defences">
+      <svg width={1456} height={560} viewBox="0 0 1456 560">
+        {col(
+          0,
+          "Presentation attacks",
+          "something is held up to a real camera",
+          ["printed photo, eyes cut out", "screen replay of a video", "paper, cloth or 3D mask"],
+          ["Presentation attack detection (vision):", "screen moiré, paper texture, depth,", "reflections, mask edges; active or passive"],
+          "Measured as APCER per attack type (worst counts) and BPCER",
+          color.accent
+        )}
+        {col(
+          760,
+          "Injection attacks",
+          "the camera is skipped entirely",
+          ["virtual camera driver or emulator", "hooked or modified app", "deepfake stream swapped in transit"],
+          [
+            "Capture-path security (mostly not vision):",
+            "device integrity and attestation, virtual-camera",
+            "detection, a server challenge bound to the session",
+          ],
+          "Evaluated separately from PAD (CEN/TS 18099 in Europe)",
+          color.warm
+        )}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 43. Embeddings and vector search ----------------------------------------------------------------------------- */
+export function FigVectorSearchPipeline() {
+  return (
+    <Frame kicker="Embeddings, vector search and hybrid search" title="Meaning from vectors, exact terms from keywords">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={30} w={230} h={100} title="Documents" sub="chunked" />
+        <Arrow x1={230} y1={80} x2={290} y2={80} />
+        <Box x={290} y={30} w={260} h={100} title="Embedding model" sub="same model for both" tone={color.accent} />
+        <Arrow x1={550} y1={80} x2={610} y2={80} />
+        <Box x={610} y={30} w={300} h={100} title="Vector index" sub="exact, then HNSW at scale" tone={color.accent} />
+        <Box x={0} y={190} w={230} h={100} title="Query" />
+        <Arrow x1={230} y1={240} x2={290} y2={130} />
+        <Arrow x1={760} y1={130} x2={760} y2={190} label="" />
+        <Box x={610} y={190} w={300} h={100} title="Nearest vectors" sub="cosine (or dot product)" tone={color.accent} />
+        <Arrow x1={230} y1={240} x2={610} y2={410} />
+        <Box x={610} y={360} w={300} h={100} title="BM25 keyword search" sub="names, IDs, error codes" tone={color.warm} />
+        <Arrow x1={910} y1={240} x2={990} y2={300} />
+        <Arrow x1={910} y1={410} x2={990} y2={340} />
+        <Box x={990} y={270} w={240} h={100} title="Hybrid" sub="combine both lists" tone={color.ink} />
+        <Arrow x1={1230} y1={320} x2={1280} y2={320} />
+        <Box x={1280} y={270} w={170} h={100} title="Top k" />
+        <text x={0} y={540} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Similar meaning lands on nearby vectors; exact terms are where embeddings are weak, so most production RAG adds BM25.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 44. Averaging percentiles ------------------------------------------------------------------------------------ */
+export function FigAveragedP95() {
+  const bar = (y: number, label: string, sub: string, ms: number, tone: string, note: string) => (
+    <g>
+      <text x={0} y={y + 26} fill={color.ink} fontSize={24} fontFamily={sans}>
+        {label}
+      </text>
+      <text x={0} y={y + 54} fill={color.muted} fontSize={19} fontFamily={sans}>
+        {sub}
+      </text>
+      <rect x={380} y={y} width={(ms / 2000) * 820} height={52} rx={6} fill={tone} />
+      <text x={380 + (ms / 2000) * 820 + 16} y={y + 34} fill={tone} fontSize={26} fontFamily={mono}>
+        {ms.toLocaleString("en-US")} ms
+      </text>
+      {note && (
+        <text x={380} y={y + 82} fill={color.muted} fontSize={19} fontFamily={sans}>
+          {note}
+        </text>
+      )}
+    </g>
+  );
+  return (
+    <Frame kicker="p95 latency of two servers · the worked example" title="Averaging two p95s halves the real number">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {bar(10, "Server A p95", "1,000 requests, 100 take 2 s", 2000, color.faint, "")}
+        {bar(110, "Server B p95", "100 requests, all 100 ms", 100, color.faint, "")}
+        {bar(240, "Average of the two", "what a dashboard might show", 1050, color.warm, "wrong: ignores how many requests each server handled")}
+        {bar(390, "Real p95", "all 1,100 requests, 9% slow", 2000, color.accent, "merge raw samples, histogram buckets or a sketch")}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 45. LibrePods tray ------------------------------------------------------------------------------------------- */
+export function FigLibrePodsTray() {
+  const tip = (x: number, title: string, lines: string[], tone: string, note: string) => (
+    <g>
+      <text x={x} y={30} fill={color.muted} fontSize={21} fontFamily={sans}>
+        {title}
+      </text>
+      <rect x={x} y={50} width={620} height={60 + lines.length * 46} rx={12} fill={color.surface} stroke={tone} strokeWidth={2} />
+      {lines.map((l, i) => (
+        <text key={l} x={x + 24} y={96 + i * 46} fill={color.ink} fontSize={24} fontFamily={mono}>
+          {l}
+        </text>
+      ))}
+      <text x={x} y={150 + lines.length * 46} fill={tone} fontSize={21} fontFamily={sans}>
+        {note}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="LibrePods on Linux · tray tooltip with two pairs connected" title="One line per pair, instead of whichever spoke last">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {tip(0, "Before", ["Battery Status: (pair 2 only)"], color.warm, "pair 1 disappears whenever pair 2 sends an update")}
+        {tip(
+          780,
+          "After (PR #676)",
+          ["Pair 1 (active): its status", "Pair 2: its status"],
+          color.accent,
+          "a per-device registry; the active pair first"
+        )}
+        <text x={0} y={390} fill={color.ink} fontSize={24} fontFamily={sans}>
+          One pair connected: the tooltip keeps the original format, so single-pair users see no change.
+        </text>
+        <text x={0} y={440} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Android (PR #675): an option so Conversational Awareness only lowers the volume when both AirPods are in.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 46. Workspace vs Zoho ---------------------------------------------------------------------------------------- */
+export function FigMailCost() {
+  const steps = [
+    "Verify domain (TXT)",
+    "MX records",
+    "SPF",
+    "DKIM",
+    "DMARC, start at p=none",
+    "Mailboxes, groups, aliases",
+    "Enforce MFA",
+    "IMAP/POP for other clients",
+  ];
+  return (
+    <Frame kicker="Business email for a 10-person team · approximate annual prices" title="Email alone costs a fraction of the full suite">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <text x={0} y={36} fill={color.ink} fontSize={24} fontFamily={sans}>
+          Google Workspace Business Starter
+        </text>
+        <rect x={0} y={56} width={820} height={60} rx={6} fill={color.warm} />
+        <text x={840} y={96} fill={color.warm} fontSize={28} fontFamily={mono}>
+          ~$840 / year
+        </text>
+        <text x={0} y={166} fill={color.ink} fontSize={24} fontFamily={sans}>
+          Zoho Mail Lite
+        </text>
+        <rect x={0} y={186} width={146} height={60} rx={6} fill={color.accent} />
+        <text x={166} y={226} fill={color.accent} fontSize={28} fontFamily={mono}>
+          ~$120–150 / year
+        </text>
+        <text x={0} y={300} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Workspace pays for Gmail, Drive, Docs, Meet and Gemini; Zoho Lite is mail, calendar, contacts and admin.
+        </text>
+        <text x={0} y={364} fill={color.ink} fontSize={23} fontFamily={sans}>
+          The Zoho setup, in order
+        </text>
+        {steps.map((t, i) => (
+          <g key={t}>
+            <circle cx={(i % 4) * 360 + 18} cy={406 + Math.floor(i / 4) * 56} r={16} fill={color.surface} stroke={color.line} />
+            <text x={(i % 4) * 360 + 18} y={412 + Math.floor(i / 4) * 56} fill={color.muted} fontSize={18} fontFamily={mono} textAnchor="middle">
+              {i + 1}
+            </text>
+            <text x={(i % 4) * 360 + 46} y={413 + Math.floor(i / 4) * 56} fill={color.ink} fontSize={21} fontFamily={sans}>
+              {t}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 47. GPU organisation ----------------------------------------------------------------------------------------- */
+export function FigGpuLayout() {
+  const sm = (x: number, y: number) => (
+    <g key={`${x}-${y}`}>
+      <rect x={x} y={y} width={190} height={150} rx={10} fill={color.surface} stroke={color.line} />
+      <text x={x + 12} y={y + 26} fill={color.muted} fontSize={16} fontFamily={mono}>
+        SM
+      </text>
+      {Array.from({ length: 24 }).map((_, i) => (
+        <rect
+          key={i}
+          x={x + 12 + (i % 8) * 21}
+          y={y + 38 + Math.floor(i / 8) * 21}
+          width={15}
+          height={15}
+          rx={2}
+          fill={color.accentDim}
+          stroke={color.accent}
+          strokeWidth={1}
+        />
+      ))}
+      <rect x={x + 12} y={y + 108} width={78} height={28} rx={4} fill={color.warmDim} stroke={color.warm} />
+      <text x={x + 51} y={y + 127} fill={color.warm} fontSize={14} fontFamily={mono} textAnchor="middle">
+        tensor
+      </text>
+      <rect x={x + 100} y={y + 108} width={78} height={28} rx={4} fill={color.surface} stroke={color.muted} />
+      <text x={x + 139} y={y + 127} fill={color.muted} fontSize={14} fontFamily={mono} textAnchor="middle">
+        RT
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="Inside a GPU · simplified" title="Thousands of small cores, and a memory system to feed them">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <rect x={0} y={0} width={880} height={360} rx={14} fill="none" stroke={color.line} strokeDasharray="8 8" />
+        <text x={16} y={30} fill={color.muted} fontSize={19} fontFamily={sans}>
+          processing cluster
+        </text>
+        {[0, 1, 2, 3].map((c) => sm(20 + c * 212, 46))}
+        {[0, 1, 2, 3].map((c) => sm(20 + c * 212, 206))}
+        <rect x={0} y={390} width={880} height={56} rx={10} fill={color.surface} stroke={color.line} />
+        <text x={440} y={426} fill={color.ink} fontSize={22} fontFamily={sans} textAnchor="middle">
+          shared L2 cache · memory controllers
+        </text>
+        <rect x={0} y={466} width={880} height={56} rx={10} fill={color.accentDim} stroke={color.accent} />
+        <text x={440} y={502} fill={color.accent} fontSize={22} fontFamily={sans} textAnchor="middle">
+          VRAM: GDDR (over 1 TB/s on high-end cards) or HBM (several TB/s)
+        </text>
+        <text x={930} y={70} fill={color.accent} fontSize={23} fontFamily={sans}>
+          ■ cores: the arithmetic
+        </text>
+        <text x={930} y={120} fill={color.warm} fontSize={23} fontFamily={sans}>
+          ■ tensor cores: matrix multiply-
+        </text>
+        <text x={958} y={150} fill={color.warm} fontSize={23} fontFamily={sans}>
+          and-accumulate, for AI
+        </text>
+        <text x={930} y={200} fill={color.muted} fontSize={23} fontFamily={sans}>
+          ■ RT cores: ray tracing
+        </text>
+        <text x={930} y={270} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Each SM also has schedulers,
+        </text>
+        <text x={930} y={300} fill={color.ink} fontSize={23} fontFamily={sans}>
+          registers, shared memory, L1.
+        </text>
+        <text x={930} y={420} fill={color.ink} fontSize={23} fontFamily={sans}>
+          For LLM inference, memory
+        </text>
+        <text x={930} y={450} fill={color.ink} fontSize={23} fontFamily={sans}>
+          bandwidth, not compute, is
+        </text>
+        <text x={930} y={480} fill={color.ink} fontSize={23} fontFamily={sans}>
+          often what limits tokens/s.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 48. Process nodes -------------------------------------------------------------------------------------------- */
+export function FigProcessNodes() {
+  return (
+    <Frame kicker="From the Intel 4004 to today's leading chips" title="Node names shrank 3,000×+; transistor counts grew millions×">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={20} w={430} h={150} title="1971 · Intel 4004" sub="10 µm process · ~2,300 transistors" />
+        <Arrow x1={430} y1={95} x2={520} y2={95} />
+        <Box
+          x={520}
+          y={20}
+          w={500}
+          h={150}
+          title="Today · marketed as 3 nm"
+          sub="tens of billions; largest packages 100 billion+"
+          tone={color.accent}
+        />
+        <text x={1060} y={70} fill={color.warm} fontSize={23} fontFamily={sans}>
+          "3 nm" is a generation label:
+        </text>
+        <text x={1060} y={102} fill={color.warm} fontSize={23} fontFamily={sans}>
+          no feature is 3 nm wide.
+        </text>
+        <text x={1060} y={146} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Progress is judged by density,
+        </text>
+        <text x={1060} y={174} fill={color.muted} fontSize={20} fontFamily={sans}>
+          performance and power.
+        </text>
+        <text x={0} y={250} fill={color.ink} fontSize={24} fontFamily={sans}>
+          How the gate kept control of a shrinking channel
+        </text>
+        {[
+          ["Planar", "gate on top of a flat channel", "decades"],
+          ["FinFET", "channel stands up as a fin; gate on 3 sides", "from about 2011"],
+          ["Gate-all-around", "nanosheets; gate wraps the channel", "2 nm-class nodes"],
+        ].map(([t, d, when], i) => (
+          <g key={t}>
+            <rect
+              x={i * 490}
+              y={280}
+              width={460}
+              height={150}
+              rx={12}
+              fill={i === 2 ? color.accentDim : color.surface}
+              stroke={i === 2 ? color.accent : color.line}
+            />
+            <text x={i * 490 + 20} y={322} fill={i === 2 ? color.accent : color.ink} fontSize={27} fontFamily={sans}>
+              {t}
+            </text>
+            <text x={i * 490 + 20} y={360} fill={color.ink} fontSize={20} fontFamily={sans}>
+              {d}
+            </text>
+            <text x={i * 490 + 20} y={400} fill={color.muted} fontSize={19} fontFamily={sans}>
+              {when}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={490} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Why shrinking got hard: leakage, heat per square millimetre, and variation of a few atoms.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 49. KYC, AML, KYB, CDD --------------------------------------------------------------------------------------- */
+export function FigComplianceMap() {
+  return (
+    <Frame kicker="Five compliance terms, one picture" title="AML is the programme; KYC and KYB sit inside it">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <rect x={0} y={0} width={1000} height={420} rx={18} fill="none" stroke={color.accent} strokeWidth={2} />
+        <text x={24} y={40} fill={color.accent} fontSize={27} fontFamily={sans}>
+          AML: the whole anti-money-laundering programme
+        </text>
+        <rect x={24} y={70} width={460} height={190} rx={14} fill={color.surface} stroke={color.line} />
+        <text x={44} y={110} fill={color.ink} fontSize={26} fontFamily={sans}>
+          KYC: is this person real?
+        </text>
+        <text x={44} y={150} fill={color.muted} fontSize={20} fontFamily={sans}>
+          documents, face match, liveness,
+        </text>
+        <text x={44} y={178} fill={color.muted} fontSize={20} fontFamily={sans}>
+          data checks
+        </text>
+        <rect x={510} y={70} width={466} height={190} rx={14} fill={color.surface} stroke={color.line} />
+        <text x={530} y={110} fill={color.ink} fontSize={26} fontFamily={sans}>
+          KYB: is this business real,
+        </text>
+        <text x={530} y={142} fill={color.ink} fontSize={26} fontFamily={sans}>
+          and who owns it?
+        </text>
+        <text x={530} y={182} fill={color.muted} fontSize={20} fontFamily={sans}>
+          registry checks, beneficial owners
+        </text>
+        {["sanctions, PEP and adverse-media screening", "transaction monitoring", "suspicious activity reports", "records, training, audits"].map(
+          (t, i) => (
+            <text key={t} x={44 + (i % 2) * 480} y={312 + Math.floor(i / 2) * 40} fill={color.ink} fontSize={21} fontFamily={sans}>
+              · {t}
+            </text>
+          )
+        )}
+        <text x={1040} y={40} fill={color.ink} fontSize={24} fontFamily={sans}>
+          How deep, by risk
+        </text>
+        {[
+          ["Simplified", "low risk, where allowed", color.muted],
+          ["CDD", "the standard level", color.ink],
+          ["EDD", "PEPs, high-risk countries: deeper checks", color.warm],
+        ].map(([t, d, tone], i) => (
+          <g key={t}>
+            <rect x={1040} y={70 + i * 118} width={410} height={100} rx={12} fill={color.surface} stroke={tone} strokeWidth={2} />
+            <text x={1060} y={108 + i * 118} fill={tone} fontSize={25} fontFamily={sans}>
+              {t}
+            </text>
+            <text x={1060} y={142 + i * 118} fill={color.muted} fontSize={17} fontFamily={sans}>
+              {d.length > 40 ? d.slice(0, 38) + "…" : d}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={490} fill={color.muted} fontSize={21} fontFamily={sans}>
+          AI helps with OCR, face matching, fuzzy name matching and summarising media; thresholds and decisions stay deterministic.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 50. RAG chunking --------------------------------------------------------------------------------------------- */
+export function FigChunking() {
+  const doc = [
+    "# Refund policy",
+    "## Eligibility",
+    "Orders over $50 qualify.",
+    "## Time limits",
+    "The limit is 30 days.",
+    "## Exceptions",
+    "Digital goods: no refunds.",
+  ];
+  const col = (x: number, title: string, chunks: [number, number, string, string][], note: string, tone: string) => (
+    <g>
+      <text x={x} y={30} fill={tone} fontSize={24} fontFamily={sans}>
+        {title}
+      </text>
+      {doc.map((l, i) => (
+        <text key={l} x={x + 24} y={88 + i * 50} fill={l.startsWith("#") ? color.ink : color.muted} fontSize={21} fontFamily={mono}>
+          {l}
+        </text>
+      ))}
+      {chunks.map(([a, b, c, label], i) => (
+        <g key={i}>
+          <rect
+            x={x + 8}
+            y={62 + a * 50}
+            width={600}
+            height={(b - a) * 50}
+            rx={8}
+            fill="none"
+            stroke={c}
+            strokeWidth={2.5}
+            strokeDasharray={i % 2 ? "8 6" : "none"}
+          />
+          <text x={x + 620} y={92 + a * 50} fill={c} fontSize={18} fontFamily={sans}>
+            {label}
+          </text>
+        </g>
+      ))}
+      <text x={x} y={430} fill={color.muted} fontSize={20} fontFamily={sans}>
+        {note}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="Splitting a document for RAG · the same policy two ways" title="Split by structure, and keep the heading in every chunk">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {col(
+          0,
+          "Fixed size with overlap",
+          [
+            [0, 3, color.warm, "1"],
+            [2, 5, color.warm, "2"],
+            [4, 7, color.warm, "3"],
+          ],
+          '"The limit is 30 days": the limit for what?',
+          color.warm
+        )}
+        {col(
+          760,
+          "By heading, heading kept",
+          [
+            [1, 3, color.accent, "1"],
+            [3, 5, color.accent, "2"],
+            [5, 7, color.accent, "3"],
+          ],
+          "each chunk carries its heading and the title",
+          color.accent
+        )}
+        <text x={0} y={500} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Fixed size still has a place for unstructured text. Choose the size by measuring recall@k on your own questions.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 51. LiteLLM compression loop -------------------------------------------------------------------------------- */
+export function FigCompressionLoop() {
+  const steps: [string, string, string][] = [
+    ["1", "Tool returns a JIRA issue", color.ink],
+    ["2", "Gateway compresses it to <<ccr:HASH>>", color.ink],
+    ["3", "Model calls headroom_retrieve", color.ink],
+    ["4", "Retrieved text compressed again, same HASH", color.warm],
+    ["5", "Model retrieves again, loops or answers empty", color.warm],
+  ];
+  return (
+    <Frame kicker="LiteLLM context compression · client-side tool loops (PR #38591, merged)" title="Retrieved content must never be compressed again">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {steps.map(([n, t, tone], i) => (
+          <g key={n}>
+            <rect
+              x={0}
+              y={i * 86}
+              width={760}
+              height={68}
+              rx={10}
+              fill={color.surface}
+              stroke={tone === color.warm ? color.warm : color.line}
+              strokeWidth={2}
+            />
+            <text x={24} y={i * 86 + 44} fill={tone} fontSize={24} fontFamily={mono}>
+              {n}
+            </text>
+            <text x={64} y={i * 86 + 44} fill={tone} fontSize={23} fontFamily={sans}>
+              {t}
+            </text>
+          </g>
+        ))}
+        <path d="M 760 380 L 820 380 L 820 206 L 776 206" fill="none" stroke={color.warm} strokeWidth={2.5} />
+        <polygon points="764,206 780,197 780,215" fill={color.warm} />
+        <text x={836} y={300} fill={color.warm} fontSize={20} fontFamily={sans}>
+          the loop
+        </text>
+        <rect x={930} y={0} width={520} height={420} rx={14} fill={color.accentDim} stroke={color.accent} strokeWidth={2} />
+        <text x={954} y={44} fill={color.accent} fontSize={26} fontFamily={sans}>
+          The fix
+        </text>
+        {[
+          "Recognise retrieve results by name:",
+          "headroom_retrieve or",
+          "mcp__server__headroom_retrieve",
+          "",
+          "Truncated name? Match the",
+          "tool-call id instead",
+          "",
+          "Reuse the protected-row path:",
+          "everything else still compresses",
+        ].map((t, i) => (
+          <text
+            key={i}
+            x={954}
+            y={92 + i * 34}
+            fill={t.startsWith("headroom") || t.startsWith("mcp") ? color.ink : color.ink}
+            fontSize={21}
+            fontFamily={t.includes("headroom") ? mono : sans}
+          >
+            {t}
+          </text>
+        ))}
+        <text x={0} y={500} fill={color.muted} fontSize={21} fontFamily={sans}>
+          It only happened when the client (such as Claude Code) runs the tool loop: each request looks new to the gateway.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -2212,4 +2779,14 @@ export const figures = [
   { id: "fig-csv-sheet", component: FigCsvSheet },
   { id: "fig-guardrail-pipeline", component: FigGuardrailPipeline },
   { id: "fig-range-resume", component: FigRangeResume },
+  { id: "fig-liveness-threats", component: FigLivenessThreats },
+  { id: "fig-vector-search-pipeline", component: FigVectorSearchPipeline },
+  { id: "fig-averaged-p95", component: FigAveragedP95 },
+  { id: "fig-librepods-tray", component: FigLibrePodsTray },
+  { id: "fig-mail-cost", component: FigMailCost },
+  { id: "fig-gpu-layout", component: FigGpuLayout },
+  { id: "fig-process-nodes", component: FigProcessNodes },
+  { id: "fig-compliance-map", component: FigComplianceMap },
+  { id: "fig-chunking", component: FigChunking },
+  { id: "fig-compression-loop", component: FigCompressionLoop },
 ] as const;

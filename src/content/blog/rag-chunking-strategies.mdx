@@ -7,6 +7,10 @@ tags: [RAG, LLMs, AI Engineering, Python]
 
 **Chunking** is how you split documents into the pieces that get embedded and retrieved, and it decides what a RAG system **can** find: if the answer is cut in half, or buried in a chunk about something else, no model will recover it. Start with **structure-aware chunks** (split by headings, then by paragraphs up to a size limit), **keep the section heading in every chunk**, and use fixed-size chunks with overlap only for text without structure. Then choose the size by **measuring recall@k on your own questions**, not by copying a default.
 
+![The same refund policy split two ways. Fixed-size chunks with overlap cut across headings, so one chunk holds 'The limit is 30 days.' with no sign of which limit it is. Splitting by heading gives one chunk per section (eligibility, time limits, exceptions), each carrying its heading and the document title. Fixed size still has a place for unstructured text, and the size should be chosen by measuring recall at k on your own questions.](/figures/chunking.webp)
+
+_A chunk that loses its heading loses its meaning._
+
 ## Fixed-size chunks with overlap
 
 The simplest method: cut every N characters (or tokens), with some overlap so a sentence on a boundary appears in both chunks. It works on any text and needs no parsing. In my [offline RAG chatbot](/blog/offline-rag-chatbot-ollama/), 600 characters with 200 overlap worked well for a 7B local model.
