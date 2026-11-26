@@ -1,0 +1,107 @@
+---
+title: "Detecting duplicate companies by website domain and name: what the keys catch, and a Wix-shaped bug"
+description: "How a lead-research pipeline flags likely duplicate companies for review: normalise names (legal suffixes, accents, '&'), compare word overlap, and match registrable domains with the public suffix list. Tested on real-looking exhibitor names, including the bug where every Wix, Blogspot and GitHub Pages site collapses to one domain, and the plural that word overlap misses."
+publishedAt: 2026-11-26
+tags: [Node.js, Databases, AI Engineering]
+---
+
+The same company shows up in a lead list many times: "Siemens Energy L.L.C." in one listing, "SIEMENS ENERGY LLC" in another, a different stand number next year. Two keys catch most of them: a **normalised name** (lower case, accents removed, `&` turned into "and", and legal suffixes like LLC, FZE, PJSC or GmbH dropped from the end) compared by **word overlap**, and the website's **registrable domain** (`shop.example.co.uk` and `example.co.uk` are the same business), found with the **public suffix list**. A likely duplicate should be **flagged for a person with a reason**, never merged automatically. Testing the keys from a pipeline I built turned up two problems. With `allowPrivateDomains: false`, **every site hosted on Wix, Blogspot or GitHub Pages collapses to the same domain** (`wixsite.com`), so unrelated companies get flagged as duplicates. And word overlap scores "Gulf Valve Co." against "Gulf Valves Company" at only **0.33**, because "valve" and "valves" are different words.
+
+![Duplicate keys and what they catch. Name similarity, word overlap after normalising, flagged at 0.75: Siemens Energy L.L.C. vs SIEMENS ENERGY LLC 1.00, flagged; Société Générale S.A. vs Societe Generale 1.00, flagged; Al Masaood Oil & Gas vs Al Masaood Oil and Gas Industry Supplies 0.71, missed; Gulf Valve Co. vs Gulf Valves Company 0.33, missed. Folding plurals catches valve and valves but matches Thomas to Thoma. Domain key bug: acme-valves.wixsite.com and gulf-pumps.wixsite.com both become wixsite.com and look like the same domain, because allowPrivateDomains false ignores the public suffix list's private section; true keeps each site separate. Every flag carries a reason a reviewer can check, and not-a-duplicate is remembered for that pair.](/figures/duplicate-companies.webp)
+
+_Both keys are useful, and both have failure modes you only see with real data._
+
+The pipeline researches exhibitors at ADIPEC, an energy exhibition with thousands of companies. The code below is ported from it and tested on its own.
+
+## Normalising names
+
+```js title="normalize.mjs: names"
+const SUFFIXES = new Set(
+  (
+    "llc fze fzco fz fzc fzllc dmcc ltd limited inc incorporated corp corporation co company pjsc psc plc gmbh ag sa spa srl " +
+    "bv nv wll llp lp pte pvt private sdn bhd kk as asa ab oy sas sarl est establishment"
+  ).split(" ")
+);
+
+export function normalizeName(raw) {
+  const base = String(raw)
+    .replace(/\s+/g, " ")
+    .trim()
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/(?<=\b\p{L})\.(?=\p{L}\b)/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  const words = base.split(" ").filter(Boolean);
+  if (words[0] === "the" && words.length > 1) words.shift();
+  while (words.length > 1 && SUFFIXES.has(words.at(-1))) words.pop();
+  return words.join(" ");
+}
+
+export function nameSimilarity(a, b) {
+  const A = new Set(normalizeName(a).split(" ")),
+    B = new Set(normalizeName(b).split(" "));
+  const shared = [...A].filter((w) => B.has(w)).length;
+  return shared / new Set([...A, ...B]).size || 0;
+}
+```
+
+Suffixes are removed **only from the end**, and only while at least one word remains: "AS" is a Norwegian legal form, but a company called "AS" stays "as". The dot rule turns "L.L.C." into "llc" and "S.p.A." into "spa" before punctuation is stripped, so they can be dropped as suffixes.
+
+## What the name key catches
+
+| Pair                                                   | Similarity | Result                                 |
+| ------------------------------------------------------ | ---------- | -------------------------------------- |
+| Siemens Energy L.L.C. / SIEMENS ENERGY LLC             | 1.00       | flagged                                |
+| The Weir Group PLC / Weir Group                        | 1.00       | flagged                                |
+| Société Générale S.A. / Societe Generale               | 1.00       | flagged                                |
+| Smith & Sons / Smith and Sons                          | 1.00       | flagged                                |
+| Al Masaood Oil & Gas / … Oil and Gas Industry Supplies | 0.71       | missed (threshold 0.75)                |
+| ADNOC Drilling / ADNOC Distribution                    | 0.33       | correctly not flagged                  |
+| Emerson Automation Solutions / Emerson                 | 0.33       | not flagged: a division or the parent? |
+| Gulf Valve Co. / Gulf Valves Company                   | 0.33       | **missed**: plural                     |
+
+Folding plurals (drop a final "s" on words longer than four letters, but not "ss") fixes the valve case, 0.33 → 1.00, and "Emirates Pumps" vs "Emirates Pump" the same. It also matches **"Thomas Engineering" to "Thoma Engineering"**, 0.33 → 1.00, two different names. For a review queue that trade is fine; for automatic merging it wouldn't be.
+
+## The domain key and the Wix bug
+
+```js title="normalize.mjs: domains"
+import { getDomain } from "tldts";
+
+export function normalizeDomain(raw, { allowPrivateDomains = false } = {}) {
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return getDomain(u.hostname, { allowPrivateDomains }) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+```
+
+```text title="Domain keys, tldts 7.6.1"
+https://www.shop.example.co.uk/about  -> example.co.uk   | with private suffixes: example.co.uk
+acme-valves.wixsite.com/home          -> wixsite.com     | with private suffixes: acme-valves.wixsite.com
+gulf-pumps.wixsite.com                -> wixsite.com     | with private suffixes: gulf-pumps.wixsite.com
+acme.blogspot.com                     -> blogspot.com    | with private suffixes: acme.blogspot.com
+deltaoil.github.io                    -> github.io       | with private suffixes: deltaoil.github.io
+10.0.0.5                              -> undefined
+```
+
+The public suffix list has two sections. The ICANN section knows that `co.uk` is a suffix; the **private section** knows that `wixsite.com`, `blogspot.com` and `github.io` are too, because each subdomain belongs to a different customer. With `allowPrivateDomains: false` the library ignores the private section, and every small business on Wix gets the domain `wixsite.com`. Small companies often use site builders like these, and any two of them would be flagged as having the "same website domain". Setting it to `true` fixes it.
+
+## Flag, don't merge
+
+- **Every flag carries a reason** a reviewer can check: "Same website domain (example.co.uk) as Gulf Valve Co." or "Near-identical name".
+- **"Not a duplicate" is remembered for that pair**, so the same flag doesn't come back after the next refresh.
+- **Merging is a person's decision.** A wrong automatic merge loses data; a wrong flag costs a click.
+
+## Summary
+
+- Normalise names: **accents, `&`, legal suffixes at the end, "the" at the start**; compare by word overlap and flag at a threshold.
+- Match websites by **registrable domain**, and use the public suffix list's **private section** too: without it, every Wix and Blogspot site looks like the same company.
+- Word overlap misses **plurals**; folding them helps but also matches **Thomas and Thoma**.
+- **Flag with a reason, remember "not a duplicate", never auto-merge.**
+
+For the same pipeline's rule that a person's correction always beats the scraper, see [keeping scrapers from overwriting human edits](/blog/field-locks-scraper-human-edits/). Matching people's names is harder still: see [fuzzy name matching for sanctions screening](/blog/sanctions-name-screening-fuzzy-matching/).

@@ -89,3 +89,5 @@ If a file only goes to people, an `.xlsx` written with a library that sets cell 
 - No CSV escaping survives every spreadsheet: Excel can **strip the prefix on save**, so consider `.xlsx` for files meant for people.
 
 Untrusted input reaches other places in the same pipeline: see [SSRF protection for server-side fetch](/blog/ssrf-protection-nodejs-fetch/) and [validating uploads by magic bytes](/blog/validate-file-uploads-magic-bytes-nodejs/).
+
+Before export, the same pipeline cleans its data: [checking email domains with MX records](/blog/check-email-domain-mx-records-nodejs/), [flagging duplicate companies](/blog/duplicate-company-detection-domain-name/) and [keeping scrapers from overwriting human edits](/blog/field-locks-scraper-human-edits/).

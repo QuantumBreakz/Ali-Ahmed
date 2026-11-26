@@ -1,0 +1,97 @@
+---
+title: "Can this email domain receive mail? MX, null MX and the A-record fallback in Node.js"
+description: "What a DNS check can and can't tell you about an email address: MX records, the null MX that says 'no mail here', the implicit MX fallback to A records, and domains that don't exist. Tested with live lookups in Node.js, plus the finding that all six common typo domains (gmial.com, hotmial.com and more) pass the check, and a did-you-mean suggestion that catches them."
+publishedAt: 2026-11-26
+tags: [Node.js, Databases, AI Engineering]
+---
+
+A DNS check on an email address can prove the address is **bad**, but never that it's **good**. If the domain **doesn't exist**, or publishes a **null MX** (an MX record of `0 .`, which means "this domain accepts no email", RFC 7505), the address can't receive mail: mark it **invalid**. If the domain has **MX records**, or has **no MX but has an A or AAAA record** (mail servers then deliver to that address, the "implicit MX" from RFC 5321), all you've learned is that the domain **could** receive mail: the honest answer is **unknown**, because the mailbox itself was never checked. I tested this with live lookups. The surprise: **all six typo domains I tried, from `gmial.com` to `outlok.com`, pass the DNS check**, two with real MX records and four through the A-record fallback. DNS will never catch a mistyped Gmail address, so add a **"did you mean…?" suggestion** next to it.
+
+![DNS checks on email domains with live lookups. gmail.com: MX found, unknown. example.com: null MX, invalid. neverssl.com: no MX but an A record, unknown. A made-up domain: doesn't exist, invalid. Unknown means the domain can receive mail; the mailbox was never checked. All six typo domains pass the DNS check: gmial.com, gamil.com, gmai.com, hotmial.com, yaho.com and outlok.com are all unknown, so suggest a correction instead. An edit-distance check against big providers catches all six, but also suggests gmail.com for mail.com, a real provider: suggest, never auto-correct.](/figures/mx-check.webp)
+
+_The DNS check rejects dead domains; typos need a different tool._
+
+This is the free check in the ADIPEC lead-research backend I built, used when no paid verification service is configured. It deliberately has only two answers.
+
+## The check
+
+```js title="mx.mjs"
+import dns from "node:dns/promises";
+
+const SYNTAX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function checkDomain(email) {
+  if (!SYNTAX.test(email)) return { status: "invalid", note: "not an email address" };
+  const domain = email.split("@").pop().toLowerCase();
+  try {
+    const mx = await dns.resolveMx(domain);
+    if (mx.length === 1 && mx[0].exchange === "") return { status: "invalid", note: "null MX: the domain accepts no email (RFC 7505)" };
+    if (mx.length) return { status: "unknown", note: `MX found (${mx.sort((a, b) => a.priority - b.priority)[0].exchange}); mailbox not checked` };
+  } catch (e) {
+    if (e.code === "ENOTFOUND") return { status: "invalid", note: "domain does not exist" };
+    if (e.code !== "ENODATA") return { status: "unknown", note: `DNS error ${e.code}: try again later` };
+  }
+  // No MX: RFC 5321 says mail falls back to the domain's own address records.
+  const a = await dns.resolve4(domain).catch(() => []);
+  const aaaa = await dns.resolve6(domain).catch(() => []);
+  return a.length || aaaa.length
+    ? { status: "unknown", note: "no MX, but an address record: mail can still be delivered (implicit MX)" }
+    : { status: "invalid", note: "no MX and no address records" };
+}
+```
+
+Three error cases need care. `ENOTFOUND` means the domain doesn't exist: invalid. `ENODATA` means it exists but has no MX: fall through to the A-record check. Anything else (a timeout, `SERVFAIL`) is the DNS failing, not the address: say unknown and try again later, never invalid.
+
+## What live DNS returned
+
+```text title="Live lookups"
+someone@gmail.com                    unknown  MX found (gmail-smtp-in.l.google.com); mailbox not checked
+someone@example.com                  invalid  null MX: the domain accepts no email (RFC 7505)
+someone@iana.org                     unknown  MX found (pechora8.icann.org); mailbox not checked
+someone@no-such-domain-7f3k2q9.com   invalid  domain does not exist
+someone@neverssl.com                 unknown  no MX, but an address record: mail can still be delivered (implicit MX)
+someone@github.com                   unknown  MX found (github-com.mail.protection.outlook.com); mailbox not checked
+```
+
+`example.com` really does publish `0 .` as its MX record (`dig +short MX example.com` prints `0 .`), and `neverssl.com` has no MX at all but an A record, so a check that treated "no MX" as invalid would wrongly reject it.
+
+## Why typos get through
+
+| Domain        | DNS result            |
+| ------------- | --------------------- |
+| `gmial.com`   | no MX, has an address |
+| `gamil.com`   | MX found              |
+| `gmai.com`    | MX found              |
+| `hotmial.com` | no MX, has an address |
+| `yaho.com`    | no MX, has an address |
+| `outlok.com`  | no MX, has an address |
+
+Every one of them comes back **unknown**, the same answer as `gmail.com`. Typo domains of big providers are usually registered by someone, so they resolve. For those, compare the domain with a short list of providers and suggest the closest one within two edits:
+
+```js title="mx.mjs: suggestion"
+const PROVIDERS = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "proton.me"];
+
+export function suggestDomain(email) {
+  const domain = email.split("@").pop().toLowerCase();
+  if (PROVIDERS.includes(domain)) return null;
+  const best = PROVIDERS.map((p) => [p, distance(domain, p)]).sort((x, y) => x[1] - y[1])[0];
+  return best[1] <= 2 ? best[0] : null;
+}
+```
+
+`distance` is Levenshtein distance with adjacent swaps counted as one edit (so `gmial` → `gmail` is one). It suggested the right provider for all six typos, and nothing for `gmail.com`, `github.com` or `acme.ae`. It also suggested `gmail.com` for **`mail.com`**, which is a real email provider. That's why it should only ever **ask** ("Did you mean gmail.com?") and never silently correct.
+
+## What DNS can't tell you
+
+- **Whether the mailbox exists.** Only the receiving server knows, and many accept everything (catch-all) or refuse to say. Paid verification services try an SMTP conversation; even they return "risky" for catch-all domains.
+- **Whether the person reads it.** A valid, deliverable address can still be abandoned.
+- **Whether it's disposable.** That needs a list of throwaway domains, which changes constantly.
+
+## Summary
+
+- DNS can prove **invalid** (no domain, null MX, no MX and no address records), never **valid**: report **unknown**.
+- **Null MX** (`0 .`) means "no mail here"; **no MX but an A record** still receives mail.
+- Treat DNS errors as **try again**, not as invalid.
+- **Typo domains pass**: all six I tried resolved. Add a **did-you-mean** suggestion, and only suggest.
+
+The same backend also has to decide when two companies are the same one: [detecting duplicate companies by domain and name](/blog/duplicate-company-detection-domain-name/). For validating other identifiers with checksums rather than DNS, see [Luhn and IBAN check digits](/blog/luhn-iban-check-digits/).

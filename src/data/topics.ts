@@ -319,20 +319,31 @@ export const topics: Topic[] = [
           "idempotent-webhooks-nodejs",
           "idempotency-keys-post-api-nodejs",
           "transactional-outbox-nodejs-sqlite",
+          "rebuild-bullmq-queue-after-redis-restart",
         ],
       },
       {
         heading: "Approvals, sharing and downloads",
-        posts: ["document-approval-workflow-go", "email-otp-guest-file-sharing-go", "http-range-requests-go"],
+        posts: [
+          "document-approval-workflow-go",
+          "email-otp-guest-file-sharing-go",
+          "revoke-share-links-generation-counter-go",
+          "http-range-requests-go",
+        ],
       },
       {
         heading: "Security at the edges",
         posts: ["ssrf-protection-nodejs-fetch", "csv-injection-excel-exports-nodejs"],
       },
       {
+        heading: "Data from the web and from people",
+        posts: ["check-email-domain-mx-records-nodejs", "duplicate-company-detection-domain-name", "field-locks-scraper-human-edits"],
+      },
+      {
         heading: "Running servers",
         posts: [
           "nodejs-graceful-shutdown-kubernetes",
+          "github-actions-yaml-colon-run-step",
           "node-http-backpressure-bytes",
           "request-id-logging-asynclocalstorage",
           "jwt-verification-pitfalls-nodejs",

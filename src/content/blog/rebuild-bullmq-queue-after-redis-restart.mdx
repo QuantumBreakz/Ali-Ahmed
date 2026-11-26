@@ -1,0 +1,89 @@
+---
+title: "When Redis forgets your queue: rebuilding BullMQ jobs from the database after a restart"
+description: "Free and small Redis instances can lose everything on restart, taking queued BullMQ jobs with them. Make the database the record and Redis a to-do list: mark work in progress before queueing, requeue unfinished work on boot, and use stable job IDs so double requeues don't double the work. Tested on real Redis: 20 jobs lost and restored, 10 vs 20 handler runs, 110 Redis commands a minute from one idle worker, and BullMQ's rule that job IDs can't contain a colon."
+publishedAt: 2026-11-26
+tags: [Node.js, Reliability, Databases, Distributed Systems]
+---
+
+A queue in Redis is only as durable as the Redis behind it, and free or small Redis instances often **lose all their data on restart**. If the queue is the only place that knows a job exists, that job is gone. The fix is to change which side is the record: **the database is the truth, Redis is a to-do list**. Mark the work `in_progress` in the database **before** adding the job, and on boot **requeue everything the database says is unfinished**. Use a **stable job ID** per piece of work, so requeueing twice (two boots, or a boot racing a retry) doesn't run it twice. I tested it with BullMQ 5 on a real Redis: a `FLUSHALL` left **0 queued jobs** while the database still had **20 in progress**; the boot requeue restored all 20, and each ran **exactly once**. Two requeues ran the work **10 times with stable IDs and 20 times with random ones**. And a single **idle** worker sent **110 Redis commands a minute**, which matters when your Redis plan counts commands.
+
+![BullMQ on real Redis with the database as the record, for 20 companies. 1: 20 jobs queued, each marked in progress in the database. 2: Redis restarts with 0 jobs while the database still has 20 in progress. 3: on boot, 20 are requeued from the database with stable job IDs. 4: all 20 done, each exactly once. Requeueing twice: stable job IDs such as website-c1 give 10 runs, random IDs give 20. An idle worker still sends 110 Redis commands a minute, about 158,000 a day. BullMQ 5 rejects custom job IDs containing a colon, so website:c1 throws; use website-c1.](/figures/redis-requeue.webp)
+
+_The queue can be thrown away at any time because the database can rebuild it._
+
+This is how the lead-research backend I built for ADIPEC exhibitors runs: MongoDB holds every company's step status, and the queue only holds IDs. Below, the same idea with SQLite (Node's built-in `node:sqlite`) so it runs anywhere.
+
+## The pattern
+
+```js title="rebuild.mjs"
+import { DatabaseSync } from "node:sqlite";
+import { Queue, Worker } from "bullmq";
+
+// Mark the work in the database first, then queue it. A stable jobId makes queueing idempotent.
+export async function enqueue(db, queue, id, { stableId = true } = {}) {
+  db.prepare(`UPDATE companies SET status = 'in_progress' WHERE id = ?`).run(id);
+  await queue.add("website", { id }, stableId ? { jobId: `website-${id}` } : {});
+}
+
+// On boot: everything the database says is in progress goes back on the list.
+export async function requeueUnfinished(db, queue, opts) {
+  const rows = db.prepare(`SELECT id FROM companies WHERE status = 'in_progress'`).all();
+  for (const { id } of rows) await enqueue(db, queue, id, opts);
+  return rows.length;
+}
+
+export function startWorker(db, name, onJob = () => {}) {
+  return new Worker(
+    name,
+    async (job) => {
+      onJob(job.data.id);
+      db.prepare(`UPDATE companies SET status = 'completed', done_count = done_count + 1 WHERE id = ?`).run(job.data.id);
+    },
+    { connection, concurrency: 5 }
+  );
+}
+```
+
+The order inside `enqueue` matters. If the process dies after the database write but before `queue.add`, the boot requeue picks the work up. The other order (queue first, then mark) can lose work: a job that finished before the status write would leave the database saying "not started" forever, or saying "in progress" for work that's done.
+
+## What the tests show
+
+```text title="run.mjs output"
+wipe test: waiting before=20, after wipe=0, db in_progress=20, requeued=20, all completed=true, max runs per company=1
+double requeue, jobId website-<id>: waiting=10, handler runs=10
+double requeue, jobId random: waiting=20, handler runs=20
+```
+
+- **The wipe:** 20 jobs waiting, `FLUSHALL`, 0 waiting. The database still says 20 in progress; the requeue restores 20, the worker completes 20, and no company runs twice.
+- **Double requeue:** with `jobId: website-<id>`, BullMQ ignores the second `add` for an ID it already has, so 10 jobs run 10 times. Without it, the same 10 companies are processed 20 times.
+
+Two details I found on the way:
+
+- **BullMQ 5 rejects job IDs containing a colon.** `jobId: "website:c1"` throws `Custom Id cannot contain :`. Use a dash.
+- **A job ID only dedupes while the job is still stored.** BullMQ keeps completed jobs unless you set `removeOnComplete`; while a completed `website-c1` is kept, adding `website-c1` again is a no-op. In the test, re-adding the ID after completion ran the handler 1 time in total with completed jobs kept, and 2 times with `removeOnComplete: true`. Keeping them is what you want for duplicates, but it means "re-run this company" needs a different ID or the old job removed first.
+
+## How chatty is an idle worker?
+
+I left one BullMQ worker running with nothing to do and counted the Redis commands it sent:
+
+```text title="idle.mjs (two runs)"
+idle worker, 60 s: 110 commands (1.83/s, ~158400 per day)
+idle worker, 60 s: 110 commands (1.83/s, ~158400 per day)
+```
+
+Those are the worker's own polling and housekeeping commands, with no jobs at all. It's nothing for a normal Redis, but some hosted plans meter commands. In the ADIPEC backend, where the queue was only ever a to-do list rebuilt from MongoDB, I eventually moved the queue in-process and kept Redis connected only for health checks. Once the database is the record, the queue is easy to swap out.
+
+## When is this the right design?
+
+- **Use it** when jobs map to rows you already have (one job per company, per document, per order) and the status lives there anyway.
+- **It isn't enough** for jobs that carry their whole payload and exist nowhere else, such as an email to send. Put those in the database first: that's the [transactional outbox](/blog/transactional-outbox-nodejs-sqlite/), the same idea applied to events.
+- **Handlers must be idempotent** regardless: a job can run, finish its side effect, and crash before marking itself done. See [idempotent webhooks in Node.js](/blog/idempotent-webhooks-nodejs/) for the claim-then-mark pattern.
+
+## Summary
+
+- Make the **database the record** and the queue a **to-do list** that can be lost.
+- **Mark `in_progress` before queueing**, and **requeue unfinished work on boot**.
+- Use **stable job IDs**: two requeues ran the work 10 times instead of 20. BullMQ job IDs **can't contain `:`**.
+- An **idle BullMQ worker sent 110 Redis commands a minute** in the test; count that if your Redis plan meters commands.
+
+The workflow that triggers this backend's nightly jobs had its own silent failure: [a colon in a GitHub Actions run step](/blog/github-actions-yaml-colon-run-step/).

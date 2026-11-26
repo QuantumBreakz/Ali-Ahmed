@@ -1,0 +1,74 @@
+---
+title: "Revoking every share link at once with a generation counter, and why a 'trashed' flag isn't enough"
+description: "When a shared document is trashed and later restored, its old guest links must stay dead. Checking only a trashed flag brings all of them back; storing the document's share generation in each link and incrementing it on trash revokes them all with one write. Tested in Go: 25 of 25 old links worked again with the flag, 0 of 25 with the counter, and a resumed download was refused mid-way."
+publishedAt: 2026-11-26
+tags: [Go, Security, Reliability]
+---
+
+When a document shared with outside guests is **trashed**, every guest link to it has to stop working, and they must **stay dead if the document is restored**. The obvious check, "is the document trashed?", fails that second part: once it's restored, every old link works again. A **generation counter** fixes it with one write. Each document has a `ShareGeneration`; each link stores the generation it was issued under; trashing **increments** the counter, and restoring **doesn't reset it**. A link is valid only if its generation **equals** the document's current one, so one increment revokes every link ever issued, without touching the links themselves. In my test, after trash and restore, **25 of 25 old links worked again with a trashed flag, and 0 of 25 with the counter**, while a link issued after the restore worked normally. Because the check runs on every request, a **download that resumes** after a trash and restore is refused on its next range.
+
+![Trash, then restore: do the old share links come back? 25 links are issued at generation 0, the document is trashed and its generation becomes 1, then it is restored. Checking only whether it is trashed: 25 of 25 old links work again after restore. Requiring the link's generation to equal the document's: 0 of 25, while new links issued after the restore work. One counter increment revokes every link at once, with no per-link writes. It is checked on every request, so a download resumed after trash and restore is refused on its next range.](/figures/share-generation.webp)
+
+_A flag describes the document now; a generation remembers what happened to it._
+
+This comes from the guest-sharing design of **PlantDocket**, a document control system for factory drawings I'm working on ([spec](https://github.com/QuantumBreakz/plantdocket-backend)): "trashing changes the Library generation and invalidates old grants, including after restore".
+
+## The model
+
+```go title="gen.go"
+type Document struct {
+	Trashed         bool
+	ShareGeneration int // incremented on trash; never reset on restore
+}
+
+type Grant struct {
+	Generation int // the document's generation when the link was issued
+	Revoked    bool
+	Expires    time.Time
+}
+
+func (d *Document) Trash()   { d.Trashed = true; d.ShareGeneration++ }
+func (d *Document) Restore() { d.Trashed = false }
+
+func (d *Document) Issue(now time.Time) *Grant {
+	return &Grant{Generation: d.ShareGeneration, Expires: now.Add(7 * 24 * time.Hour)}
+}
+
+// Allowed is checked on every download request, including each range of a resumed download.
+func Allowed(d *Document, g *Grant, now time.Time) bool {
+	return !d.Trashed && !g.Revoked && now.Before(g.Expires) && g.Generation == d.ShareGeneration
+}
+```
+
+Each check has its own job: `Trashed` stops everything while the document is in the trash, `Revoked` handles a single link the sharer withdrew, `Expires` limits every link's life, and the generation makes trashing **permanent for the links** even though it isn't permanent for the document.
+
+## What the tests show
+
+```text title="go test -v"
+after trash + restore: 25 of 25 old links work with a trashed flag, 0 with a generation counter
+resumed download after trash + restore: first range true, second range false
+```
+
+- **25 contractors** got links to a drawing. It was trashed and restored. With the flag-only check, all 25 links worked again; with the generation check, none did. A new link issued after the restore worked.
+- **While trashed,** both versions refuse everything, so the difference only shows **after** a restore, which is exactly when nobody is looking.
+- **A revoked link** stays revoked, and an **expired** one (7 days and 1 second) is refused.
+- **Mid-download:** the first range of a download is allowed; the document is trashed and restored; the resumed download's next range is refused. That's why the check belongs on every request, not just when the download starts. See [HTTP Range requests in Go](/blog/http-range-requests-go/) for how resumes work.
+
+## Why not just revoke the links one by one?
+
+You can, by updating every grant row when a document is trashed. The generation counter is better in three ways:
+
+- **One write instead of N.** A drawing shared with 25 contractors is one counter increment, not 25 updates in a transaction.
+- **No race with new links.** A link being issued while the trash runs either gets the old generation (and dies) or the new one (after restore). With per-row revocation, a link created between "find all grants" and "revoke them" survives.
+- **The same idea scales up.** A site-wide recovery epoch works identically: bump it after restoring from a backup, and every session and link issued before the incident stops working.
+
+The trade-off: you can't **un-revoke** one link selectively after a trash. That's usually right: if the document needed trashing, its old audience should be re-invited deliberately.
+
+## Summary
+
+- A **trashed flag** describes the present; after restore, **old links come back** (25 of 25 in the test).
+- Store the **document's share generation in each link**, **increment it on trash**, never reset it, and require **equality** on every request.
+- One increment revokes **every** link with **no per-link writes** and no race with links issued during the trash.
+- Check on **every request**, so a resumed download stops at its next range.
+
+Guests prove who they are before downloading with [email one-time codes](/blog/email-otp-guest-file-sharing-go/), and only an approved revision can be shared: [multi-step document approval in Go](/blog/document-approval-workflow-go/).

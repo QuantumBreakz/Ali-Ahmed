@@ -1,0 +1,74 @@
+---
+title: "A colon in a GitHub Actions run step silently stopped our scheduled workflows"
+description: "Why a one-line run: containing a header like 'x-cron-secret: ...' makes the whole workflow file invalid YAML, so its schedule never fires and no failed run appears. Tested in PyYAML, the yaml package and Ruby, with the fix (a block scalar), the CI check that parses every workflow, the same bug inside that check, and the silent ' #' comment trap a parse check can't catch."
+publishedAt: 2026-11-26
+tags: [DevOps, Reliability, Python, Node.js]
+---
+
+If a step's `run:` is written on one line and the command contains **colon-space** (`: `), as in `-H "x-cron-secret: ..."`, YAML reads the `: ` as the start of a new key, and the **whole workflow file becomes invalid**. GitHub then refuses the file. For a workflow triggered by `schedule`, that means **the schedule simply never fires**: there's no red run, no failed job and no notification, just nothing. The fix is to write the command as a **block scalar** (`run: |` with the command on the next line) or to quote the whole value, and to make CI **parse every workflow file** so a broken one fails the pull request instead of failing silently on `main`. I hit exactly this in a backend I built: the nightly email check and weekly website refresh never ran. The CI check I added to catch it then had **the same bug in its own one-line `run:`**. One more trap a parse check can't catch: ` #` in a plain scalar starts a **comment**, so `run: echo "build" #42 done` quietly runs only `echo "build"`.
+
+![Three run lines. Broken: a plain scalar containing colon-space, run: curl -X POST -H "x-cron-secret: ..." "$URL/cron/nightly", which PyYAML, the yaml package and Ruby all reject. Fixed: a block scalar, run followed by a pipe, with the command indented on the next line, which all three parse. Silent: run: echo "build" #42 done, which parses fine but the command is only echo "build". GitHub rejected the whole file, so the nightly and weekly schedules never fired and there was no failed run to notice. The new CI check that parses every workflow had the same bug in its own one-line run (aliases: true) until it became a block scalar.](/figures/yaml-colon.webp)
+
+_The first line broke the file; the last one parses and is still wrong._
+
+## What went wrong?
+
+The workflow woke a backend on a schedule and called a protected endpoint:
+
+```yaml title="cron.yml (broken)"
+      - name: Trigger
+        run: curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ vars.BACKEND_URL }}/cron/${{ steps.t.outputs.task }}"
+```
+
+In YAML, an unquoted value is a **plain scalar**. Plain scalars can't contain `: ` anywhere, and the double quotes in the middle don't help: quotes only count when they open the value. So the parser sees `run: curl ... "x-cron-secret` and then a second key. GitHub reported "error in your yaml syntax on line 29", but only on the workflow page, which nobody checks for a scheduled job that has never run.
+
+```yaml title="cron.yml (fixed)"
+- name: Trigger
+  # Block scalar: a plain one-liner breaks YAML on the ": " inside the header.
+  run: |
+    curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ vars.BACKEND_URL }}/cron/${{ steps.t.outputs.task }}"
+```
+
+## Do all YAML parsers agree?
+
+I ran five variants through three parsers: PyYAML 6.0.2, the JavaScript `yaml` package 2.9.1 (YAML 1.2) and Ruby's Psych, the one the CI check uses.
+
+| Variant                                    | PyYAML                                     | yaml (JS)                                                  | Ruby                                                  |
+| ------------------------------------------ | ------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------------- |
+| One-line `run:` with `: ` inside           | error: mapping values are not allowed here | error: nested mappings are not allowed in compact mappings | error: mapping values are not allowed in this context |
+| Block scalar `run: \|`                     | parses                                     | parses                                                     | parses                                                |
+| Whole value single-quoted                  | parses                                     | parses                                                     | parses                                                |
+| The CI check on one line (`aliases: true`) | error                                      | error                                                      | error                                                 |
+| `run: echo "build" #42 done`               | parses as `echo "build"`                   | parses as `echo "build"`                                   | parses as `echo "build"`                              |
+
+They agree on all five, including the silent one: ` #` (space then hash) starts a comment in a plain scalar, so `#42 done` disappears from the command without any error.
+
+## How do you catch this in CI?
+
+Parse every workflow file in the pull request, before it reaches `main`:
+
+```yaml title="ci.yml: the check"
+- name: Workflow files are valid YAML
+  run: |
+    for f in .github/workflows/*.yml; do
+      ruby -ryaml -e "YAML.safe_load(File.read('$f'), aliases: true)" || exit 1
+    done
+```
+
+The first version of this check was a one-liner, `run: for f in ...; do ruby -ryaml -e "...aliases: true)" || exit 1; done`, and `aliases: true` contains `: `. The check was itself invalid YAML, which made the whole CI file invalid. It was fixed the same way, sixteen seconds later. I tested both versions in all three parsers above: the one-liner fails everywhere, the block scalar passes everywhere.
+
+## Rules that would have prevented both bugs
+
+- **Use `run: |` for anything longer than a single word.** It accepts any characters, and multi-line commands read better anyway.
+- **Parse workflows in CI.** A YAML parse catches the colon bug, but not the comment one.
+- **Watch scheduled workflows for silence, not just failure.** A job that should run nightly and hasn't run for two days is an incident. A simple check on "last successful run" catches it, whatever the cause.
+- **Quote values with `#`, `: `, or a leading `*`, `&`, `!`, `%`, `@` or backtick**, or use a block scalar.
+
+## Summary
+
+- A one-line `run:` containing `: ` makes the **whole workflow invalid**; scheduled workflows then **never run**, with no failed run to see.
+- Fix it with a **block scalar** (`run: |`) or by quoting the whole value.
+- **Parse every workflow file in CI**, and make sure the check itself is a block scalar.
+- ` #` in a plain scalar starts a **comment**: the command is silently cut short, and no parser complains.
+
+For the backend this workflow drives, see how its job queue survives Redis restarts in [rebuilding a BullMQ queue after Redis loses its data](/blog/rebuild-bullmq-queue-after-redis-restart/), and for the deploy side of the same platforms, [what actually gets deployed to production](/blog/what-gets-deployed-to-production/).

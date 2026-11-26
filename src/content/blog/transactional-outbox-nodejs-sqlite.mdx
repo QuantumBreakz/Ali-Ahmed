@@ -113,3 +113,5 @@ The relay can publish an event and crash **before** marking it sent. On restart 
 Related: [an MQTT-based KYC verification pipeline](/blog/mqtt-kyc-verification-pipeline/).
 
 On the request side, [idempotency keys](/blog/idempotency-keys-post-api-nodejs/) stop a retried POST from running twice.
+
+The same rule, the database is the record and the queue can be rebuilt, applied to BullMQ jobs: [rebuilding a BullMQ queue after Redis loses its data](/blog/rebuild-bullmq-queue-after-redis-restart/).

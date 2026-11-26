@@ -100,3 +100,5 @@ How the guest proves who they are is in [email one-time codes for guest file sha
 - **Cap multipart ranges**: 200 one-byte ranges returned **26,846 bytes**. Above 5, serve the plain file.
 
 For streaming large responses without exhausting memory on the Node.js side, see [Node HTTP back-pressure counts bytes](/blog/node-http-backpressure-bytes/).
+
+Access is rechecked on every range, so trashing a document stops a resumed download: [revoking share links with a generation counter](/blog/revoke-share-links-generation-counter-go/).

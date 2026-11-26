@@ -155,3 +155,5 @@ The file is then served with byte ranges so large drawings can resume: [HTTP Ran
 - The limits cap guessing at about **0.03% per hour**.
 
 For other places where comparing secrets safely matters, see [verifying webhook signatures in Node.js](/blog/verify-webhook-signatures-nodejs/) and [JWT verification pitfalls](/blog/jwt-verification-pitfalls-nodejs/).
+
+When the shared document is trashed, every link to it has to die too, and stay dead after a restore: [revoking every share link with a generation counter](/blog/revoke-share-links-generation-counter-go/).

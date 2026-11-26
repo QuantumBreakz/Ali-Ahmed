@@ -3300,6 +3300,324 @@ export function FigDetectorBug() {
   );
 }
 
+/* 62. YAML colon in a run step ------------------------------------------------------------------------------- */
+export function FigYamlColon() {
+  const code = (y: number, lines: [string, string][], tone: string, label: string, verdict: string) => (
+    <g>
+      <text x={0} y={y} fill={tone} fontSize={22} fontFamily={sans}>
+        {label}
+      </text>
+      <rect x={0} y={y + 14} width={1456} height={lines.length * 34 + 22} rx={10} fill={color.surface} stroke={tone} strokeWidth={2} />
+      {lines.map(([t, c], i) => (
+        <text key={i} x={20} y={y + 50 + i * 34} fill={c} fontSize={20} fontFamily={mono}>
+          {t}
+        </text>
+      ))}
+      <text x={1436} y={y} fill={tone} fontSize={20} fontFamily={sans} textAnchor="end">
+        {verdict}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="GitHub Actions workflow · ADIPEC backend PR #4" title="One “: ” inside a run line, and the schedule never ran">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {code(
+          20,
+          [['run: curl -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "$URL/cron/nightly"', color.ink]],
+          color.warm,
+          "Broken: a plain scalar containing “: ”",
+          "PyYAML, yaml (JS), Ruby: all reject the file"
+        )}
+        {code(
+          140,
+          [
+            ["run: |", color.ink],
+            ['\u00a0\u00a0curl -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "$URL/cron/nightly"', color.ink],
+          ],
+          color.accent,
+          "Fixed: a block scalar (or quote the whole value)",
+          "all three parse it"
+        )}
+        {code(
+          300,
+          [['run: echo "build" #42 done', color.ink]],
+          color.warm,
+          "Silent: “ #” starts a comment",
+          'parses fine; the command is only  echo "build"'
+        )}
+        <text x={0} y={460} fill={color.ink} fontSize={23} fontFamily={sans}>
+          GitHub rejected the whole file, so the nightly and weekly schedules simply never fired: no failed run to notice.
+        </text>
+        <text x={0} y={500} fill={color.muted} fontSize={21} fontFamily={sans}>
+          The new CI check that parses every workflow had the same bug in its own one-line run (“aliases: true”) until it became a block scalar.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 63. Redis wipe and requeue ------------------------------------------------------------------------------------ */
+export function FigRedisRequeue() {
+  const step = (x: number, n: string, t: string, sub: string, tone: string) => (
+    <g>
+      <rect x={x} y={20} width={330} height={160} rx={14} fill={color.surface} stroke={tone} strokeWidth={2} />
+      <text x={x + 20} y={60} fill={color.muted} fontSize={18} fontFamily={mono}>
+        {n}
+      </text>
+      <text x={x + 20} y={100} fill={tone} fontSize={25} fontFamily={sans}>
+        {t}
+      </text>
+      <text x={x + 20} y={140} fill={color.muted} fontSize={19} fontFamily={sans}>
+        {sub}
+      </text>
+    </g>
+  );
+  return (
+    <Frame kicker="BullMQ on real Redis · database as the record · 20 companies" title="Redis forgot the queue; the database remembered the work">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {step(0, "1", "20 jobs queued", "marked in_progress in the DB", color.ink)}
+        {step(375, "2", "Redis restarts: 0 jobs", "DB still: 20 in progress", color.warm)}
+        {step(750, "3", "Boot: requeue 20", "from the database, stable job IDs", color.accent)}
+        {step(1125, "4", "20 done, each once", "max runs per company: 1", color.accent)}
+        <text x={0} y={250} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Requeue twice (two boots, or a boot racing a retry)
+        </text>
+        <rect x={0} y={270} width={200} height={42} rx={6} fill={color.accent} />
+        <text x={216} y={300} fill={color.ink} fontSize={21} fontFamily={mono}>
+          jobId website-c1… : 10 runs
+        </text>
+        <rect x={0} y={326} width={400} height={42} rx={6} fill={color.warm} />
+        <text x={416} y={356} fill={color.ink} fontSize={21} fontFamily={mono}>
+          random IDs: 20 runs
+        </text>
+        <text x={0} y={440} fill={color.ink} fontSize={23} fontFamily={sans}>
+          An idle worker still talks to Redis: 110 commands a minute, about 158,000 a day.
+        </text>
+        <text x={0} y={482} fill={color.muted} fontSize={21} fontFamily={sans}>
+          BullMQ 5 rejects custom job IDs containing “:”, so website:c1 throws; use website-c1.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 64. MX check ----------------------------------------------------------------------------------------------- */
+export function FigMxCheck() {
+  const rows: [string, string, string][] = [
+    ["gmail.com", "MX found", "unknown"],
+    ["example.com", "null MX (0 .)", "invalid"],
+    ["neverssl.com", "no MX, has an A record", "unknown"],
+    ["no-such-domain-…", "domain doesn't exist", "invalid"],
+  ];
+  const typos = ["gmial.com", "gamil.com", "gmai.com", "hotmial.com", "yaho.com", "outlok.com"];
+  return (
+    <Frame kicker="Email domain checks with DNS · live lookups" title="DNS can prove an address is bad, never that it's good">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {rows.map(([d, r, v], i) => (
+          <g key={d}>
+            <text x={0} y={40 + i * 56} fill={color.ink} fontSize={22} fontFamily={mono}>
+              {d}
+            </text>
+            <text x={300} y={40 + i * 56} fill={color.muted} fontSize={21} fontFamily={sans}>
+              {r}
+            </text>
+            <text x={620} y={40 + i * 56} fill={v === "invalid" ? color.warm : color.accent} fontSize={22} fontFamily={mono}>
+              {v}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={280} fill={color.muted} fontSize={20} fontFamily={sans}>
+          "unknown" means the domain can receive mail; the mailbox itself was never checked.
+        </text>
+        <rect x={800} y={0} width={656} height={300} rx={14} fill={color.surface} stroke={color.warm} strokeWidth={2} />
+        <text x={824} y={40} fill={color.warm} fontSize={23} fontFamily={sans}>
+          All six typo domains pass the DNS check
+        </text>
+        {typos.map((t, i) => (
+          <text key={t} x={824 + (i % 2) * 310} y={90 + Math.floor(i / 2) * 44} fill={color.ink} fontSize={21} fontFamily={mono}>
+            {t} → unknown
+          </text>
+        ))}
+        <text x={824} y={256} fill={color.accent} fontSize={21} fontFamily={sans}>
+          So suggest: “did you mean gmail.com?”
+        </text>
+        <text x={0} y={380} fill={color.ink} fontSize={23} fontFamily={sans}>
+          An edit-distance check against big providers catches all six typos,
+        </text>
+        <text x={0} y={414} fill={color.ink} fontSize={23} fontFamily={sans}>
+          but also suggests gmail.com for mail.com, a real provider: suggest, never auto-correct.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 65. Duplicate companies ------------------------------------------------------------------------------------- */
+export function FigDuplicateCompanies() {
+  const rows: [string, string, string, boolean][] = [
+    ["Siemens Energy L.L.C.", "SIEMENS ENERGY LLC", "1.00", true],
+    ["Société Générale S.A.", "Societe Generale", "1.00", true],
+    ["Al Masaood Oil & Gas", "… Oil and Gas Industry Supplies", "0.71", false],
+    ["Gulf Valve Co.", "Gulf Valves Company", "0.33", false],
+  ];
+  return (
+    <Frame kicker="Lead research pipeline · flag likely duplicates, never auto-merge" title="Duplicate keys: what they catch, and the Wix bug">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <text x={0} y={30} fill={color.muted} fontSize={20} fontFamily={sans}>
+          Name similarity (word overlap after normalising; flag at 0.75)
+        </text>
+        {rows.map(([a, b, sc, flag], i) => (
+          <g key={a}>
+            <text x={0} y={80 + i * 50} fill={color.ink} fontSize={21} fontFamily={sans}>
+              {a}
+            </text>
+            <text x={320} y={80 + i * 50} fill={color.ink} fontSize={21} fontFamily={sans}>
+              {b}
+            </text>
+            <text x={720} y={80 + i * 50} fill={flag ? color.accent : color.warm} fontSize={22} fontFamily={mono}>
+              {sc} {flag ? "flag" : "miss"}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={300} fill={color.muted} fontSize={19} fontFamily={sans}>
+          Folding plurals catches valve/valves but matches Thomas to Thoma.
+        </text>
+        <rect x={900} y={0} width={556} height={330} rx={14} fill={color.surface} stroke={color.warm} strokeWidth={2} />
+        <text x={924} y={40} fill={color.warm} fontSize={23} fontFamily={sans}>
+          Domain key bug
+        </text>
+        <text x={924} y={84} fill={color.ink} fontSize={20} fontFamily={mono}>
+          acme-valves.wixsite.com
+        </text>
+        <text x={924} y={116} fill={color.ink} fontSize={20} fontFamily={mono}>
+          gulf-pumps.wixsite.com
+        </text>
+        <text x={924} y={156} fill={color.warm} fontSize={21} fontFamily={sans}>
+          both → wixsite.com: "same domain"
+        </text>
+        <text x={924} y={206} fill={color.muted} fontSize={19} fontFamily={sans}>
+          allowPrivateDomains: false ignores the
+        </text>
+        <text x={924} y={232} fill={color.muted} fontSize={19} fontFamily={sans}>
+          public suffix list's private section
+        </text>
+        <text x={924} y={282} fill={color.accent} fontSize={21} fontFamily={sans}>
+          true keeps each site separate
+        </text>
+        <text x={0} y={420} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Every flag carries a reason a reviewer can check, and "not a duplicate" is remembered for that pair.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 66. Field locks --------------------------------------------------------------------------------------------- */
+export function FigFieldLocks() {
+  const fields: [string, string, string, boolean][] = [
+    ["website.url", "https://gulf-valve.ae", "sara fixed it", true],
+    ["website.summary", "Industrial valves since 1998.", "re-scraped", false],
+    ["phone", "+971 4 111 1111", "re-scraped", false],
+  ];
+  return (
+    <Frame kicker="People win over robots · edit history and field locks" title="A person's fix locks the field; re-scrapes skip it">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {fields.map(([f, v, why, locked], i) => (
+          <g key={f}>
+            <rect
+              x={0}
+              y={i * 80}
+              width={960}
+              height={64}
+              rx={10}
+              fill={locked ? color.accentDim : color.surface}
+              stroke={locked ? color.accent : color.line}
+              strokeWidth={2}
+            />
+            <text x={20} y={i * 80 + 41} fill={color.muted} fontSize={20} fontFamily={mono}>
+              {f}
+            </text>
+            <text x={260} y={i * 80 + 41} fill={color.ink} fontSize={21} fontFamily={sans}>
+              {v}
+            </text>
+            <text x={940} y={i * 80 + 41} fill={locked ? color.accent : color.muted} fontSize={19} fontFamily={sans} textAnchor="end">
+              {locked ? "🔒 " : ""}
+              {why}
+            </text>
+          </g>
+        ))}
+        <rect x={1000} y={0} width={456} height={224} rx={12} fill={color.surface} stroke={color.line} />
+        <text x={1020} y={36} fill={color.ink} fontSize={21} fontFamily={sans}>
+          History, every change
+        </text>
+        <text x={1020} y={80} fill={color.muted} fontSize={18} fontFamily={mono}>
+          phone, by system: 000 → 222
+        </text>
+        <text x={1020} y={116} fill={color.accent} fontSize={18} fontFamily={mono}>
+          phone, by omar: 222 → 333 🔒
+        </text>
+        <text x={1020} y={152} fill={color.muted} fontSize={18} fontFamily={mono}>
+          re-scrape with 444: skipped
+        </text>
+        <text x={1020} y={196} fill={color.muted} fontSize={17} fontFamily={sans}>
+          2 history rows; the phone stays 333
+        </text>
+        <text x={0} y={320} fill={color.warm} fontSize={23} fontFamily={sans}>
+          The gap: a scrape reads the locks, fetches pages for seconds, then writes.
+        </text>
+        <text x={0} y={356} fill={color.warm} fontSize={23} fontFamily={sans}>
+          An edit made in between is overwritten. Check the lock inside the write itself.
+        </text>
+        <text x={0} y={430} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Same value saved again: no history row, no lock. Unlocking hands the field back to the robots.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 67. Share generation ----------------------------------------------------------------------------------------- */
+export function FigShareGeneration() {
+  return (
+    <Frame kicker="PlantDocket · revoking every guest link to a document · Go" title="Trash, then restore: do the old share links come back?">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {["25 links issued (generation 0)", "Trash (generation → 1)", "Restore"].map((t, i) => (
+          <g key={t}>
+            <Box x={i * 420} y={20} w={360} h={90} title={t} tone={i === 1 ? color.warm : color.ink} />
+            {i < 2 && <Arrow x1={i * 420 + 360} y1={65} x2={i * 420 + 420} y2={65} />}
+          </g>
+        ))}
+        <rect x={0} y={170} width={700} height={160} rx={14} fill={color.surface} stroke={color.warm} strokeWidth={2} />
+        <text x={24} y={212} fill={color.warm} fontSize={24} fontFamily={sans}>
+          Check only "is it trashed?"
+        </text>
+        <text x={24} y={272} fill={color.ink} fontSize={44} fontFamily={mono}>
+          25 of 25
+        </text>
+        <text x={24} y={310} fill={color.muted} fontSize={20} fontFamily={sans}>
+          old links work again after restore
+        </text>
+        <rect x={756} y={170} width={700} height={160} rx={14} fill={color.accentDim} stroke={color.accent} strokeWidth={2} />
+        <text x={780} y={212} fill={color.accent} fontSize={24} fontFamily={sans}>
+          Link generation must equal the document's
+        </text>
+        <text x={780} y={272} fill={color.ink} fontSize={44} fontFamily={mono}>
+          0 of 25
+        </text>
+        <text x={780} y={310} fill={color.muted} fontSize={20} fontFamily={sans}>
+          new links issued after restore work
+        </text>
+        <text x={0} y={400} fill={color.ink} fontSize={23} fontFamily={sans}>
+          One counter increment revokes every link at once, with no per-link writes.
+        </text>
+        <text x={0} y={440} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Checked on every request: a download resumed after trash and restore is refused on its next range.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -3362,4 +3680,10 @@ export const figures = [
   { id: "fig-free-tiers", component: FigFreeTiers },
   { id: "fig-retries", component: FigRetries },
   { id: "fig-detector-bug", component: FigDetectorBug },
+  { id: "fig-yaml-colon", component: FigYamlColon },
+  { id: "fig-redis-requeue", component: FigRedisRequeue },
+  { id: "fig-mx-check", component: FigMxCheck },
+  { id: "fig-duplicate-companies", component: FigDuplicateCompanies },
+  { id: "fig-field-locks", component: FigFieldLocks },
+  { id: "fig-share-generation", component: FigShareGeneration },
 ] as const;

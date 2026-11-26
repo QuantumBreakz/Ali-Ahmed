@@ -111,3 +111,5 @@ On the sending side, the [transactional outbox pattern](/blog/transactional-outb
 For APIs you expose, the client-driven equivalent is [idempotency keys for POST requests](/blog/idempotency-keys-post-api-nodejs/).
 
 Before deduplicating, check the request is genuine: [verifying webhook signatures in Node.js](/blog/verify-webhook-signatures-nodejs/).
+
+For queued jobs, stable job IDs give the same protection against running work twice: [rebuilding a BullMQ queue after Redis loses its data](/blog/rebuild-bullmq-queue-after-redis-restart/).
