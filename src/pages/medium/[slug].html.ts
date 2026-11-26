@@ -56,6 +56,8 @@ const icons =
   '<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">' +
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">';
 
+const DISCLOSURE = "This story was written with the assistance of an AI writing program.";
+
 export async function getStaticPaths() {
   return (await getPublishedBlog()).map((entry) => ({ params: { slug: getWritingPath(entry).split("/")[2] }, props: { entry } }));
 }
@@ -68,6 +70,12 @@ export const GET: APIRoute = async ({ props }) => {
   tree.children = (tree.children ?? []).filter(
     (n, i) => !(n.type === "heading" && n.depth === 1) && !(i < 4 && n.type === "paragraph" && /^Published:/.test(cellText(n)))
   );
+  // Medium's AI content policy: AI-assisted stories must say so in the first two paragraphs, or they reach followers only.
+  const lead = (tree.children ?? []).findIndex((n) => n.type === "paragraph");
+  (tree.children ?? []).splice(lead + 1, 0, {
+    type: "paragraph",
+    children: [{ type: "emphasis", children: [{ type: "text", value: DISCLOSURE }] }],
+  });
   tablesToLists(tree);
   fixImages(tree);
   codeToHtml(tree);
