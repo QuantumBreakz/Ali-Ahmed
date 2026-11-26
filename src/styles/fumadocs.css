@@ -1,5 +1,6 @@
 @import "./reading-foundation.css";
 @import "./fumadocs-preset.css";
+@import "./shiki-colors.css";
 
 html.notes-surface:has(.notes-search-fallback[open]) {
   overflow: hidden;

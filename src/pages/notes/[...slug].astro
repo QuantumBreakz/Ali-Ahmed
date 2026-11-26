@@ -93,6 +93,7 @@ const docsProps = {
   canonicalPath={canonicalPath}
   markdownPath={markdownUrl}
   pageType={page.data.pageType}
+  robots={emptyCollection ? "noindex, follow" : undefined}
 >
   {
     docsProps.hasPublishedNotes ? (

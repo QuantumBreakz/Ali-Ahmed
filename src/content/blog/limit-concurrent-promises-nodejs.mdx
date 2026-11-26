@@ -1,5 +1,6 @@
 ---
 title: "Limiting concurrent async calls in Node.js without a library: a 15-line promise pool"
+seoTitle: "Limit concurrent promises in Node.js without a library"
 description: "Promise.all over 1,000 items starts 1,000 requests at once, which trips rate limits and exhausts sockets. A tested 15-line mapLimit for Node.js that caps how many run at once, keeps results in input order and doesn't let one failure stop the batch, with notes on choosing the limit for LLM and API calls."
 publishedAt: 2026-11-19
 tags: [Node.js, JavaScript, Performance, LLMs]

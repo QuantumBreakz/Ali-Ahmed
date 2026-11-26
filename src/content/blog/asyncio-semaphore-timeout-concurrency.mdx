@@ -1,5 +1,6 @@
 ---
 title: "Limiting concurrency in Python asyncio with a semaphore and per-task timeouts, in the right order"
+seoTitle: "Python asyncio concurrency: semaphore plus timeouts"
 description: "asyncio.gather over 1,000 LLM or API calls starts them all at once. How to cap concurrency with asyncio.Semaphore, give each call its own timeout, keep failures from cancelling the batch, and why putting the timeout outside the semaphore makes tasks time out without ever running. Tested Python 3.11+."
 publishedAt: 2026-11-20
 tags: [Python, LLMs, AI Engineering, Performance]

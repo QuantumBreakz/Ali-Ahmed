@@ -1,5 +1,6 @@
 @import "./reading-foundation.css";
 @import "./fumadocs-preset.css";
+@import "./shiki-colors.css";
 
 /* Fumadocs supplies the reading mechanics; this layer gives Blog its editorial identity. */
 /* Blog pages use a top navigation and their own article grid, never DocsLayout. */

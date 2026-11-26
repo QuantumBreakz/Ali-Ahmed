@@ -7,10 +7,22 @@ interface Props {
   title: string;
   canonicalUrl: string;
   markdownUrl: string;
-  markdownContent: string;
 }
 
-export function BlogPostActions({ title, canonicalUrl, markdownUrl, markdownContent }: Props) {
+// The article's Markdown is fetched on click rather than embedded in the page, which would double its size.
+// A ClipboardItem with a pending blob keeps Safari's user-activation requirement satisfied across the fetch.
+async function writeMarkdown(url: string) {
+  const text = fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`Markdown request failed: ${r.status}`);
+    return r.blob();
+  });
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+    return navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((b) => new Blob([b], { type: "text/plain" })) })]);
+  }
+  return navigator.clipboard.writeText(await (await text).text());
+}
+
+export function BlogPostActions({ title, canonicalUrl, markdownUrl }: Props) {
   const [pending, setPending] = useState<"markdown" | "link" | "share" | "share-copy" | null>(null);
   const [status, setStatus] = useState({ message: "", success: false });
   const inFlight = useRef(false);
@@ -43,7 +55,7 @@ export function BlogPostActions({ title, canonicalUrl, markdownUrl, markdownCont
     setShowLink(false);
     try {
       await Promise.race([
-        navigator.clipboard.writeText(format === "markdown" ? markdownContent : canonicalUrl),
+        format === "markdown" ? writeMarkdown(markdownUrl) : navigator.clipboard.writeText(canonicalUrl),
         new Promise<never>((_, reject) => {
           clipboardTimer.current = setTimeout(() => reject(new Error("Clipboard did not respond")), 8000);
         }),

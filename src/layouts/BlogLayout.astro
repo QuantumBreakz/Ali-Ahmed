@@ -18,6 +18,7 @@ interface Props {
   canonicalUrl?: string;
   githubUrl?: string;
   title: string;
+  seoTitle?: string;
   description: string;
   toc?: TOCItemType[];
   date?: string;
@@ -30,8 +31,23 @@ interface Props {
   jsonLd?: Record<string, unknown>[];
   socialImage?: { src: string; alt: string; width: number; height: number };
 }
-const { title, description, article = false, draftPreview = false, jsonLd, socialImage = site.socialImage, ...page } = Astro.props;
+const {
+  title,
+  seoTitle,
+  description,
+  article = false,
+  draftPreview = false,
+  jsonLd,
+  socialImage = site.socialImage,
+  markdownContent: _markdown,
+  ...page
+} = Astro.props;
 const entries = await getPublishedBlog();
+// Search results cut titles at about 60 characters: keep the document title within 70, brand included when it fits.
+const documentTitle = [`${title} · ${site.fullName}`, title, ...(seoTitle ? [`${seoTitle} · ${site.fullName}`, seoTitle] : [])].find(
+  (t) => t.length <= 70
+);
+if (!documentTitle) throw new Error(`Title over 70 characters needs a seoTitle: ${title}`);
 ---
 
 <!doctype html>
@@ -44,7 +60,7 @@ const entries = await getPublishedBlog();
     <BlogReadingInit />
     {page.markdownUrl && <link rel="alternate" type="text/markdown" href={new URL(page.markdownUrl, site.url)} title="Markdown version" />}
     <PageMetadata
-      title={`${title} · ${site.fullName}`}
+      title={documentTitle}
       description={description}
       canonical={new URL(Astro.url.pathname, draftPreview ? Astro.url.origin : site.url)}
       type={article ? "article" : "website"}

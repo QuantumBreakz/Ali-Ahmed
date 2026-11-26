@@ -11,7 +11,6 @@ import { BlogContents } from "./BlogContents";
 import { useBlogReadingPreferences } from "./useBlogReadingPreferences";
 
 interface Props {
-  markdownContent?: string;
   markdownUrl?: string;
   canonicalUrl?: string;
   githubUrl?: string;
@@ -30,7 +29,6 @@ interface Props {
 
 export function BlogReader({
   title,
-  markdownContent,
   markdownUrl,
   canonicalUrl,
   githubUrl,
@@ -101,14 +99,8 @@ export function BlogReader({
                   </div>
                 </div>
               )}
-              {article && markdownContent && markdownUrl && canonicalUrl && (
-                <BlogPostActions
-                  key={pathname}
-                  title={title}
-                  markdownContent={markdownContent}
-                  markdownUrl={markdownUrl}
-                  canonicalUrl={canonicalUrl}
-                />
+              {article && markdownUrl && canonicalUrl && (
+                <BlogPostActions key={pathname} title={title} markdownUrl={markdownUrl} canonicalUrl={canonicalUrl} />
               )}
             </header>
             {article && toc.length > 0 && <BlogContents key={pathname} toc={toc} />}

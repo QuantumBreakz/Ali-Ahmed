@@ -1,5 +1,6 @@
 ---
 title: "Multi-step document approval in Go: keep the old revision effective until the last step approves"
+seoTitle: "Multi-step document approval workflow in Go"
 description: "How to build ordered, department-by-department approval of document revisions: snapshot the approval template, move the effective pointer only on the final approval, refuse self-approval and out-of-order decisions, and use an expected version plus idempotency keys so retries and races are safe. Tested Go, with 50 concurrent approvers producing exactly one winner."
 publishedAt: 2026-11-25
 tags: [Go, Reliability, Distributed Systems, Databases]

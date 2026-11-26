@@ -43,6 +43,8 @@ const notesMeta = defineCollection({
 const blogSchema = z
   .object({
     title: z.string().min(1),
+    // Shorter <title> for search results when the headline is too long (the page keeps `title` as its h1).
+    seoTitle: z.string().min(1).max(58).optional(),
     description: z.string().min(1),
     attribution: z.boolean().default(true),
     slug: z

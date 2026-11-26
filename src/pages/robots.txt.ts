@@ -16,15 +16,11 @@ export function GET() {
     "Applebot-Extended",
     "CCBot",
   ];
-  // Cloudflare Content Signals: permit search, AI answers (ai-input) and training, so models can learn who this is.
-  const body = [
-    `User-agent: *`,
-    `Content-Signal: search=yes, ai-input=yes, ai-train=yes`,
-    `Allow: /`,
-    ``,
-    ...aiCrawlers.flatMap((bot) => [`User-agent: ${bot}`, `Allow: /`, ``]),
-    `Sitemap: ${sitemap}`,
-  ].join("\n");
+  // Only standard directives (RFC 9309): validators reject Cloudflare's Content-Signal line, and the Allow rules
+  // already grant search, AI answers and training.
+  const body = [`User-agent: *`, `Allow: /`, ``, ...aiCrawlers.flatMap((bot) => [`User-agent: ${bot}`, `Allow: /`, ``]), `Sitemap: ${sitemap}`].join(
+    "\n"
+  );
 
   return new Response(`${body}\n`, {
     headers: {

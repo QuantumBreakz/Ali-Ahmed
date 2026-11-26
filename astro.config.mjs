@@ -8,6 +8,7 @@ import { sourceImages } from "./scripts/source-images.mjs";
 import { buildSecurity } from "./scripts/build-security.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { unified } from "@astrojs/markdown-remark";
+import { colorReplacements, shikiThemes, transformerShikiClasses } from "./scripts/shiki-classes.mjs";
 import { rehypeCode, remarkCodeTab, remarkHeading, remarkNpm, remarkStructure } from "fumadocs-core/mdx-plugins";
 
 const remarkPlugins = /** @type {import("@astrojs/markdown-remark").RemarkPlugins} */ (
@@ -19,9 +20,9 @@ const rehypePlugins = /** @type {import("@astrojs/markdown-remark").RehypePlugin
     [
       rehypeCode,
       {
-        themes: { light: "github-light-high-contrast", dark: "github-dark" },
-        // The themes' comment greys fall below 4.5:1 on our code backgrounds; use darker/lighter greys that pass.
-        colorReplacements: { "github-light-high-contrast": { "#66707b": "#57606a" }, "github-dark": { "#6a737d": "#a0a8b2" } },
+        themes: shikiThemes,
+        colorReplacements,
+        transformers: [transformerShikiClasses],
       },
     ],
   ])

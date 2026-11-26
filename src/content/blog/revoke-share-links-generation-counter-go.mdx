@@ -1,5 +1,6 @@
 ---
 title: "Revoking every share link at once with a generation counter, and why a 'trashed' flag isn't enough"
+seoTitle: "Revoke every share link at once: generation counter"
 description: "When a shared document is trashed and later restored, its old guest links must stay dead. Checking only a trashed flag brings all of them back; storing the document's share generation in each link and incrementing it on trash revokes them all with one write. Tested in Go: 25 of 25 old links worked again with the flag, 0 of 25 with the counter, and a resumed download was refused mid-way."
 publishedAt: 2026-11-26
 tags: [Go, Security, Reliability]

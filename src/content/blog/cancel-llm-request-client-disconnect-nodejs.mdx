@@ -1,5 +1,6 @@
 ---
 title: "Stop paying for tokens nobody reads: cancel the LLM call when the client disconnects in Node.js"
+seoTitle: "Cancel LLM calls when the client disconnects (Node.js)"
 description: "When a user closes the tab mid-answer, a Node.js proxy keeps streaming the LLM response, and you pay for every token. How to abort the upstream request with AbortController when the client goes away, combine it with a timeout using AbortSignal.any, and the test that showed 5 tokens instead of 100."
 publishedAt: 2026-11-20
 tags: [LLMs, Node.js, Streaming, Cost]

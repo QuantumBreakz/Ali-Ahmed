@@ -1,5 +1,6 @@
 ---
 title: "Correcting MRZ OCR errors with check digits: O vs 0, I vs 1, and when not to guess"
+seoTitle: "Correct MRZ OCR errors with check digits"
 description: "OCR misreads passport MRZ characters such as O and 0, I and 1, B and 8. How to repair the document number by trying confusable swaps until the check digit matches, why a single check digit lets wrong repairs pass one time in ten, and the rule that decides between fixing and asking for a new photo. Tested Python."
 publishedAt: 2026-11-19
 tags: [KYC, OCR, Python, Computer Vision]
@@ -108,3 +109,5 @@ For the whole pipeline these checks sit in, see [how KYC identity verification w
 `repair()` and `fix_numeric()` are included in the `mrz-checkdigit` package from version 0.2.0: `pip install mrz-checkdigit` ([PyPI](https://pypi.org/project/mrz-checkdigit/)).
 
 To measure how often these errors happen, see [measuring OCR accuracy with CER, WER and field accuracy](/blog/ocr-accuracy-cer-wer-field-accuracy/).
+
+Refusing to guess applies outside KYC too: in [measuring 7,908 pavement cross-sections in Whitechapel](/blog/whitechapel-pavement-widths/), every cross-section the method couldn't trust is rejected with a reason code instead of being filled in.

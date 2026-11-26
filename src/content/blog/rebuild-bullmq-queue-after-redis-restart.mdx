@@ -1,5 +1,6 @@
 ---
 title: "When Redis forgets your queue: rebuilding BullMQ jobs from the database after a restart"
+seoTitle: "Rebuild a BullMQ queue after Redis loses data"
 description: "Free and small Redis instances can lose everything on restart, taking queued BullMQ jobs with them. Make the database the record and Redis a to-do list: mark work in progress before queueing, requeue unfinished work on boot, and use stable job IDs so double requeues don't double the work. Tested on real Redis: 20 jobs lost and restored, 10 vs 20 handler runs, 110 Redis commands a minute from one idle worker, and BullMQ's rule that job IDs can't contain a colon."
 publishedAt: 2026-11-26
 tags: [Node.js, Reliability, Databases, Distributed Systems]

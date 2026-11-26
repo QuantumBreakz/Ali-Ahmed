@@ -29,7 +29,8 @@ const notesIndexPageUrls = new Set([
 ]);
 const sitemapUrls = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]));
 const siteOrigin = "https://aliahmed.si";
-const notePageUrls = [...sitemapUrls].filter((url) => url.startsWith(`${siteOrigin}/notes/`));
+// Empty notes collections are noindexed (so absent from the sitemap) but still public routes with Markdown and search entries.
+const notePageUrls = [...new Set([...[...sitemapUrls].filter((url) => url.startsWith(`${siteOrigin}/notes/`)), ...notesIndexPageUrls])];
 const expectedNoteMarkdownUrls = notePageUrls.map((url) => `${url.replace(/\/$/, "")}.md`);
 const search = JSON.parse(await readFile(path.join(outputDirectory, "notes/api/search.json"), "utf8"));
 const searchPageUrls = Object.values(search.docs.docs)

@@ -1,5 +1,6 @@
 ---
 title: "SSRF protection for server-side fetch in Node.js: block private addresses at connect time, on every redirect"
+seoTitle: "SSRF protection for server-side fetch in Node.js"
 description: "How to fetch user-supplied URLs from Node.js without letting them reach localhost, cloud metadata or your internal network: parse first, block private and IPv4-mapped addresses, check DNS results at connect time to stop rebinding, and follow redirects manually so every hop is checked. Tested with undici, including five spellings of 127.0.0.1 and the BlockList rule that blocks every public IPv4 address."
 publishedAt: 2026-11-25
 tags: [Node.js, Security, AI Engineering]

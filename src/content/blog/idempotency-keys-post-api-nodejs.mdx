@@ -1,5 +1,6 @@
 ---
 title: "Idempotency keys for POST APIs in Node.js: retry a payment without charging twice"
+seoTitle: "Idempotency keys for POST APIs in Node.js"
 description: "A client retries a POST after a timeout, and the customer is charged twice. How Idempotency-Key headers work: store the first response and replay it, reject the same key with a different body, return 409 while the first request runs, and release the key on server errors. Tested Node.js with node:sqlite."
 publishedAt: 2026-11-20
 tags: [Node.js, Reliability, Fintech, Databases]

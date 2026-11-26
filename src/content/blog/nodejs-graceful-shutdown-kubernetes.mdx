@@ -1,5 +1,6 @@
 ---
 title: "Graceful shutdown in Node.js: draining HTTP requests on SIGTERM without dropping traffic"
+seoTitle: "Graceful shutdown in Node.js on SIGTERM"
 description: "When Kubernetes or a deploy stops a Node.js server, server.close() alone can hang on keep-alive sockets or cut requests off mid-response. The order that works: fail readiness, wait, stop accepting, close idle connections, let in-flight requests finish, then force a deadline. Tested with node:http."
 publishedAt: 2026-11-19
 tags: [Node.js, Kubernetes, Reliability, Modern Deployments]

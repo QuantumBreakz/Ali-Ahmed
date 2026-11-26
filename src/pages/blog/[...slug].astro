@@ -71,6 +71,7 @@ const readingMinutes = Math.max(1, Math.ceil((entry.body ?? "").split(/\s+/).len
 
 <BlogLayout
   title={entry.data.title}
+  seoTitle={entry.data.seoTitle}
   description={entry.data.description}
   article
   {...blogExport}

@@ -1,5 +1,6 @@
 ---
 title: "A colon in a GitHub Actions run step silently stopped our scheduled workflows"
+seoTitle: "GitHub Actions: a colon in run: breaks the workflow"
 description: "Why a one-line run: containing a header like 'x-cron-secret: ...' makes the whole workflow file invalid YAML, so its schedule never fires and no failed run appears. Tested in PyYAML, the yaml package and Ruby, with the fix (a block scalar), the CI check that parses every workflow, the same bug inside that check, and the silent ' #' comment trap a parse check can't catch."
 publishedAt: 2026-11-26
 tags: [DevOps, Reliability, Python, Node.js]

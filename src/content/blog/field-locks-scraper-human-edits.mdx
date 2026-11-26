@@ -1,5 +1,6 @@
 ---
 title: "Keeping a scraper from overwriting human edits: field locks and edit history"
+seoTitle: "Stop scrapers overwriting human edits: field locks"
 description: "When a pipeline re-scrapes data that people also correct, the scraper must never undo their fixes. Record every change with who made it, lock a field when a person edits it, skip locked fields on refresh, and check the lock inside the write itself. Tested in Node.js, including the race where an edit made during a slow scrape is lost."
 publishedAt: 2026-11-26
 tags: [Node.js, Databases, Reliability]

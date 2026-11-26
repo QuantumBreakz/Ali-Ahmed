@@ -1,5 +1,6 @@
 ---
 title: "HTTP Range requests in Go: resumable downloads, 206 and 416, If-Range, and capping multipart ranges"
+seoTitle: "HTTP Range requests in Go: resumable downloads"
 description: "How resumable downloads work and what Go's http.ServeContent answers for each Range header: 206 with Content-Range, suffix ranges, clamped ends, 416 for unsatisfiable ranges, If-Range with an ETag, and multipart responses. Tested on a 1,000-byte file, including 200 one-byte ranges returning 26,846 bytes and a cap that stops it."
 publishedAt: 2026-11-25
 tags: [Go, Performance, Reliability]

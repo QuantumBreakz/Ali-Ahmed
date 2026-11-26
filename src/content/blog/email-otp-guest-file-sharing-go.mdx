@@ -1,5 +1,6 @@
 ---
 title: "Email one-time codes for guest file sharing in Go: hashing, attempt limits, expiry and races"
+seoTitle: "Email one-time codes for guest file sharing in Go"
 description: "How to let an outside contractor download a shared file with a 6-digit email code without making the code the weak point: store a keyed HMAC digest, bind it to the share, expire it in 10 minutes, allow 5 attempts counted before comparison, invalidate it on resend and consume it atomically. Tested Go, including a 62 ms brute force of an unkeyed hash and 100 concurrent correct submissions creating exactly one session."
 publishedAt: 2026-11-25
 tags: [Go, Security, Reliability]

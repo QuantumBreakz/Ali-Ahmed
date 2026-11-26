@@ -11,9 +11,10 @@ interface Props {
   canonicalPath: string;
   markdownPath: string;
   pageType: "index" | "note";
+  robots?: string;
 }
 
-const { title, description, canonicalPath, markdownPath, pageType } = Astro.props;
+const { title, description, canonicalPath, markdownPath, pageType, robots } = Astro.props;
 const canonical = new URL(canonicalPath, Astro.site ?? Astro.url.origin);
 const markdown = new URL(markdownPath, Astro.site ?? Astro.url.origin);
 ---
@@ -28,6 +29,7 @@ const markdown = new URL(markdownPath, Astro.site ?? Astro.url.origin);
       title={title}
       description={description}
       canonical={canonical}
+      robots={robots}
       markdown={markdown}
       llms={new URL("/notes/llms.txt", site.url)}
       type={pageType === "note" ? "article" : "website"}

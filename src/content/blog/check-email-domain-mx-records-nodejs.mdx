@@ -1,5 +1,6 @@
 ---
 title: "Can this email domain receive mail? MX, null MX and the A-record fallback in Node.js"
+seoTitle: "Check an email domain's MX records in Node.js"
 description: "What a DNS check can and can't tell you about an email address: MX records, the null MX that says 'no mail here', the implicit MX fallback to A records, and domains that don't exist. Tested with live lookups in Node.js, plus the finding that all six common typo domains (gmial.com, hotmial.com and more) pass the check, and a did-you-mean suggestion that catches them."
 publishedAt: 2026-11-26
 tags: [Node.js, Databases, AI Engineering]
@@ -95,3 +96,5 @@ export function suggestDomain(email) {
 - **Typo domains pass**: all six I tried resolved. Add a **did-you-mean** suggestion, and only suggest.
 
 The same backend also has to decide when two companies are the same one: [detecting duplicate companies by domain and name](/blog/duplicate-company-detection-domain-name/). For validating other identifiers with checksums rather than DNS, see [Luhn and IBAN check digits](/blog/luhn-iban-check-digits/).
+
+If you're setting up MX records for your own domain, I compared the two common choices for a small team in [Google Workspace vs Zoho Mail](/blog/google-workspace-vs-zoho-mail/).
