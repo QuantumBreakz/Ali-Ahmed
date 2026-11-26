@@ -7,6 +7,10 @@ tags: [Security, Python, KYC, Identity Verification]
 
 `pаypal` and `paypal` look identical, but the first contains a **Cyrillic `а` (U+0430)**. **Homoglyphs** like this let someone register a name that impersonates another account, a brand or a person on a watch list, and they slip past exact string comparisons. Three checks catch most of them: **NFKC normalisation** (folds fullwidth `Ｐａｙ` and ligatures into plain letters), **mixed-script detection** (a single word that mixes Latin and Cyrillic is almost never legitimate), and a **skeleton** comparison that maps look-alike characters to one form before checking for collisions. Add a check for **invisible characters** such as the zero-width space. Here's a tested Python version, and the legitimate names it has to leave alone.
 
+![Homoglyph names and what catches them. pаypal with a Cyrillic а (U+0430): mixed scripts, looks like paypal. Fullwidth PayPal: NFKC folds it, looks like paypal. ali, a zero-width space, ahmed: invisible character, looks like aliahmed. Александр, all Cyrillic: allowed, a normal Russian name. محمد with Arabic vowel marks: allowed, the marks are category Mn, not Cf. The checks: NFKC, mixed script per word, skeleton collision, and format characters of category Cf.](/figures/homoglyph.webp)
+
+_Flag look-alikes without blocking names written in one non-Latin script._
+
 ## Why doesn't normal comparison catch it?
 
 Each of these is a different string from `paypal` or `aliahmed`, so `==`, a unique index and `casefold()` all treat them as new names:

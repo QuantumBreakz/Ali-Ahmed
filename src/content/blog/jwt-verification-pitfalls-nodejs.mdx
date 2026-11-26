@@ -7,6 +7,10 @@ tags: [Security, Node.js, OAuth, AI Engineering]
 
 A JWT is three base64url parts, `header.payload.signature`, and **decoding it proves nothing**: anyone can write a payload. Verification means **checking the signature with an algorithm you chose, not the one the token names**, then checking the claims: **`exp`** (with a small clock skew allowance), **`iss`**, and above all **`aud`**, so a token issued for one service can't be replayed against another. Below is a deliberately small HS256 verifier using only `node:crypto`, with a test for each attack. It's here to show what the checks are. In production, use a maintained library such as `jose` and set the same options explicitly.
 
+![JWT verification steps: split header.payload.signature, use your own algorithm and ignore the token's alg, compare the signature in constant time, then check exp, iss and aud. Attacks as tests, each rejected: alg none with the signature dropped throws unexpected alg none; a payload edited to sub admin throws bad signature; a valid token for billing-api throws wrong audience; exp 31 seconds ago with a 30 second skew throws expired. exp 29 seconds ago passes, inside the clock skew allowance.](/figures/jwt-checks.webp)
+
+_Each attack in the table below has a failing token in the tests._
+
 ## What goes wrong?
 
 | Mistake                           | What an attacker does                                                       |

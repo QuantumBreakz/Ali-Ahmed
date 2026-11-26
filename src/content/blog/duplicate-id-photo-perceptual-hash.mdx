@@ -7,6 +7,10 @@ tags: [KYC, Computer Vision, Python, Security]
 
 One of the cheapest KYC fraud patterns is **reusing one ID document across many accounts**: the same photo, resized, recompressed or brightened a little so the file is different each time. A file hash such as SHA-256 misses all of these, because one changed byte changes the whole hash. A **perceptual hash** describes what the image looks like, so near-identical images get near-identical hashes. **dHash** is one of the simplest: shrink the image to 9×8 greyscale and record, for each pixel, whether it's brighter than its right neighbour, giving 64 bits. Two images are near-duplicates when their hashes differ in only a few bits. The catch for ID documents: every card of the same type shares a layout, so **hash the portrait, not the whole card**. Tested Python below.
 
+![dHash robustness, bits different of 64 on the same card: resized to 50% 0, JPEG quality 40 0, brightness +20% 2, cropped 5% each side 11, rotated 3 degrees 13. Closest different person: whole card 15 bits (median 23), portrait only 23 bits (median 33), because every card of a type shares a layout. Resizing and recompression change nothing; crops and rotation need a looser threshold. A match is a signal for review, never an automatic rejection.](/figures/dhash.webp)
+
+_Resizing and recompression don't move the hash; a shared card layout does._
+
 ## How does dHash work?
 
 dHash records **gradients**, not brightness. Shrinking to 9×8 throws away detail, compression noise and size; comparing neighbours makes it insensitive to overall brightness. The idea was popularised by Neal Krawetz, and the Python `imagehash` library implements it along with similar hashes.
@@ -52,7 +56,7 @@ Every passport or national ID card of the same type has the same header, colours
 | Whole card    | 15 bits                  | 23     |
 | Portrait only | 23 bits                  | 33     |
 
-Hashing only the portrait (its position is fixed for each document type) doubles the gap between a reused photo (0 bits) and a different person. With whole cards, a threshold loose enough to survive a crop starts to approach legitimate customers.
+Hashing only the portrait (its position is fixed for each document type) widens the gap between a reused photo (0 bits) and the closest different person from 15 bits to 23. With whole cards, a threshold loose enough to survive a crop starts to approach legitimate customers.
 
 ## The duplicate index
 

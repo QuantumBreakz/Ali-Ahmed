@@ -3618,6 +3618,308 @@ export function FigShareGeneration() {
   );
 }
 
+/* 68. dHash robustness ----------------------------------------------------------------------------------------- */
+export function FigDhash() {
+  const edits: [string, number][] = [
+    ["Resized to 50%", 0],
+    ["JPEG quality 40", 0],
+    ["Brightness +20%", 2],
+    ["Cropped 5% each side", 11],
+    ["Rotated 3 degrees", 13],
+  ];
+  return (
+    <Frame kicker="Perceptual hashing for reused ID photos · dHash, 64 bits" title="Hash the portrait, not the card: strangers sit further apart">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <text x={0} y={24} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Same card, edited: bits different (of 64)
+        </text>
+        {edits.map(([name, bits], i) => (
+          <g key={name}>
+            <text x={0} y={84 + i * 58} fill={color.muted} fontSize={21} fontFamily={sans}>
+              {name}
+            </text>
+            <rect x={280} y={62 + i * 58} width={Math.max(bits * 24, 4)} height={30} rx={6} fill={color.accent} />
+            <text x={290 + Math.max(bits * 24, 4)} y={86 + i * 58} fill={color.ink} fontSize={21} fontFamily={mono}>
+              {bits}
+            </text>
+          </g>
+        ))}
+        <rect x={760} y={0} width={696} height={340} rx={14} fill={color.surface} stroke={color.line} />
+        <text x={784} y={40} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Closest different person (bits)
+        </text>
+        {[
+          ["Whole card", 15, 23, color.warm],
+          ["Portrait only", 23, 33, color.accent],
+        ].map(([name, closest, median, tone], i) => (
+          <g key={name as string}>
+            <text x={784} y={104 + i * 110} fill={tone as string} fontSize={22} fontFamily={sans}>
+              {name}
+            </text>
+            <rect x={784} y={120 + i * 110} width={(closest as number) * 18} height={30} rx={6} fill={tone as string} />
+            <text x={796 + (closest as number) * 18} y={144 + i * 110} fill={color.ink} fontSize={21} fontFamily={mono}>
+              {closest} (median {median})
+            </text>
+          </g>
+        ))}
+        <text x={784} y={318} fill={color.muted} fontSize={18} fontFamily={sans}>
+          Every card of a type shares a layout, which pulls whole-card hashes together.
+        </text>
+        <text x={0} y={420} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Resizing and recompression change nothing; crops and rotation need a looser threshold.
+        </text>
+        <text x={0} y={460} fill={color.muted} fontSize={21} fontFamily={sans}>
+          A match is a signal for review, never an automatic rejection. A file hash like SHA-256 misses these edits.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 69. Agent evals ---------------------------------------------------------------------------------------------- */
+export function FigAgentEvals() {
+  return (
+    <Frame kicker="Evaluating AI agents · outcomes first, then the trajectory" title="A demo proves nothing; a pass rate over repeated runs does">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {[
+          ["Task set", "realistic tasks"],
+          ["Run each 3 to 5 times", "agents are non-deterministic"],
+          ["Score outcomes in code", "is the end state right?"],
+          ["Check the trajectory", "how it got there"],
+        ].map(([t, s], i) => (
+          <g key={t}>
+            <Box x={i * 372} y={10} w={330} h={100} title={t} sub={s} tone={i === 2 ? color.accent : color.ink} />
+            {i < 3 && <Arrow x1={i * 372 + 330} y1={60} x2={i * 372 + 372} y2={60} />}
+          </g>
+        ))}
+        <rect x={0} y={160} width={600} height={190} rx={14} fill={color.surface} stroke={color.warm} strokeWidth={2} />
+        <text x={24} y={200} fill={color.warm} fontSize={23} fontFamily={sans}>
+          One task, five runs, 60% pass rate
+        </text>
+        {[1, 1, 0, 1, 0].map((ok, i) => (
+          <g key={i}>
+            <rect
+              x={24 + i * 110}
+              y={226}
+              width={90}
+              height={60}
+              rx={10}
+              fill={ok ? color.accentDim : color.surface}
+              stroke={ok ? color.accent : color.warm}
+              strokeWidth={2}
+            />
+            <text x={69 + i * 110} y={266} fill={ok ? color.accent : color.warm} fontSize={24} fontFamily={sans} textAnchor="middle">
+              {ok ? "pass" : "fail"}
+            </text>
+          </g>
+        ))}
+        <text x={24} y={326} fill={color.muted} fontSize={19} fontFamily={sans}>
+          Not "mostly working": it fails two times in five.
+        </text>
+        <rect x={640} y={160} width={816} height={190} rx={14} fill={color.surface} stroke={color.line} />
+        <text x={664} y={200} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Trajectory metrics
+        </text>
+        {[
+          ["Tool-call accuracy", "Steps per task"],
+          ["Tokens and cost", "Latency p50 and p95"],
+          ["Policy violations", "Recovery from tool errors"],
+        ].map(([a, b], i) => (
+          <g key={a}>
+            <text x={664} y={244 + i * 36} fill={color.muted} fontSize={20} fontFamily={sans}>
+              · {a}
+            </text>
+            <text x={1060} y={244 + i * 36} fill={color.muted} fontSize={20} fontFamily={sans}>
+              · {b}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={430} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Report the pass rate and consistency: the share of tasks that passed every run.
+        </text>
+        <text x={0} y={470} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Flaky tasks usually point to a vague tool description or an ambiguous error.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 70. LiteLLM re-compression ----------------------------------------------------------------------------------- */
+export function FigLitellmFix() {
+  return (
+    <Frame kicker="LiteLLM PR #38591 · merged · client-side tool loops" title="Retrieved content was compressed again, so the agent looped">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={20} w={270} h={100} title="Long context" sub="large content" />
+        <Arrow x1={270} y1={70} x2={390} y2={70} label="compress" />
+        <Box x={390} y={20} w={270} h={100} title="Compact reference" sub="sent to the model" />
+        <Arrow x1={660} y1={70} x2={780} y2={70} label="retrieve" />
+        <Box x={780} y={20} w={280} h={100} title="Full content" sub="what the agent asked for" tone={color.accent} />
+        <path d="M 920 120 C 920 230, 525 230, 525 128" fill="none" stroke={color.warm} strokeWidth={2.5} strokeDasharray="8 6" />
+        <polygon points="525,122 517,138 533,138" fill={color.warm} />
+        <text x={722} y={232} fill={color.warm} fontSize={20} fontFamily={sans} textAnchor="middle">
+          bug: compressed again into the same reference
+        </text>
+        <rect x={1110} y={20} width={346} height={200} rx={14} fill={color.accentDim} stroke={color.accent} strokeWidth={2} />
+        <text x={1134} y={60} fill={color.accent} fontSize={22} fontFamily={sans}>
+          The fix
+        </text>
+        <text x={1134} y={100} fill={color.ink} fontSize={19} fontFamily={sans}>
+          Don't re-compress content
+        </text>
+        <text x={1134} y={128} fill={color.ink} fontSize={19} fontFamily={sans}>
+          that was just retrieved
+        </text>
+        <text x={1134} y={170} fill={color.muted} fontSize={18} fontFamily={sans}>
+          One bug, one fix, one test
+        </text>
+        <text x={0} y={320} fill={color.ink} fontSize={23} fontFamily={sans}>
+          The agent never saw what it asked for: it asked again, or answered from an empty skeleton.
+        </text>
+        <text x={0} y={380} fill={color.muted} fontSize={21} fontFamily={sans}>
+          Getting it merged: start from your own friction · reproduce locally · keep it small ·
+        </text>
+        <text x={0} y={412} fill={color.muted} fontSize={21} fontFamily={sans}>
+          explain the failure · add the test that would have caught it · let CI review your habits.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 71. Homoglyphs ----------------------------------------------------------------------------------------------- */
+export function FigHomoglyph() {
+  const rows: [string, string, string][] = [
+    ["pаypal", "Cyrillic а (U+0430)", "mixed scripts · looks like paypal"],
+    ["ＰａｙＰａｌ", "fullwidth letters", "NFKC folds it · looks like paypal"],
+    ["ali​ahmed", "zero-width space", "invisible character · looks like aliahmed"],
+    ["Александр", "all Cyrillic", "allowed: a normal Russian name"],
+    ["مُحَمَّد", "Arabic with vowel marks", "allowed: marks are Mn, not Cf"],
+  ];
+  return (
+    <Frame kicker="Homoglyph names · Python, unicodedata" title="Same look, different letters: what each check catches">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {rows.map(([name, trick, verdict], i) => {
+          const ok = i > 2;
+          return (
+            <g key={trick}>
+              <rect
+                x={0}
+                y={i * 72}
+                width={1456}
+                height={58}
+                rx={10}
+                fill={ok ? color.accentDim : color.surface}
+                stroke={ok ? color.accent : color.warm}
+                strokeWidth={2}
+              />
+              <text x={24} y={i * 72 + 38} fill={color.ink} fontSize={26} fontFamily={sans}>
+                {i === 2 ? "ali⟨ZWSP⟩ahmed" : name}
+              </text>
+              <text x={360} y={i * 72 + 37} fill={color.muted} fontSize={20} fontFamily={sans}>
+                {trick}
+              </text>
+              <text x={1432} y={i * 72 + 37} fill={ok ? color.accent : color.warm} fontSize={20} fontFamily={sans} textAnchor="end">
+                {verdict}
+              </text>
+            </g>
+          );
+        })}
+        {[
+          ["NFKC", "fullwidth → plain"],
+          ["Mixed script per word", "Latin + Cyrillic"],
+          ["Skeleton collision", "maps look-alikes"],
+          ["Format characters", "category Cf"],
+        ].map(([t, s], i) => (
+          <Box key={t} x={i * 372} y={400} w={340} h={90} title={t} sub={s} />
+        ))}
+      </svg>
+    </Frame>
+  );
+}
+
+/* 72. Idempotent webhooks -------------------------------------------------------------------------------------- */
+export function FigIdempotentWebhook() {
+  return (
+    <Frame kicker="Idempotent webhooks · Node.js, node:sqlite" title="Claim the event ID first; release it if the work fails">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        <Box x={0} y={20} w={260} h={100} title="Webhook" sub="delivered at least once" />
+        <Arrow x1={260} y1={70} x2={340} y2={70} />
+        <Box x={340} y={20} w={300} h={100} title="Claim event ID" sub="unique constraint" tone={color.accent} />
+        <Arrow x1={640} y1={70} x2={720} y2={70} label="new" />
+        <Box x={720} y={20} w={260} h={100} title="Do the work" sub="send email, charge" />
+        <Arrow x1={980} y1={70} x2={1060} y2={70} label="ok" />
+        <Box x={1060} y={20} w={396} h={100} title="Mark done → 200" />
+        <Arrow x1={850} y1={120} x2={850} y2={200} />
+        <text x={864} y={168} fill={color.muted} fontSize={18} fontFamily={sans}>
+          throws
+        </text>
+        <Box x={700} y={200} w={300} h={90} title="Release claim → 500" sub="the retry can run it" tone={color.warm} />
+        <Arrow x1={490} y1={120} x2={490} y2={200} />
+        <text x={504} y={168} fill={color.muted} fontSize={18} fontFamily={sans}>
+          already claimed
+        </text>
+        <Box x={340} y={200} w={300} h={90} title="Skip → 200" sub="no second email" />
+        <Box x={1060} y={200} w={396} h={90} title="Stale claim (> 5 min)" sub="a crashed worker's: take it over" />
+        <rect x={0} y={340} width={1456} height={130} rx={14} fill={color.surface} stroke={color.line} />
+        <text x={24} y={382} fill={color.ink} fontSize={22} fontFamily={mono}>
+          evt_1 delivered twice → 200, 200 → 1 email
+        </text>
+        <text x={24} y={422} fill={color.ink} fontSize={22} fontFamily={mono}>
+          evt_2 "SMTP timeout" → 500, retry → 200 → 2 attempts
+        </text>
+        <text x={24} y={456} fill={color.muted} fontSize={18} fontFamily={sans}>
+          One gap: a crash after sending but before "done" resends after 5 minutes. Pass an idempotency key downstream.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
+/* 73. JWT verification ----------------------------------------------------------------------------------------- */
+export function FigJwtChecks() {
+  const tests: [string, string][] = [
+    ['alg "none", signature dropped', "unexpected alg none"],
+    ['payload edited to "sub": "admin"', "bad signature"],
+    ["valid token for billing-api", "wrong audience"],
+    ["exp 31 s ago (skew 30 s)", "expired"],
+  ];
+  return (
+    <Frame kicker="JWT verification · node:crypto, HS256 · use jose in production" title="Decoding a JWT proves nothing; verifying it does">
+      <svg width={1456} height={580} viewBox="0 0 1456 580">
+        {[
+          ["Split", "header.payload.signature"],
+          ["Your algorithm", "ignore the token's alg"],
+          ["Signature", "timing-safe compare"],
+          ["Claims", "exp, iss, aud"],
+        ].map(([t, s], i) => (
+          <g key={t}>
+            <Box x={i * 372} y={10} w={330} h={100} title={t} sub={s} tone={i === 1 ? color.accent : color.ink} />
+            {i < 3 && <Arrow x1={i * 372 + 330} y1={60} x2={i * 372 + 372} y2={60} />}
+          </g>
+        ))}
+        <text x={0} y={180} fill={color.ink} fontSize={23} fontFamily={sans}>
+          Attacks, as tests: each one is rejected
+        </text>
+        {tests.map(([attack, err], i) => (
+          <g key={err}>
+            <rect x={0} y={200 + i * 62} width={1456} height={50} rx={10} fill={color.surface} stroke={color.line} />
+            <text x={24} y={233 + i * 62} fill={color.muted} fontSize={21} fontFamily={sans}>
+              {attack}
+            </text>
+            <text x={1432} y={233 + i * 62} fill={color.warm} fontSize={21} fontFamily={mono} textAnchor="end">
+              throws: {err}
+            </text>
+          </g>
+        ))}
+        <text x={0} y={480} fill={color.accent} fontSize={22} fontFamily={sans}>
+          exp 29 s ago passes: inside the 30 s clock skew allowance.
+        </text>
+      </svg>
+    </Frame>
+  );
+}
+
 export const figures = [
   { id: "fig-passport-ocr-vs-nfc", component: FigOcrVsNfc },
   { id: "fig-kyc-data-retention", component: FigKycRetention },
@@ -3686,4 +3988,10 @@ export const figures = [
   { id: "fig-duplicate-companies", component: FigDuplicateCompanies },
   { id: "fig-field-locks", component: FigFieldLocks },
   { id: "fig-share-generation", component: FigShareGeneration },
+  { id: "fig-dhash", component: FigDhash },
+  { id: "fig-agent-evals", component: FigAgentEvals },
+  { id: "fig-litellm-fix", component: FigLitellmFix },
+  { id: "fig-homoglyph", component: FigHomoglyph },
+  { id: "fig-idempotent-webhook", component: FigIdempotentWebhook },
+  { id: "fig-jwt-checks", component: FigJwtChecks },
 ] as const;

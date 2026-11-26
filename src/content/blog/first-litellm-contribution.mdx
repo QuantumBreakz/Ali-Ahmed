@@ -7,6 +7,10 @@ tags: [Open Source, AI Engineering, LLMs]
 
 My first contribution to **LiteLLM**, the open-source LLM gateway, was [PR #38591](https://github.com/BerriAI/litellm/pull/38591). It fixed a bug where content an agent had retrieved was compressed again and lost, which made agents loop. It was merged. If you want to make your first open-source contribution, the short version is: pick a project you already use, reproduce one specific bug, fix only that bug, and let the project's CI teach you its standards.
 
+![LiteLLM PR 38591, merged. Long context is compressed into a compact reference sent to the model; the agent retrieves the full content, but the bug compressed it again into the same reference, so the agent never saw what it asked for and asked again or answered from an empty skeleton. The fix: don't re-compress content that was just retrieved in client-side tool loops. Getting it merged: start from your own friction, reproduce locally, keep it small, explain the failure, add the test, let CI review your habits.](/figures/litellm-fix.webp)
+
+_The bug in one loop: retrieve, re-compress, retrieve again._
+
 ## What was the bug?
 
 LiteLLM can compress long context before sending it to a model. Large content is swapped for a compact reference, and the model can call a retrieval tool with that reference to get the full content back when it needs it.

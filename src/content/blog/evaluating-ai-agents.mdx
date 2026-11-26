@@ -7,6 +7,10 @@ tags: [AI Agents, LLMs, AI Engineering, Testing]
 
 Evaluate an AI agent on **outcomes first**: build a set of realistic tasks, run each one **several times**, and check in code whether the end state is correct (the record was created, the answer contains the right value, nothing else changed). Then measure **how** it got there: tool-call accuracy, number of steps, cost, latency, and whether it did anything it shouldn't. Agents are non-deterministic and take many steps, so a task that passes once may fail one time in three. A demo proves nothing; a pass rate over repeated runs does.
 
+![Evaluating AI agents in four steps: a realistic task set, run each task 3 to 5 times, score outcomes in code, then check the trajectory. One task with five runs, pass, pass, fail, pass, fail, has a 60% pass rate: it fails two times in five. Trajectory metrics: tool-call accuracy, steps per task, tokens and cost, latency p50 and p95, policy violations, and recovery from tool errors. Report the pass rate and consistency, the share of tasks that passed every run.](/figures/agent-evals.webp)
+
+_One passing run is a demo; five runs are a measurement._
+
 ## Step 1: build a task set
 
 Collect **30 to 100 tasks** that look like real use, each with a checkable success condition:
