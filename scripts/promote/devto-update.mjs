@@ -19,7 +19,12 @@ const api = (path, init = {}) =>
     headers: { "api-key": key, "content-type": "application/json", accept: "application/vnd.forem.api-v1+json", ...init.headers },
   });
 // Same transform as devto.mjs: drop the export's title, description and date lines.
-const body = (md) => md.replace(/^[\s\S]*?\nPublished: .*\n(\nUpdated: .*\n)?\n/, "");
+// DEV's parser drops a fence whose info string has attributes (```js title="x"), so the closing fence opens a block
+// that swallows the rest of the article. Put the title on its own line above a plain fence.
+const body = (md) =>
+  md
+    .replace(/^[\s\S]*?\nPublished: .*\n(\nUpdated: .*\n)?\n/, "")
+    .replace(/^([ \t]*)```([\w+-]*)[ \t]+title="([^"]*)"[^\n]*$/gm, "$1**$3**\n\n$1```$2");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const res = await api("/articles/me/all?per_page=1000");

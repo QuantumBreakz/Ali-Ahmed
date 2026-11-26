@@ -23,7 +23,12 @@ const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : Infinity;
 if (mode !== "dry-run" && !key) throw new Error("Set DEVTO_API_KEY (https://dev.to/settings/extensions)");
 
 const devTags = (tags) => [...new Set(tags.map((t) => t.toLowerCase().replace(/[^a-z0-9]/g, "")))].filter(Boolean).slice(0, 4);
-const body = (md) => md.replace(/^[\s\S]*?\nPublished: .*\n(\nUpdated: .*\n)?\n/, "");
+// DEV's parser drops a fence whose info string has attributes (```js title="x"), so the closing fence opens a block
+// that swallows the rest of the article. Put the title on its own line above a plain fence.
+const body = (md) =>
+  md
+    .replace(/^[\s\S]*?\nPublished: .*\n(\nUpdated: .*\n)?\n/, "")
+    .replace(/^([ \t]*)```([\w+-]*)[ \t]+title="([^"]*)"[^\n]*$/gm, "$1**$3**\n\n$1```$2");
 
 const api = (path, init = {}) =>
   fetch(`https://dev.to/api${path}`, {
