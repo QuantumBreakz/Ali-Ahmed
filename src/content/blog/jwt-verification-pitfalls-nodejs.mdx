@@ -3,6 +3,7 @@ title: "Verifying JWTs in Node.js: alg none, algorithm confusion, audience check
 seoTitle: "Verifying JWTs in Node.js: alg none, aud and exp"
 description: "The JWT checks that get skipped and the attacks they allow: trusting the token's alg header, comparing signatures with ===, forgetting the audience, and missing exp. A small tested HS256 verifier with node:crypto that shows each check, and why production code should still use a maintained library."
 publishedAt: 2026-11-19
+updatedAt: 2026-11-27
 tags: [Security, Node.js, OAuth, AI Engineering]
 ---
 
@@ -40,8 +41,9 @@ export function verifyHS256(token, secret, { issuer, audience, now = Date.now(),
   const header = decodeJson(head);
   if (header.alg !== "HS256") throw new Error(`unexpected alg ${header.alg}`); // rejects "none" and confusion
 
-  const expected = createHmac("sha256", secret).update(`${head}.${body}`).digest();
-  const given = Buffer.from(sig, "base64url");
+  // Compare the text, not decoded bytes: Buffer's base64url decoding is lenient, so sig + "==" would also pass.
+  const expected = Buffer.from(createHmac("sha256", secret).update(`${head}.${body}`).digest("base64url"));
+  const given = Buffer.from(sig);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw new Error("bad signature");
 
   const claims = decodeJson(body); // only trust the payload after the signature checks out
@@ -59,6 +61,7 @@ export function verifyHS256(token, secret, { issuer, audience, now = Date.now(),
 Notes on the details:
 
 - **`timingSafeEqual` throws if the lengths differ**, so the length check comes first. A truncated signature should be "bad signature", not a crash.
+- **Compare the signature as text.** My first version decoded `sig` with `Buffer.from(sig, "base64url")` and compared bytes. That decoder is lenient: the real signature, the same with `==` or `!` appended, and three other final characters all decoded to the same bytes and passed. A reader on DEV spotted it. It matters once anything keys on the token string, such as a logout denylist: one token would have several spellings. Comparing against the canonical base64url text accepts exactly one.
 - **`aud` can be a string or an array**; both are allowed by the JWT standard (RFC 7519).
 - **Clock skew**: servers' clocks disagree by a few seconds, so allow a little, such as 30 seconds. Minutes of skew mean tokens live longer than you think.
 - **The secret** for HS256 should be at least 32 random bytes. A guessable secret can be brute-forced offline from any token you've issued.
@@ -90,6 +93,11 @@ assert.throws(() => verifyHS256(signHS256({ ...good, aud: "billing-api" }, secre
 // Expired beyond the skew fails; inside the skew passes.
 assert.throws(() => verifyHS256(signHS256({ ...good, exp: t - 31 }, secret), secret, opts), /expired/);
 assert.ok(verifyHS256(signHS256({ ...good, exp: t - 29 }, secret), secret, opts));
+
+// Alternative spellings of a valid signature are rejected.
+const valid = signHS256(good, secret);
+assert.throws(() => verifyHS256(`${valid}==`, secret, opts), /bad signature/);
+assert.throws(() => verifyHS256(`${valid}!`, secret, opts), /bad signature/);
 ```
 
 `signHS256` is the mirror image of the verifier, used only by the tests. All of these pass on Node.js 24, along with tests for a missing `exp`, a truncated signature and an array `aud`.
