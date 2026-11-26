@@ -3,6 +3,7 @@ title: "Why your OCR sees ID photos sideways: EXIF orientation, and fixing it wi
 seoTitle: "Fix sideways ID photos before OCR: EXIF orientation"
 description: "Phones store photos in the sensor's orientation and add an EXIF tag saying how to rotate them for display. OCR and face detection read raw pixels, so they see the document sideways. How to apply the orientation with Pillow's exif_transpose, and why re-encoding first loses it for good. Tested Python."
 publishedAt: 2026-11-20
+updatedAt: 2026-11-27
 tags: [Computer Vision, OCR, Python, KYC]
 ---
 
@@ -63,6 +64,8 @@ The test asserts exactly this. So the order is: **apply orientation → then str
 ## What about photos with no tag?
 
 Screenshots, scans and images that have already been through a "strip EXIF" tool have no tag, and they can still be sideways if the user held the document rotated. EXIF can't help there. Detect it from the content instead: an OCR engine's orientation detection (Tesseract's OSD, for example), a text-line direction check, or, for ID documents, the position of the face or the MRZ. Rotate by the detected amount, and treat low confidence as a reason to ask for a new photo.
+
+A tag can also be **present but wrong**, for example when an editing tool changed the pixels without updating it. Applying it then rotates a correct image the wrong way, with nothing downstream to notice. Where that risk matters, treat EXIF and the content check as two independent signals: trust the orientation when they agree, and send a disagreement to review instead of picking one. (A reader on DEV raised this case.)
 
 ## Where this sits in the pipeline
 
