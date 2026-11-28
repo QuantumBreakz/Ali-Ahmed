@@ -67,20 +67,6 @@ jobs:
           npm run verify
           node scripts/check-static-output.mjs
 
-      - name: Install Chromium for accessibility checks
-        if: matrix.node-version == '22'
-        run: npx playwright install --with-deps chromium
-
-      - name: Check generated pages for accessibility regressions
-        if: matrix.node-version == '22'
-        run: |
-          npm run check:a11y
-          npm run check:a11y -- --theme light
-
-      - name: Check Blog templates with isolated synthetic articles
-        if: matrix.node-version == '22'
-        run: npm run check:blog
-
       - name: Preserve verified production assets
         if: matrix.node-version == '22' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -91,9 +77,77 @@ jobs:
           retention-days: 7
           include-hidden-files: true
 
+  # Accessibility for every page took ~75 minutes per run in one job and hit the timeout; each theme runs on its own.
+  accessibility:
+    name: Accessibility (${{ matrix.theme }} theme)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        theme: ["dark", "light"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and audit dependencies, then run approved install scripts
+        run: |
+          npm install --global --ignore-scripts npm@11.16.0
+          npm ci --ignore-scripts
+          node scripts/audit-dependencies.mjs
+          npm audit signatures
+          npm rebuild
+
+      - name: Build the site
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Check generated pages for accessibility regressions
+        run: npm run check:a11y -- --theme ${{ matrix.theme }}
+
+  blog-templates:
+    name: Blog templates with synthetic articles
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and audit dependencies, then run approved install scripts
+        run: |
+          npm install --global --ignore-scripts npm@11.16.0
+          npm ci --ignore-scripts
+          node scripts/audit-dependencies.mjs
+          npm audit signatures
+          npm rebuild
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Check Blog templates with isolated synthetic articles
+        run: npm run check:blog
+
   deploy:
     name: Publish verified main
-    needs: verify
+    needs: [verify, accessibility, blog-templates]
     if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
